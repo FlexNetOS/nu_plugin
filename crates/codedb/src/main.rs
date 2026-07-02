@@ -1693,4 +1693,23 @@ mod tests {
 
         let _ = fs::remove_dir_all(repo);
     }
+
+    // Test lane: default
+    // Defends: CDB071 CLI defaults expose no bidirectional mutation/apply commands.
+    #[test]
+    fn mutating_bidirectional_commands_are_not_cli_defaults() {
+        for command in [
+            "apply",
+            "patch",
+            "patch-apply",
+            "source-overwrite",
+            "git-mutation",
+            "sync-bidirectional",
+        ] {
+            let error = run(vec![command.to_string()]).expect_err("command must be rejected");
+            let message = error.to_string();
+            assert!(message.contains("unsupported command"));
+            assert!(!message.contains("source overwrite enabled"));
+        }
+    }
 }

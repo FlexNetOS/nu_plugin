@@ -521,14 +521,19 @@ mod tests {
     #[test]
     fn allowed_and_blocked_tools_are_explicit() {
         assert!(ensure_tool_allowed("codedb_schema").is_ok());
-        assert!(matches!(
-            ensure_tool_allowed("raw_source_blob_read"),
-            Err(McpError::BlockedTool(_))
-        ));
-        assert!(matches!(
-            ensure_tool_allowed("patch_apply"),
-            Err(McpError::BlockedTool(_))
-        ));
+        for tool in [
+            "raw_source_blob_read",
+            "full_file_dump",
+            "source_overwrite",
+            "patch_apply",
+            "git_mutation",
+            "unbounded_table_dump",
+        ] {
+            assert!(
+                matches!(ensure_tool_allowed(tool), Err(McpError::BlockedTool(_))),
+                "{tool} should be blocked by default"
+            );
+        }
         assert!(matches!(
             ensure_tool_allowed("codedb_dump_everything"),
             Err(McpError::UnknownTool(_))

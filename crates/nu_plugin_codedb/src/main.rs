@@ -1387,6 +1387,31 @@ mod tests {
         }));
     }
 
+    // Defends: CDB071 Nu plugin command list remains read-only before apply gates exist.
+    #[test]
+    fn plugin_command_surface_has_no_mutating_bidirectional_defaults() {
+        let plugin = CodeDbPlugin;
+        let names = plugin
+            .commands()
+            .into_iter()
+            .map(|command| command.name().to_string())
+            .collect::<Vec<_>>();
+        for forbidden in [
+            "codedb apply",
+            "codedb patch apply",
+            "codedb source overwrite",
+            "codedb git mutation",
+            "codedb bidirectional sync",
+        ] {
+            assert!(
+                !names.iter().any(|name| name == forbidden),
+                "unexpected mutating command exposed: {forbidden}"
+            );
+        }
+        assert!(names.iter().any(|name| name == "codedb scan"));
+        assert!(names.iter().any(|name| name == "codedb export"));
+    }
+
     // Defends: safe structured inventory targets expose native datatable payload rows.
     #[test]
     fn envctl_inventory_import_rows_include_structured_datatable_payload() {

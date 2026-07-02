@@ -114,3 +114,17 @@ Roadmap package created:
 
 CDB070 is the planning and evidence-audit entry point. Implementation remains
 bounded by later CDB tasks and read-only defaults.
+
+## 2026-07-02T17:50:43Z — CDB071 — Read-only foundation hardening
+
+Added focused tests proving bidirectional mutation commands are not exposed by
+default:
+
+- CLI rejects apply/patch/source-overwrite/git-mutation/sync-bidirectional
+  command names as unsupported;
+- Nu plugin command list contains scan/export surfaces but no apply/patch/source
+  overwrite/git mutation/bidirectional sync defaults;
+- MCP default deny list covers raw source/blob reads, full file dumps, source
+  overwrite, patch apply, git mutation, and unbounded table dumps.
+
+Validation evidence is in `logs/CDB071-read-only-foundation.log`.
