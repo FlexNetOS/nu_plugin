@@ -90,6 +90,10 @@ the plan's stored source snapshot. Partial outputs are referenced through a
 quarantine ref; recovery is not complete while the restored snapshot still
 differs from the plan snapshot.
 
+CDB089 tightens approval provenance. Operator decisions must include a decision
+ID, actor, timestamp, evidence reference, and manual-decision reference before
+the apply gate can emit `operator_decisions` or `apply_attempts`.
+
 ## Non-Goals For This Planning PR
 
 - direct source overwrite;

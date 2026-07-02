@@ -426,6 +426,7 @@ pub struct OperatorDecision {
     pub decision_id: &'static str,
     pub plan_id: &'static str,
     pub actor: &'static str,
+    pub decided_at: &'static str,
     pub decision: ApplyDecision,
     pub evidence_ref: &'static str,
     pub manual_decision_ref: &'static str,
@@ -1169,7 +1170,9 @@ pub fn validate_apply_gate(
     if !matches!(decision.decision, ApplyDecision::Approved) {
         return Err(ApplyGateError::OperatorDenied);
     }
-    if decision.actor.trim().is_empty()
+    if decision.decision_id.trim().is_empty()
+        || decision.actor.trim().is_empty()
+        || decision.decided_at.trim().is_empty()
         || decision.evidence_ref.trim().is_empty()
         || decision.manual_decision_ref.trim().is_empty()
     {
@@ -1194,10 +1197,11 @@ pub fn validate_apply_gate(
                 status: decision.decision.as_str(),
                 rows: 1,
                 note: format!(
-                    "{}:{}:{}:{}:{}",
+                    "{}:{}:{}:{}:{}:{}",
                     decision.decision_id,
                     decision.plan_id,
                     decision.actor,
+                    decision.decided_at,
                     decision.evidence_ref,
                     decision.manual_decision_ref
                 ),
@@ -2006,6 +2010,7 @@ mod tests {
             decision_id: "decision:cdb075:approve",
             plan_id: "plan:cdb075:approved",
             actor: "operator:flexnetos",
+            decided_at: "2026-07-02T18:10:30Z",
             decision: ApplyDecision::Approved,
             evidence_ref: "logs/CDB075-apply-gate.log",
             manual_decision_ref: "manual:cdb075:reviewed",
@@ -2033,10 +2038,51 @@ mod tests {
             row.table == "operator_decisions"
                 && row.note.contains("manual:cdb075:reviewed")
                 && row.note.contains("operator:flexnetos")
+                && row.note.contains("2026-07-02T18:10:30Z")
         }));
         assert!(report.rows.iter().any(|row| {
             row.table == "apply_attempts" && row.note.contains("recovery:quarantine-ready")
         }));
+    }
+
+    // Test lane: default
+    // Defends: CDB089 apply approval must include decision ID, actor, timestamp, and evidence.
+    #[test]
+    fn apply_gate_refuses_incomplete_operator_decision_provenance() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb089:approval",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:35:00Z",
+            },
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        };
+        let decision = OperatorDecision {
+            decision_id: "decision:cdb089:approve",
+            plan_id: "plan:cdb089:approval",
+            actor: "operator:flexnetos",
+            decided_at: "",
+            decision: ApplyDecision::Approved,
+            evidence_ref: "logs/CDB089-approval-provenance.log",
+            manual_decision_ref: "manual:cdb089:reviewed",
+        };
+
+        let err = validate_apply_gate(
+            &graph,
+            Some(&decision),
+            &StopConditionProof {
+                proof_id: "stop:cdb089:clean",
+                passed: true,
+                evidence_ref: "logs/CDB089-approval-provenance.log",
+            },
+            "recovery:quarantine-ready",
+            "snapshot:sha256:before",
+        )
+        .expect_err("missing decision timestamp must refuse apply");
+
+        assert_eq!(err, ApplyGateError::MissingDecisionEvidence);
     }
 
     // Test lane: default
@@ -2061,6 +2107,7 @@ mod tests {
             decision_id: "decision:cdb087:approve",
             plan_id: "plan:cdb087:stale",
             actor: "operator:flexnetos",
+            decided_at: "2026-07-02T18:25:30Z",
             decision: ApplyDecision::Approved,
             evidence_ref: "logs/CDB087-source-drift.log",
             manual_decision_ref: "manual:cdb087:reviewed-before-drift",

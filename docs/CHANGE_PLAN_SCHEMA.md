@@ -15,7 +15,7 @@ operator-approved apply gate exists.
 | `change_plan_edges` | `plan_id`, `from_node_id`, `to_node_id`, `edge_kind` | Dependencies and ordering. |
 | `patch_plans` | `patch_plan_id`, `plan_id`, `target_worktree`, `status` | Isolated generation target. |
 | `plan_conflicts` | `plan_id`, `source_snapshot_id`, `conflict_kind` | Source drift and missing evidence. |
-| `operator_decisions` | `decision_id`, `plan_id`, `actor`, `decision`, `evidence_ref` | Required before apply. |
+| `operator_decisions` | `decision_id`, `plan_id`, `actor`, `decided_at`, `decision`, `evidence_ref`, `manual_decision_ref` | Required before apply. |
 | `apply_attempts` | `attempt_id`, `decision_id`, `status`, `recovery_ref` | Apply audit and recovery. |
 | `sync_verifications` | `plan_id`, `direction`, `current_snapshot`, `rescan_snapshot` | Final re-scan proof. |
 | `recovery_rows` | `plan_id`, `expected_snapshot`, `actual_snapshot`, `recovery_ref` | Failed sync recovery. |
@@ -62,12 +62,21 @@ following are true:
 - the plan status is `approved_for_apply`;
 - the current source snapshot matches the plan snapshot;
 - an approved operator decision matches the plan;
-- actor, evidence, and manual-decision references are present;
+- decision ID, actor, timestamp, evidence, and manual-decision references are
+  present;
 - stop-condition proof passes;
 - a recovery reference is present.
 
 The successful gate emits `operator_decisions` and `apply_attempts` rows. It
 does not add a direct source overwrite command.
+
+## CDB089 Approval Provenance
+
+`OperatorDecision` includes `decision_id`, `actor`, `decided_at`,
+`evidence_ref`, and `manual_decision_ref`. `validate_apply_gate` refuses apply
+intent with `MissingDecisionEvidence` when any of those fields are blank, so a
+manual approval cannot be represented without a durable actor/timestamp/evidence
+trail.
 
 ## CDB076 Sync Rows
 
