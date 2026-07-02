@@ -434,6 +434,46 @@ pub enum ApplyGateError {
     SourceDrift,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BidirectionalSyncDirection {
+    SourceToStore,
+    StoreToSource,
+}
+
+impl BidirectionalSyncDirection {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SourceToStore => "source_to_store",
+            Self::StoreToSource => "store_to_source",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BidirectionalSyncStatus {
+    Verified,
+    Conflict,
+    RecoveryRequired,
+}
+
+impl BidirectionalSyncStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Conflict => "conflict",
+            Self::RecoveryRequired => "recovery_required",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BidirectionalSyncReport {
+    pub plan_id: &'static str,
+    pub direction: BidirectionalSyncDirection,
+    pub status: BidirectionalSyncStatus,
+    pub rows: Vec<ChangePlanTableRow>,
+}
+
 #[derive(Debug)]
 pub enum PatchPlanError {
     TargetInsideSource {
@@ -754,6 +794,20 @@ pub fn schema_tables() -> Vec<TableSpec> {
             row_count: 0,
             note: "apply attempts require approval, stop proof, and recovery refs after CDB075",
         },
+        TableSpec {
+            name: "sync_verifications",
+            domain: "bidirectional/sync",
+            state: RowState::Available,
+            row_count: 0,
+            note: "final re-scan verification rows are modeled after CDB076",
+        },
+        TableSpec {
+            name: "recovery_rows",
+            domain: "bidirectional/sync",
+            state: RowState::Available,
+            row_count: 0,
+            note: "failed sync/apply recovery rows are modeled after CDB076",
+        },
     ]
 }
 
@@ -1057,6 +1111,71 @@ pub fn validate_apply_gate(
             },
         ],
     })
+}
+
+pub fn evaluate_bidirectional_sync(
+    graph: &ChangePlanGraph,
+    direction: BidirectionalSyncDirection,
+    current_source_snapshot_id: &'static str,
+    expected_rescan_snapshot_id: &'static str,
+    actual_rescan_snapshot_id: &'static str,
+    recovery_ref: &'static str,
+) -> BidirectionalSyncReport {
+    let conflicts = detect_plan_conflicts(graph, current_source_snapshot_id);
+    if let Some(conflict) = conflicts.first() {
+        return BidirectionalSyncReport {
+            plan_id: graph.plan.plan_id,
+            direction,
+            status: BidirectionalSyncStatus::Conflict,
+            rows: vec![ChangePlanTableRow {
+                table: "plan_conflicts",
+                status: conflict.conflict_kind.as_str(),
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}",
+                    conflict.plan_id, current_source_snapshot_id, conflict.message
+                ),
+            }],
+        };
+    }
+
+    if expected_rescan_snapshot_id != actual_rescan_snapshot_id {
+        return BidirectionalSyncReport {
+            plan_id: graph.plan.plan_id,
+            direction,
+            status: BidirectionalSyncStatus::RecoveryRequired,
+            rows: vec![ChangePlanTableRow {
+                table: "recovery_rows",
+                status: BidirectionalSyncStatus::RecoveryRequired.as_str(),
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}:{}",
+                    graph.plan.plan_id,
+                    expected_rescan_snapshot_id,
+                    actual_rescan_snapshot_id,
+                    recovery_ref
+                ),
+            }],
+        };
+    }
+
+    BidirectionalSyncReport {
+        plan_id: graph.plan.plan_id,
+        direction,
+        status: BidirectionalSyncStatus::Verified,
+        rows: vec![ChangePlanTableRow {
+            table: "sync_verifications",
+            status: BidirectionalSyncStatus::Verified.as_str(),
+            rows: 1,
+            note: format!(
+                "{}:{}:{}:{}",
+                graph.plan.plan_id,
+                direction.as_str(),
+                current_source_snapshot_id,
+                actual_rescan_snapshot_id
+            ),
+        }],
+    }
 }
 
 fn source_relative_path(root: &Path, path: &Path) -> Result<String, SourceCaptureError> {
@@ -1704,6 +1823,90 @@ mod tests {
         }));
         assert!(report.rows.iter().any(|row| {
             row.table == "apply_attempts" && row.note.contains("recovery:quarantine-ready")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: CDB076 source drift becomes a sync conflict before store-to-source apply.
+    #[test]
+    fn bidirectional_sync_reports_source_drift_conflict() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb076:drift",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:15:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let report = evaluate_bidirectional_sync(
+            &graph,
+            BidirectionalSyncDirection::StoreToSource,
+            "snapshot:sha256:drifted",
+            "snapshot:sha256:after",
+            "snapshot:sha256:after",
+            "recovery:quarantine-ready",
+        );
+
+        assert_eq!(report.status, BidirectionalSyncStatus::Conflict);
+        assert!(report.rows.iter().any(|row| {
+            row.table == "plan_conflicts" && row.note.contains("snapshot:sha256:drifted")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: CDB076 final re-scan must match the expected post-apply snapshot.
+    #[test]
+    fn bidirectional_sync_requires_matching_final_rescan() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb076:verified",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::Applied,
+                created_at: "2026-07-02T18:15:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let report = evaluate_bidirectional_sync(
+            &graph,
+            BidirectionalSyncDirection::SourceToStore,
+            "snapshot:sha256:before",
+            "snapshot:sha256:after",
+            "snapshot:sha256:after",
+            "recovery:quarantine-ready",
+        );
+
+        assert_eq!(report.status, BidirectionalSyncStatus::Verified);
+        assert!(report.rows.iter().any(|row| {
+            row.table == "sync_verifications"
+                && row.status == "verified"
+                && row.note.contains("source_to_store")
+        }));
+
+        let recovery = evaluate_bidirectional_sync(
+            &graph,
+            BidirectionalSyncDirection::SourceToStore,
+            "snapshot:sha256:before",
+            "snapshot:sha256:after",
+            "snapshot:sha256:unexpected",
+            "recovery:quarantine-ready",
+        );
+
+        assert_eq!(recovery.status, BidirectionalSyncStatus::RecoveryRequired);
+        assert!(recovery.rows.iter().any(|row| {
+            row.table == "recovery_rows" && row.note.contains("snapshot:sha256:unexpected")
         }));
     }
 

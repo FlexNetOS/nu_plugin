@@ -57,6 +57,15 @@ any direct source-checkout mutation path.
 - conflict rows for source drift versus stored plans;
 - recovery rows for failed materialization and apply attempts.
 
+## CDB076 Sync Semantics
+
+Bidirectional sync is modeled as explicit source-to-store or store-to-source
+verification. A sync check first compares the current source snapshot to the
+plan snapshot. Drift produces `plan_conflicts` and blocks apply. If the source
+snapshot is stable, the final re-scan snapshot is compared with the expected
+post-sync snapshot. A match emits `sync_verifications`; a mismatch emits
+`recovery_rows` with the configured recovery reference.
+
 ## Non-Goals For This Planning PR
 
 - direct source overwrite;

@@ -17,6 +17,8 @@ operator-approved apply gate exists.
 | `plan_conflicts` | `plan_id`, `source_snapshot_id`, `conflict_kind` | Source drift and missing evidence. |
 | `operator_decisions` | `decision_id`, `plan_id`, `actor`, `decision`, `evidence_ref` | Required before apply. |
 | `apply_attempts` | `attempt_id`, `decision_id`, `status`, `recovery_ref` | Apply audit and recovery. |
+| `sync_verifications` | `plan_id`, `direction`, `current_snapshot`, `rescan_snapshot` | Final re-scan proof. |
+| `recovery_rows` | `plan_id`, `expected_snapshot`, `actual_snapshot`, `recovery_ref` | Failed sync recovery. |
 
 ## Status Values
 
@@ -64,3 +66,9 @@ following are true:
 
 The successful gate emits `operator_decisions` and `apply_attempts` rows. It
 does not add a direct source overwrite command.
+
+## CDB076 Sync Rows
+
+`evaluate_bidirectional_sync` emits `plan_conflicts` for source drift,
+`sync_verifications` when the final re-scan matches the expected snapshot, and
+`recovery_rows` when the re-scan differs from the expected post-sync state.

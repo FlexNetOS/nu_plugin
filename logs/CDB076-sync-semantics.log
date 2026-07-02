@@ -1,0 +1,18 @@
+timestamp_utc: 2026-07-02T18:11:30Z
+task: CDB076 Phase 6 bidirectional sync semantics
+repo: FlexNetOS/nu_plugin
+worktree: /home/flexnetos/FlexNetOS/src/nu_plugin-next-worktree
+
+implementation:
+- added BidirectionalSyncDirection, BidirectionalSyncStatus, and BidirectionalSyncReport in codedb_core;
+- added evaluate_bidirectional_sync;
+- source drift emits plan_conflicts;
+- final re-scan match emits sync_verifications;
+- final re-scan mismatch emits recovery_rows with a recovery ref.
+
+tests:
+- nix develop .#ci -c cargo test -p codedb-core bidirectional_sync
+
+mutation policy:
+- no default source overwrite command was added;
+- sync semantics are represented as proof/conflict/recovery rows.

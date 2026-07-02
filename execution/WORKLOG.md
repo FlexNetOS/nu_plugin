@@ -174,3 +174,11 @@ proof, and a recovery reference. The successful path emits
 command.
 
 Validation evidence is in `logs/CDB075-apply-gate.log`.
+
+## 2026-07-02T18:11:30Z — CDB076 — Bidirectional sync semantics
+
+Added `evaluate_bidirectional_sync` in `codedb_core`. Source drift now emits
+`plan_conflicts`, final re-scan matches emit `sync_verifications`, and final
+re-scan mismatches emit `recovery_rows` with the configured recovery reference.
+
+Validation evidence is in `logs/CDB076-sync-semantics.log`.
