@@ -1233,6 +1233,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(name: &str) -> PathBuf {
@@ -1241,6 +1242,23 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("codedb-{name}-{nanos}"))
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct FileSnapshot {
+        len: u64,
+        readonly: bool,
+        sha256: String,
+    }
+
+    fn file_snapshot(path: &Path) -> FileSnapshot {
+        let metadata = fs::metadata(path).unwrap();
+        let bytes = fs::read(path).unwrap();
+        FileSnapshot {
+            len: metadata.len(),
+            readonly: metadata.permissions().readonly(),
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+        }
     }
 
     // Defends: envctl inventory import rows preserve blob hashes for safe content and skip unsafe rows.
@@ -1396,6 +1414,80 @@ mod tests {
         }));
         assert!(metadata.iter().any(|(key, value)| {
             *key == "structured_row_count" && matches!(value, Value::Int { val, .. } if *val == 0)
+        }));
+    }
+
+    // Defends: inventory import is read-only for source, real-home-like, and metadata-only targets.
+    #[test]
+    fn envctl_inventory_import_rows_do_not_mutate_targets() {
+        let root = temp_path("inventory-no-mutation");
+        let repo_dir = root.join("repo");
+        let local_dir = root.join("home/.local/share/yazelix/sessions/session-1");
+        fs::create_dir_all(&repo_dir).unwrap();
+        fs::create_dir_all(&local_dir).unwrap();
+        let source_path = repo_dir.join("settings.jsonc");
+        let runtime_path = local_dir.join("status_bar_cache.json");
+        fs::write(&source_path, "{ \"theme\": \"zed\" }\n").unwrap();
+        fs::write(&runtime_path, "{ \"status\": \"cached\" }\n").unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            format!(
+                r#"[{{
+                    "target_id":"settings",
+                    "absolute_path":"{}",
+                    "normalized_logical_path":"repo_source:settings.jsonc",
+                    "owner":"yazelix",
+                    "source_of_truth_class":"repo_source",
+                    "file_kind":"regular_file",
+                    "parser_hint":"jsonc",
+                    "safety_policy":"source_content_import_allowed",
+                    "reproduction_policy":"git_checkout",
+                    "import_mode":"content_blob"
+                }},{{
+                    "target_id":"status_cache",
+                    "absolute_path":"{}",
+                    "normalized_logical_path":"real_home_runtime_state:.local/share/yazelix/sessions/session-1/status_bar_cache.json",
+                    "owner":"yazelix",
+                    "source_of_truth_class":"real_home_runtime_state",
+                    "file_kind":"regular_file",
+                    "parser_hint":"json",
+                    "safety_policy":"runtime_state_no_content_import",
+                    "reproduction_policy":"observed_runtime_state_only",
+                    "import_mode":"metadata_only"
+                }},{{
+                    "target_id":"nix_store_runtime",
+                    "absolute_path":"/nix/store/example-yazelix-runtime",
+                    "normalized_logical_path":"nix_store:/nix/store/example-yazelix-runtime",
+                    "owner":"nix",
+                    "source_of_truth_class":"nix_store_package_output",
+                    "file_kind":"package_output",
+                    "parser_hint":"nix_store_path",
+                    "safety_policy":"nix_store_metadata_only",
+                    "reproduction_policy":"nix_realise",
+                    "import_mode":"metadata_only"
+                }}]"#,
+                source_path.display(),
+                runtime_path.display(),
+            ),
+        )
+        .unwrap();
+        let source_before = file_snapshot(&source_path);
+        let runtime_before = file_snapshot(&runtime_path);
+
+        let rows = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap();
+
+        assert_eq!(source_before, file_snapshot(&source_path));
+        assert_eq!(runtime_before, file_snapshot(&runtime_path));
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().any(|row| {
+            row.iter().any(|(key, value)| {
+                *key == "target_id"
+                    && matches!(value, Value::String { val, .. } if val == "nix_store_runtime")
+            }) && row.iter().any(|(key, value)| {
+                *key == "import_status"
+                    && matches!(value, Value::String { val, .. } if val == "metadata_only")
+            })
         }));
     }
 }
