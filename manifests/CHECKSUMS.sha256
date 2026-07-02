@@ -33,6 +33,8 @@ cfe16b3c0cb54fa06b901ce98689145d0e764a8e253ad4c3e03683354680a346  .kb/skills/kb-
 ef51f5fa6304ee6925e3daa421c5ed48286f80140b18e7e34a0f58810b271bbc  .kb/skills/kb-status/agents/openai.yaml
 369223b5813ff6b4f2c52e3e59b6c102158ed7f7306f42ccadefadc73400c88b  .kb/skills/kb-tasks/SKILL.md
 7be8cdfc3c57118240c896899bbbddaebbd87ffa3991ca52ea6b7d1ed54da853  .kb/skills/kb-tasks/agents/openai.yaml
+345916b33e972f04574c15468aeae4296bc0eef6831f20864b407be7d929477f  .kb/skills/nu-plugin-import/SKILL.md
+f0f3b1103a690d88ab24bdb2ddeb613920cb9e93af2bb0232b6aa0b9ee0a2956  .kb/skills/nu-plugin-import/agents/openai.yaml
 3e6bbd822ed50c0737069dd15b912beae6d0f0152ce1ffcca40d75c44d60035d  .kb/skills/refactor-safety/SKILL.md
 7d1ef42db4918f20953c91e97a99bb9d026373c8209a01317f144e4c845230c4  .kb/skills/refactor-safety/agents/openai.yaml
 b33bb7ea686ed095a26e5a6bbc29b89162f6ffc78a3c0a68cd849637e9306e7a  .kb/skills/understand/SKILL.md
