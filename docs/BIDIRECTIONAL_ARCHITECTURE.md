@@ -47,6 +47,18 @@ artifact kind, readonly state, and Unix mode where available. This lets isolated
 materialization preserve exact bytes and executable-bit state without granting
 any direct source-checkout mutation path.
 
+## Store Schema Evolution
+
+The current redb store schema is `1.0.0`. Readers support that schema only.
+Unknown future schemas fail closed with `UnsupportedSchemaVersion`; they are not
+silently coerced to the current version. The migration test matrix is:
+
+| Observed schema | Behavior |
+|---|---|
+| `1.0.0` | read metadata and tables |
+| unknown future value | refuse open/report, require migration tooling |
+| corrupt or unreadable store | use backup/restore validation before reuse |
+
 ## Required Object Layers
 
 - source snapshot rows with stable blob refs;

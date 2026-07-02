@@ -268,3 +268,12 @@ semantic hash while preserving public API hash, and public symbol drift changes
 the public API hash.
 
 Validation evidence is in `logs/CDB085-semantic-api-hashing.log`.
+
+## 2026-07-02T19:44:57Z — CDB086 — Store schema evolution
+
+Changed redb store reads to fail closed on unknown schema versions. The current
+store supports schema `1.0.0`; future unknown schema values now return
+`UnsupportedSchemaVersion` instead of being treated as current. Docs record the
+migration matrix and backup/restore recovery proof.
+
+Validation evidence is in `logs/CDB086-store-migrations.log`.

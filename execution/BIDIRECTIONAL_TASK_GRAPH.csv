@@ -15,7 +15,7 @@ CDB082,Gap Closure,Native and linker dynamic facts,tasks/cdb082-bidirectional-na
 CDB083,Gap Closure,MCP raw source and blob reads blocked,tasks/cdb083-bidirectional-mcp-raw-source-block,CDB071,docs/MUTATION_POLICY.md,MCP no-leak denial tests,complete
 CDB084,Gap Closure,Stable anonymous and unstable syntax identity,tasks/cdb084-bidirectional-stable-anonymous-identity,CDB072,docs/CHANGE_PLAN_SCHEMA.md,repeat scan identity tests,complete
 CDB085,Gap Closure,Semantic and public API hashing,tasks/cdb085-bidirectional-semantic-api-hashing,CDB084,docs/CHANGE_PLAN_SCHEMA.md,semantic/API hash fixtures,complete
-CDB086,Gap Closure,Store migrations and schema evolution,tasks/cdb086-bidirectional-store-migrations,CDB072,docs/BIDIRECTIONAL_ARCHITECTURE.md,migration/refusal tests,active
+CDB086,Gap Closure,Store migrations and schema evolution,tasks/cdb086-bidirectional-store-migrations,CDB072,docs/BIDIRECTIONAL_ARCHITECTURE.md,migration/refusal tests,complete
 CDB087,Gap Closure,Source drift versus stored plans,tasks/cdb087-bidirectional-source-drift-conflicts,CDB073,docs/CHANGE_PLAN_SCHEMA.md,stale plan conflict tests,active
 CDB088,Gap Closure,Failed materialization and apply recovery,tasks/cdb088-bidirectional-failed-apply-recovery,CDB075,docs/ROUND_TRIP_PROOF.md,failed apply recovery tests,active
 CDB089,Gap Closure,Operator approval and manual decision provenance,tasks/cdb089-bidirectional-approval-provenance,CDB075,docs/CHANGE_PLAN_SCHEMA.md,apply gate decision provenance tests,active

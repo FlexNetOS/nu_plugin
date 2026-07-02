@@ -103,3 +103,12 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   the semantic hash while leaving the public API hash stable.
 - The report documents that these hashes exclude function bodies, type layout,
   macro expansion, and rustc semantic checks.
+
+## Closed By CDB086
+
+- redb store reads now refuse unknown schema versions instead of silently
+  treating them as current.
+- Migration policy is explicit: schema `1.0.0` is supported, future unknown
+  schemas fail closed, and backup/restore remains the recovery proof.
+- Tests mutate a store to a future schema and assert
+  `UnsupportedSchemaVersion`.

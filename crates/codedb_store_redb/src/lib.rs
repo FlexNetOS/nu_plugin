@@ -88,6 +88,9 @@ pub enum StoreError {
     Table(TableError),
     Storage(StorageError),
     Io(io::Error),
+    UnsupportedSchemaVersion {
+        observed: String,
+    },
     MissingValue {
         table: &'static str,
         key: &'static str,
@@ -103,6 +106,9 @@ impl Display for StoreError {
             Self::Table(err) => write!(f, "table error: {err}"),
             Self::Storage(err) => write!(f, "storage error: {err}"),
             Self::Io(err) => write!(f, "io error: {err}"),
+            Self::UnsupportedSchemaVersion { observed } => {
+                write!(f, "unsupported store schema version: {observed}")
+            }
             Self::MissingValue { table, key } => {
                 write!(f, "missing metadata value {key} in table {table}")
             }
@@ -217,7 +223,11 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
             })?;
         match value.value() {
             "1.0.0" => STORE_SCHEMA_VERSION,
-            _ => STORE_SCHEMA_VERSION,
+            other => {
+                return Err(StoreError::UnsupportedSchemaVersion {
+                    observed: other.to_string(),
+                });
+            }
         }
     };
 
@@ -578,6 +588,41 @@ mod tests {
         assert_eq!(reread.schema_version.as_tuple(), (1, 0, 0));
         assert!(reread.rows.iter().any(|row| row.key == "schema_version"));
         assert!(reread.rows.iter().any(|row| row.key == "toolchain"));
+
+        fs::remove_file(&path).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB086 unknown future schemas are refused instead of silently treated as current.
+    #[test]
+    fn unknown_schema_version_is_refused() {
+        let path = temp_store_path();
+        let context = StoreInitContext {
+            codedb_version: "0.1.0",
+            toolchain: "stable-x86_64-unknown-linux-gnu",
+            rustc_version: "rustc 1.92.0",
+            cargo_version: "cargo 1.96.0",
+        };
+        initialize_store(&path, &context).expect("store init");
+        {
+            let db = Database::open(&path).expect("open store");
+            let write_txn = db.begin_write().expect("begin write");
+            {
+                let mut schema_versions = write_txn
+                    .open_table(SCHEMA_VERSION_TABLE)
+                    .expect("schema table");
+                schema_versions
+                    .insert("schema_version", "99.0.0")
+                    .expect("write future schema");
+            }
+            write_txn.commit().expect("commit future schema");
+        }
+
+        let err = read_store_report(&path).expect_err("future schema should be refused");
+        assert!(matches!(
+            err,
+            StoreError::UnsupportedSchemaVersion { observed } if observed == "99.0.0"
+        ));
 
         fs::remove_file(&path).ok();
     }
