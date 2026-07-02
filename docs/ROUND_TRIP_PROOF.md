@@ -28,6 +28,22 @@ Round-trip proof must cover or explicitly gap:
 - source drift after plan creation;
 - failed materialization or apply recovery.
 
+## CDB072 Artifact Proof
+
+The redb store now treats the source blob as the byte authority for
+materialization. Comments, attributes, formatting, newlines, BOMs, binary
+payloads, and non-Rust assets are preserved as exact blob bytes rather than
+normalized text.
+
+When capture starts from a filesystem path, CodeDB also records source-file
+artifact metadata. On Unix platforms, materialization reapplies the captured
+mode bits so executable source artifacts keep their executable state when
+restored into an isolated output path. Raw blob capture records an explicit
+permission-capture gap because it has no source filesystem metadata.
+
+Symlink and platform-specific materialization limits remain active in CDB081.
+Generated `OUT_DIR` reproduction remains active in CDB080.
+
 ## Acceptance Gate
 
 A round-trip is accepted only when all referenced blobs, checksums, object IDs,

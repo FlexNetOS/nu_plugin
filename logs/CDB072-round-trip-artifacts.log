@@ -1,0 +1,21 @@
+timestamp_utc: 2026-07-02T17:56:53Z
+task: CDB072 Phase 2 lossless round-trip artifact generation
+repo: FlexNetOS/nu_plugin
+worktree: /home/flexnetos/FlexNetOS/src/nu_plugin-next-worktree
+
+implementation:
+- added pkgs.clippy to the CI dev shell so the required clippy gate is runnable;
+- added source_file_metadata redb table for artifact kind, readonly state, and Unix mode;
+- preserved exact bytes for non-Rust and binary artifacts through source blob materialization;
+- restored captured Unix executable bits during source-file materialization;
+- recorded raw blob permission capture as an explicit gap because raw blob APIs have no filesystem metadata source.
+
+tests:
+- nix develop .#ci -c cargo fmt --all -- --check
+- nix develop .#ci -c cargo clippy --all-targets --all-features
+- nix develop .#ci -c cargo test -p codedb-store-redb
+- nix develop .#ci -c cargo test --workspace
+
+remaining gaps:
+- CDB080 covers generated OUT_DIR artifact reproduction;
+- CDB081 covers symlink and platform materialization limits.

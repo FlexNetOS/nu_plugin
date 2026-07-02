@@ -135,3 +135,13 @@ default:
   overwrite, patch apply, git mutation, and unbounded table dumps.
 
 Validation evidence is in `logs/CDB071-read-only-foundation.log`.
+
+## 2026-07-02T17:56:53Z — CDB072 — Lossless round-trip artifacts
+
+Added redb source-file metadata for artifact kind, readonly state, and Unix
+mode; materialization now reapplies captured Unix mode bits. Added tests proving
+non-Rust binary artifacts materialize as exact bytes and Unix executable bits
+round-trip through source-file capture. Symlink/platform materialization remains
+active as CDB081, and generated `OUT_DIR` reproduction remains CDB080.
+
+Validation evidence is in `logs/CDB072-round-trip-artifacts.log`.

@@ -20,3 +20,12 @@ Source: issue 212 V1.1 gap closure list.
 
 Every gap remains active until its evidence gate is proven. Partial evidence
 must be recorded as `QUESTION` or `GAP`, not `FACT`.
+
+## Closed By CDB072
+
+- Exact source blob bytes now cover comments, attributes, formatting, newlines,
+  BOMs, binary payloads, and non-Rust assets.
+- Source-file capture records readonly state and Unix mode metadata; Unix
+  materialization reapplies mode bits.
+- Raw blob capture records permission metadata as an explicit gap because no
+  filesystem source exists for that API surface.

@@ -39,6 +39,14 @@ source
 | isolated worktree | patch generation and proof sandbox | allowed after task gate |
 | source checkout | operator-approved apply only | forbidden until Phase 5 |
 
+## Artifact Materialization
+
+Source blobs remain content-addressed by SHA-256 and are materialized from the
+stored bytes. Files captured from disk also carry source-file metadata rows for
+artifact kind, readonly state, and Unix mode where available. This lets isolated
+materialization preserve exact bytes and executable-bit state without granting
+any direct source-checkout mutation path.
+
 ## Required Object Layers
 
 - source snapshot rows with stable blob refs;

@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "ee5f597389bd5c323afe20e895e60c9b195b046c8f71c9d01aeb815e5f2e37f5",
+  "checksum_scope_files_sha256": "556b3c6d67f50284ad1d510b14ac5bfcc49e044dac1fa6b813e6099d5e3e6774",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 263,
   "files": [
@@ -366,9 +366,9 @@
       "sha256": "1262602c8f07ac8e805ca17e80cd11705eb48e670fd0aede4157d8017d3b3832"
     },
     {
-      "bytes": 21334,
+      "bytes": 27116,
       "path": "crates/codedb_store_redb/src/lib.rs",
-      "sha256": "179344394bbe0fec5671ed7c96d76381473d1e9d07e47ecf24c7b33929fee610"
+      "sha256": "e625475c93859772a1e19e7a8650d6b97f06c3c2f1bb2c7fc1293d6fd1e00aab"
     },
     {
       "bytes": 442,
@@ -391,9 +391,9 @@
       "sha256": "86978a04db2744af3aa5b153073a27d5d0cf40231cfb6f8fdbdfaab9af0898bc"
     },
     {
-      "bytes": 1924,
+      "bytes": 2315,
       "path": "docs/BIDIRECTIONAL_ARCHITECTURE.md",
-      "sha256": "c264bcf32726cba28f7bbd49395316a977a200f0a5ebfc6b3d28693798292dc6"
+      "sha256": "876dbd123a279923a55e3e2d0492a1ce3f24ffb3bedfa9edf66ea579b929997a"
     },
     {
       "bytes": 2138,
@@ -441,9 +441,9 @@
       "sha256": "9d0c9375ec41f94fad4c4120869b0ca836e34a1504cdbc09a6554e36043085fb"
     },
     {
-      "bytes": 2014,
+      "bytes": 2401,
       "path": "docs/GAP_CLOSURE_PLAN.md",
-      "sha256": "bd9ef5d9c17c7280d3268578f616920b77ed5c1cc385e93843dab99dc629296a"
+      "sha256": "e810914d511d5fc55ae7d8ddcb0e7cf03d2718f6b902446c31d34601976f2ec1"
     },
     {
       "bytes": 4822,
@@ -471,9 +471,9 @@
       "sha256": "e1d0b1f97264a1b643f385f21b844b8a23951f58634166f3400e9ca9c6f0e828"
     },
     {
-      "bytes": 1311,
+      "bytes": 2084,
       "path": "docs/ROUND_TRIP_PROOF.md",
-      "sha256": "756de525374d56e7615011402f222f51171db083e1b7dd2b15e0f48a8569308e"
+      "sha256": "4359f8a6303ea7869529711367b88f26fe7a6a5945a60e2b7890d73be70b7516"
     },
     {
       "bytes": 2074,
@@ -536,14 +536,14 @@
       "sha256": "2601389d7e0662a811d804256c2c431d9e0ff559ac7b57888b8f557897ae5003"
     },
     {
-      "bytes": 3974,
+      "bytes": 3976,
       "path": "execution/BIDIRECTIONAL_TASK_GRAPH.csv",
-      "sha256": "a1042cedf5206a792f6f79f8c410fa2f9767e87a781334d1eb2ead411a083429"
+      "sha256": "5867a08e7e3fa1ac1c7e9d587b70a0ed204e2f882058eb13bdd4bcce047aa65e"
     },
     {
-      "bytes": 7423,
+      "bytes": 7926,
       "path": "execution/COMMAND_LEDGER.csv",
-      "sha256": "0125e9672871d1b186bcabb82a9943886be5df99006053b7d03c03114eb6ca38"
+      "sha256": "fd6fded1907c3a91ef6e6ebf81761e2ac11c753884fa497f03e6894a26264198"
     },
     {
       "bytes": 106315,
@@ -561,9 +561,9 @@
       "sha256": "79deb5fa7aaf3e489b8ae3228720ea26b1c8a6aa85321c594a0c184ff30d3983"
     },
     {
-      "bytes": 6135,
+      "bytes": 6660,
       "path": "execution/WORKLOG.md",
-      "sha256": "0ac00000d4902788391e9a07327c4ec5c4b0d8cc6896c86060e9f2dd116ac565"
+      "sha256": "c4e68df7ec6be8fd338deb27384a6f12fef9728a5127a86a1495b971df615f76"
     },
     {
       "bytes": 2076,
@@ -801,9 +801,9 @@
       "sha256": "33150ce2f846aef01539145f74a8eb1a04d45df5d960494ce188111a80e170e3"
     },
     {
-      "bytes": 4488,
+      "bytes": 4514,
       "path": "flake.nix",
-      "sha256": "fb58e43e2fc330fa8d52dbb80aabb8815a624d2d06ef5805f9f94c7161d6c931"
+      "sha256": "5b113540d272c2f69d436a2e1a21ee262036d43c8d0f7615b1496378a5973500"
     },
     {
       "bytes": 1090,
@@ -1326,7 +1326,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T17:57:13+00:00",
+  "generated_at_utc": "2026-07-02T18:00:44+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

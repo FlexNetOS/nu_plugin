@@ -23,6 +23,8 @@ const TOOLCHAIN_METADATA_TABLE: TableDefinition<&str, &str> =
 const VALIDATION_ROWS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("validation_rows");
 const SOURCE_BLOBS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("source_blobs");
 const SOURCE_FILES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("source_files");
+const SOURCE_FILE_METADATA_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("source_file_metadata");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreInitContext<'a> {
@@ -190,6 +192,7 @@ pub fn initialize_store(
         {
             write_txn.open_table(SOURCE_BLOBS_TABLE)?;
             write_txn.open_table(SOURCE_FILES_TABLE)?;
+            write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
         }
         write_txn.commit()?;
     }
@@ -225,6 +228,7 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
         ("toolchain_metadata", TOOLCHAIN_METADATA_TABLE),
         ("validation_rows", VALIDATION_ROWS_TABLE),
         ("source_files", SOURCE_FILES_TABLE),
+        ("source_file_metadata", SOURCE_FILE_METADATA_TABLE),
     ] {
         let table = read_txn.open_table(definition)?;
         for result in table.iter()? {
@@ -249,9 +253,13 @@ pub fn persist_source_file(
     relative_path: impl AsRef<str>,
     source_path: impl AsRef<Path>,
 ) -> Result<SourceBlobRow, StoreError> {
+    let store_path = store_path.as_ref();
     let relative_path = relative_path.as_ref().to_string();
+    let source_path = source_path.as_ref();
     let bytes = fs::read(source_path)?;
-    persist_source_blob(store_path, relative_path, &bytes)
+    let row = persist_source_blob(store_path, relative_path, &bytes)?;
+    persist_source_file_metadata(store_path, &row.relative_path, source_path)?;
+    Ok(row)
 }
 
 pub fn persist_source_blob(
@@ -272,6 +280,17 @@ pub fn persist_source_blob(
         {
             let mut files = write_txn.open_table(SOURCE_FILES_TABLE)?;
             files.insert(relative_path.as_str(), blob_ref.as_str())?;
+        }
+        {
+            let mut metadata = write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+            metadata.insert(
+                source_file_metadata_key(&relative_path, "artifact_kind").as_str(),
+                "raw_blob",
+            )?;
+            metadata.insert(
+                source_file_metadata_key(&relative_path, "permission_capture").as_str(),
+                "gap_not_available_for_raw_blob",
+            )?;
         }
         write_txn.commit()?;
     }
@@ -355,10 +374,24 @@ pub fn materialize_source_file(
             .value()
             .to_vec()
     };
+    let unix_mode = {
+        let metadata = read_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+        metadata
+            .get(source_file_metadata_key(relative_path, "unix_mode").as_str())?
+            .map(|value| value.value().to_string())
+    };
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;
     }
     fs::write(&output_path, &bytes)?;
+    #[cfg(unix)]
+    if let Some(mode) = unix_mode {
+        use std::os::unix::fs::PermissionsExt;
+
+        if let Ok(parsed_mode) = u32::from_str_radix(&mode, 8) {
+            fs::set_permissions(&output_path, fs::Permissions::from_mode(parsed_mode))?;
+        }
+    }
     let materialized_sha256 = checksum_file_sha256(&output_path)?;
 
     Ok(FileMaterializationReport {
@@ -389,6 +422,54 @@ pub fn checksum_file_sha256(path: impl AsRef<Path>) -> Result<String, StoreError
 
 fn sha256_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+fn source_file_metadata_key(relative_path: &str, field: &str) -> String {
+    format!("{relative_path}::{field}")
+}
+
+fn persist_source_file_metadata(
+    store_path: &Path,
+    relative_path: &str,
+    source_path: &Path,
+) -> Result<(), StoreError> {
+    let source_metadata = fs::metadata(source_path)?;
+    let db = Database::open(store_path)?;
+    let write_txn = db.begin_write()?;
+    {
+        let mut metadata = write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+        metadata.insert(
+            source_file_metadata_key(relative_path, "artifact_kind").as_str(),
+            "source_file",
+        )?;
+        metadata.insert(
+            source_file_metadata_key(relative_path, "readonly").as_str(),
+            if source_metadata.permissions().readonly() {
+                "true"
+            } else {
+                "false"
+            },
+        )?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mode = source_metadata.permissions().mode() & 0o777;
+            metadata.insert(
+                source_file_metadata_key(relative_path, "unix_mode").as_str(),
+                format!("{mode:o}").as_str(),
+            )?;
+        }
+        #[cfg(not(unix))]
+        {
+            metadata.insert(
+                source_file_metadata_key(relative_path, "unix_mode").as_str(),
+                "gap_not_available_on_non_unix_platform",
+            )?;
+        }
+    }
+    write_txn.commit()?;
+    Ok(())
 }
 
 pub fn backup_store(
@@ -641,6 +722,79 @@ mod tests {
         fs::remove_file(&path).ok();
         fs::remove_file(&backup_path).ok();
         fs::remove_file(&restored_path).ok();
+        fs::remove_file(&output_path).ok();
+    }
+
+    // Test lane: default
+    // Defends: binary and non-Rust artifacts are stored as exact bytes, not text-normalized.
+    #[test]
+    fn non_rust_binary_artifact_materializes_exact_bytes() {
+        let path = temp_store_path();
+        let output_path = path.with_extension("materialized.bin");
+        let context = StoreInitContext {
+            codedb_version: "0.1.0",
+            toolchain: "stable-x86_64-unknown-linux-gnu",
+            rustc_version: "rustc 1.92.0",
+            cargo_version: "cargo 1.96.0",
+        };
+        let asset = b"\x00PNG\r\n\x1a\n\xffcodedb\x00asset";
+
+        initialize_store(&path, &context).expect("store init");
+        let persisted = persist_source_blob(&path, "assets/logo.bin", asset)
+            .expect("persist binary source blob");
+        let materialized = materialize_source_file(&path, "assets/logo.bin", &output_path)
+            .expect("materialize binary asset");
+
+        assert_eq!(materialized.sha256, persisted.sha256);
+        assert_eq!(fs::read(&output_path).expect("materialized bytes"), asset);
+
+        fs::remove_file(&path).ok();
+        fs::remove_file(&output_path).ok();
+    }
+
+    // Test lane: default
+    // Defends: source-file capture records and restores executable permission bits on Unix.
+    #[cfg(unix)]
+    #[test]
+    fn source_file_materialization_restores_unix_executable_bits() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = temp_store_path();
+        let source_path = path.with_extension("source.sh");
+        let output_path = path.with_extension("materialized.sh");
+        let context = StoreInitContext {
+            codedb_version: "0.1.0",
+            toolchain: "stable-x86_64-unknown-linux-gnu",
+            rustc_version: "rustc 1.92.0",
+            cargo_version: "cargo 1.96.0",
+        };
+
+        initialize_store(&path, &context).expect("store init");
+        fs::write(&source_path, b"#!/usr/bin/env bash\necho codedb\n").expect("write source");
+        fs::set_permissions(&source_path, fs::Permissions::from_mode(0o755))
+            .expect("set source mode");
+
+        let persisted = persist_source_file(&path, "scripts/codedb.sh", &source_path)
+            .expect("persist source file");
+        let materialized = materialize_source_file(&path, "scripts/codedb.sh", &output_path)
+            .expect("materialize source file");
+
+        assert_eq!(materialized.sha256, persisted.sha256);
+        assert_eq!(
+            fs::read(&output_path).expect("materialized bytes"),
+            fs::read(&source_path).expect("source bytes")
+        );
+        assert_eq!(
+            fs::metadata(&output_path)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+
+        fs::remove_file(&path).ok();
+        fs::remove_file(&source_path).ok();
         fs::remove_file(&output_path).ok();
     }
 }
