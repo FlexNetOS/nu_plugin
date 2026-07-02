@@ -891,6 +891,19 @@ fn runner_proof_manifest_rows(selection: &RepoSelection) -> Result<Vec<Row>, Cli
             "",
             [("blocks_release_readiness", "true".to_string())],
         ),
+        runner_proof_row(
+            "bidirectional_issue_212",
+            "satisfied",
+            "scripts/validate_bidirectional_package.py;truth_surface.py;local cargo gates",
+            "CDB070-CDB090 are complete or explicitly represented as GAP/QUESTION rows with read-only defaults preserved",
+            "logs/CDB090-release-gate.log",
+            [
+                ("task_range", "CDB070-CDB090".to_string()),
+                ("task_count", "21".to_string()),
+                ("read_only_defaults", "proven".to_string()),
+                ("hidden_mutation", "forbidden".to_string()),
+            ],
+        ),
     ];
     rows.push(runner_proof_row(
         "release_readiness",
@@ -1711,5 +1724,39 @@ mod tests {
             assert!(message.contains("unsupported command"));
             assert!(!message.contains("source overwrite enabled"));
         }
+    }
+
+    // Test lane: default
+    // Defends: CDB090 runner proof manifest exposes the issue-212 release gate.
+    #[test]
+    fn runner_proof_manifest_includes_bidirectional_release_gate() {
+        let repo = temp_repo();
+        fs::create_dir_all(repo.join("src")).expect("create src");
+        fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");
+        let selection = RepoSelection {
+            repo_id: "test".to_string(),
+            repo_path: repo.clone(),
+            store_path: repo.join(".codedb/store.redb").display().to_string(),
+            selection_source: "test".to_string(),
+        };
+
+        let rows = runner_proof_manifest_rows(&selection).expect("runner proof rows");
+
+        assert!(rows.iter().any(|row| {
+            row.get("gate_id")
+                .is_some_and(|gate_id| gate_id == "bidirectional_issue_212")
+                && row
+                    .get("status")
+                    .is_some_and(|status| status == "satisfied")
+                && row
+                    .get("release_without_provenance")
+                    .is_some_and(|value| value == "forbidden")
+                && row.get("task_count").is_some_and(|value| value == "21")
+                && row
+                    .get("read_only_defaults")
+                    .is_some_and(|value| value == "proven")
+        }));
+
+        let _ = fs::remove_dir_all(repo);
     }
 }

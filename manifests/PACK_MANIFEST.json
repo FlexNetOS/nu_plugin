@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "67d2dc1938cc667ff2e5d0e803b3ad7b14a8be571b8b4224f4b17aaa74b99b91",
+  "checksum_scope_files_sha256": "b7c6db8a07a69da49e2780aac1e54f6157445c799c698c852c764b239f802e09",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 281,
+  "file_count_in_checksum_scope": 282,
   "files": [
     {
       "bytes": 1473,
@@ -296,9 +296,9 @@
       "sha256": "9ea33f7f883e63ae966690300e7ca8ff7e0cb5b132d17f0a1b345720d31aaecb"
     },
     {
-      "bytes": 62487,
+      "bytes": 64521,
       "path": "crates/codedb/src/main.rs",
-      "sha256": "a3188badaa53cf96d984f840c933dd1207159e4496cb366c2eb62923a74940dd"
+      "sha256": "151009c99de40e6429c0a63b0dc43d4ae14c4cd390ee8cc92712bbd793c618d5"
     },
     {
       "bytes": 205,
@@ -466,9 +466,9 @@
       "sha256": "168179701fa4094b069dc34293259e5a4dd57fce58bcf75ad7d2a89d907fd8c0"
     },
     {
-      "bytes": 1484,
+      "bytes": 2052,
       "path": "docs/RELEASE_GATE.md",
-      "sha256": "e1d0b1f97264a1b643f385f21b844b8a23951f58634166f3400e9ca9c6f0e828"
+      "sha256": "34702ba4dbc2ca53cb2768fddac5c023c1e216eeb748abe4ff36161b01a50c09"
     },
     {
       "bytes": 2716,
@@ -536,9 +536,9 @@
       "sha256": "2601389d7e0662a811d804256c2c431d9e0ff559ac7b57888b8f557897ae5003"
     },
     {
-      "bytes": 4004,
+      "bytes": 4012,
       "path": "execution/BIDIRECTIONAL_TASK_GRAPH.csv",
-      "sha256": "a0b644dcb16c900ba4730ee1b454d415b91f877032e1540644adca811371659b"
+      "sha256": "55b38f9fc5c7f42ca61cf1c8857cad42acae4f459167a02e3293d99f2afd79c0"
     },
     {
       "bytes": 13969,
@@ -1256,6 +1256,11 @@
       "sha256": "2ca3ee024d4f237eaa67ddc11d7219de94d45e776974b07381ce25713a3ee0e3"
     },
     {
+      "bytes": 1184,
+      "path": "logs/CDB090-release-gate.log",
+      "sha256": "f8e46aef63f45cc7ed3e29f9353596fa8f9874b43bb13fa218f5bd49f4802cf3"
+    },
+    {
       "bytes": 69372,
       "path": "manifests/CHECKLIST_COMPLETION.json",
       "sha256": "4df0e381d4f7cef9d0537731bc55f9913425c9d5d2b6c6b2ce8c5d843a3a4c6a"
@@ -1331,9 +1336,9 @@
       "sha256": "2a854aba6d7bbf7bdcdfcd1d17351c435f5ff13e4073f1da7f7a0e3c2182373e"
     },
     {
-      "bytes": 3393,
+      "bytes": 3662,
       "path": "scripts/validate_bidirectional_package.py",
-      "sha256": "38d1241fbe308485c7265f84551901fe9951813fa2606307bed6935c8c3771e3"
+      "sha256": "f3b226325b49ce2a478ca377cd5006ce9cbba761916d3c4fb202f65d9d594107"
     },
     {
       "bytes": 208,
@@ -1416,7 +1421,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T19:54:00+00:00",
+  "generated_at_utc": "2026-07-02T19:56:32+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

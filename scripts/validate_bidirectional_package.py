@@ -61,6 +61,14 @@ def main() -> int:
     if len(graph_id_set) != len(graph_ids):
         failures.append("duplicate task IDs in bidirectional task graph")
 
+    incomplete = [
+        f"{row.get('task_id', '')}:{row.get('status', '')}"
+        for row in graph_rows
+        if row.get("status", "") != "complete"
+    ]
+    if incomplete:
+        failures.append(f"bidirectional task graph has incomplete rows: {incomplete}")
+
     graph_text = Path("execution/BIDIRECTIONAL_TASK_GRAPH.csv").read_text(encoding="utf-8")
     for phase in EXPECTED_PHASES:
         if phase not in graph_text:
