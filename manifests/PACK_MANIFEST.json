@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "0bffe3d2a2bfb218b83286a398902134908026094c77ed4b9aa0e464179e0e4f",
+  "checksum_scope_files_sha256": "db5b6a34aebfffb815a853a7553204c249ad50dc461980509a3eab7daa957fcd",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 249,
+  "file_count_in_checksum_scope": 250,
   "files": [
     {
       "bytes": 1015,
@@ -26,9 +26,9 @@
       "sha256": "a77767c42777183707c111b9cd23d349cacde90be366ffd3f7497ec8c5a2f43d"
     },
     {
-      "bytes": 24581,
+      "bytes": 26447,
       "path": ".kb/AGENTS.md",
-      "sha256": "b57c1f0343b2154d389c9a3235a8711fa3701cef7454b6bf5a0ab3cfb0508bd3"
+      "sha256": "26b1bf203e8ec0b92851cc193808b9ad5eda0db31ac08dbe138ef469ab9c9c8f"
     },
     {
       "bytes": 803,
@@ -56,9 +56,9 @@
       "sha256": "573d35068c0b87b723e04603ec6bebbeed0e2167e6b8f7ce3641bf987e80f98a"
     },
     {
-      "bytes": 8588,
+      "bytes": 8778,
       "path": ".kb/skills/gitkb/SKILL.md",
-      "sha256": "12df3dafeb7d21fe0d6e664e19fd2789c98b53298c1c46d2d9743ee762f167de"
+      "sha256": "e8cefd5d8aec47a465477e7d22a7800609396294146729faa96f3023b1ea2056"
     },
     {
       "bytes": 301,
@@ -209,6 +209,11 @@
       "bytes": 910,
       "path": "ACCEPTANCE.md",
       "sha256": "01018c7206398687526f1155f4a7d1096c9cfd7ca0497258806a7f9a7ab5dfa8"
+    },
+    {
+      "bytes": 678,
+      "path": "AGENTS.md",
+      "sha256": "42f554876c452054ef667d3337fcaa8329fbd9af3541ac69b8c8143b404a41a2"
     },
     {
       "bytes": 1824,
@@ -751,9 +756,9 @@
       "sha256": "33150ce2f846aef01539145f74a8eb1a04d45df5d960494ce188111a80e170e3"
     },
     {
-      "bytes": 3570,
+      "bytes": 3576,
       "path": "flake.nix",
-      "sha256": "dc446511651b1a942753696e610e43d3e350c17a894665c7e232d225c5cf7778"
+      "sha256": "3a01eb7423d55dcba04b2155a1795d30e67bbe5244f4d81ddc8a289908745206"
     },
     {
       "bytes": 1090,
@@ -1171,9 +1176,9 @@
       "sha256": "ff6d87e64836aa7983a1ae604f050fe63b425462b1cced331bfc5130602888ed"
     },
     {
-      "bytes": 5349,
+      "bytes": 9343,
       "path": "scripts/truth_surface.py",
-      "sha256": "87865c9e04e73457ce8fc9921993a4853c7359bf873bdef5662787cc15b9d5fd"
+      "sha256": "df07dec0339114aa95b600bb0cbb1d9e26b762078a899fc1100596a25d487ba6"
     },
     {
       "bytes": 208,
@@ -1256,7 +1261,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T15:01:12+00:00",
+  "generated_at_utc": "2026-07-02T15:05:43+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

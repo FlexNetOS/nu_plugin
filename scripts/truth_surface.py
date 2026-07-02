@@ -158,17 +158,115 @@ def check_surfaces(repo: Path) -> int:
     return 0
 
 
+def load_json(path: Path) -> dict:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError) as source:
+        print(f"failed to load {path}: {source}", file=sys.stderr)
+        return {}
+    if not isinstance(value, dict):
+        print(f"{path} must contain a JSON object", file=sys.stderr)
+        return {}
+    return value
+
+
+def check_source_surfaces(repo: Path) -> int:
+    manifest = load_json(repo / MANIFEST_PATH)
+    validation = load_json(repo / VALIDATION_PATH)
+    checksums = read_text(repo / CHECKSUMS_PATH)
+    if not manifest or not validation or not checksums:
+        return 1
+
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        print("manifest files must be a list", file=sys.stderr)
+        return 1
+
+    expected_lines = []
+    failures = []
+    seen_paths = set()
+    for entry in files:
+        if not isinstance(entry, dict):
+            failures.append("manifest file entry is not an object")
+            continue
+        rel_path = entry.get("path")
+        expected_hash = entry.get("sha256")
+        expected_bytes = entry.get("bytes")
+        if not isinstance(rel_path, str):
+            failures.append("manifest file entry is missing string path")
+            continue
+        if rel_path in seen_paths:
+            failures.append(f"duplicate manifest path: {rel_path}")
+        seen_paths.add(rel_path)
+        if rel_path in GENERATED_PATHS:
+            failures.append(f"generated file must not be in checksum scope: {rel_path}")
+        path = repo / rel_path
+        if not path.is_file():
+            failures.append(f"manifest path is missing: {rel_path}")
+            continue
+        actual_hash = sha256_file(path)
+        actual_bytes = path.stat().st_size
+        if actual_hash != expected_hash:
+            failures.append(f"sha256 mismatch: {rel_path}")
+        if actual_bytes != expected_bytes:
+            failures.append(f"byte count mismatch: {rel_path}")
+        expected_lines.append(f"{expected_hash}  {rel_path}")
+
+    expected_checksums = "\n".join(expected_lines) + "\n"
+    if checksums != expected_checksums:
+        failures.append("CHECKSUMS.sha256 does not match manifest file list")
+
+    checksum_scope_hash = sha256_text(expected_checksums)
+    if manifest.get("file_count_in_checksum_scope") != len(files):
+        failures.append("manifest file_count_in_checksum_scope is stale")
+    if manifest.get("checksum_scope_files_sha256") != checksum_scope_hash:
+        failures.append("manifest checksum_scope_files_sha256 is stale")
+    if sorted(manifest.get("checksum_excluded_paths", [])) != sorted(GENERATED_PATHS):
+        failures.append("manifest checksum_excluded_paths is stale")
+
+    validation_checks = validation.get("checks")
+    if not isinstance(validation_checks, dict):
+        failures.append("validation checks must be an object")
+    else:
+        expected_checks = {
+            "manifest_path": MANIFEST_PATH.as_posix(),
+            "checksums_path": CHECKSUMS_PATH.as_posix(),
+            "checksum_scope_count": len(files),
+            "checksum_scope_files_sha256": checksum_scope_hash,
+            "generated_paths": sorted(GENERATED_PATHS),
+            "mode": "repo_native",
+        }
+        for key, expected_value in expected_checks.items():
+            if validation_checks.get(key) != expected_value:
+                failures.append(f"validation checks.{key} is stale")
+    if validation.get("status") != "passed":
+        failures.append("validation status must be passed")
+
+    if failures:
+        print("truth source validation failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"  {failure}", file=sys.stderr)
+        return 1
+
+    print(f"truth source ok: {len(files)} manifest files validated")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--write", action="store_true")
     mode.add_argument("--check", action="store_true")
+    mode.add_argument("--check-source", action="store_true")
     args = parser.parse_args()
 
     repo = Path.cwd()
     if args.write:
         write_surfaces(repo)
         return 0
+    if args.check_source:
+        return check_source_surfaces(repo)
     return check_surfaces(repo)
 
 

@@ -5,7 +5,11 @@ description: Manage GitKB knowledge base for project documentation, tasks, and c
 
 # GitKB Knowledge Base Skill
 
-GitKB is a distributed knowledge base with a git-like CLI. Documents are stored in a local database and materialized to `.kb/workspace/` for editing.
+GitKB is a distributed knowledge base with a git-like CLI. Documents are stored in a local database and materialized to `.kb/workspaces/main/` for editing.
+
+In this repository, use `/home/flexnetos/FlexNetOS/usr/bin/git-kb` explicitly
+unless your shell has already prepended `/home/flexnetos/FlexNetOS/usr/bin` to
+`PATH`.
 
 ## Common Gotchas
 
@@ -143,7 +147,7 @@ When MCP tools are available, prefer them for structured JSON output and paralle
    git-kb checkout tasks/my-task
    ```
 
-3. Edit the file at `.kb/workspace/tasks/my-task.md`
+3. Edit the file at `.kb/workspaces/main/tasks/my-task.md`
 
 4. Commit changes (always scope to your documents):
    ```bash
@@ -169,7 +173,7 @@ Before changing status to `completed`:
 ```bash
 git-kb create --type task --slug tasks/my-task --title "Implement feature X" --json
 git-kb checkout tasks/my-task
-# Edit .kb/workspace/tasks/my-task.md
+# Edit .kb/workspaces/main/tasks/my-task.md
 git-kb commit -m "Add my-task" tasks/my-task
 ```
 
@@ -186,7 +190,7 @@ Implements [[tasks/my-task]]
 
 | Term | Definition |
 |------|------------|
-| **Workspace** | `.kb/workspace/` — Files materialized for editing |
+| **Workspace** | `.kb/workspaces/main/` — Files materialized for editing |
 | **Checkout** | Materialize document from DB to workspace |
 | **Commit** | Sync workspace changes back to database |
 | **Slug** | Human-readable document ID (e.g., `tasks/my-task`) |

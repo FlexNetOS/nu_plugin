@@ -72,7 +72,7 @@
             cp -R ${source} source
             chmod -R u+w source
             cd source
-            ${pkgs.coreutils}/bin/sha256sum -c manifests/CHECKSUMS.sha256
+            ${pkgs.python3}/bin/python3 scripts/truth_surface.py --check-source
             mkdir -p "$out"
             printf '%s\n' "repo truth surface ok" > "$out/result.txt"
           '';

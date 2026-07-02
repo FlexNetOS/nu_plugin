@@ -7,15 +7,15 @@ schema_version: 2
 context_source: gitkb
 context_access:
   primary: mcp          # MCP tools (kb_list, kb_show, kb_checkout, etc.)
-  fallback: cli         # git kb commands
-  workspace: .kb/workspace/
+  fallback: cli         # /home/flexnetos/FlexNetOS/usr/bin/git-kb commands
+  workspace: .kb/workspaces/main/
 
 quick_commands:
-  check_kb_state: "git kb list --path context/"
-  bootstrap_context: "git kb checkout --path context/"
-  view_tasks: "git kb board"
-  show_active: "git kb show context/overridable/active"
-  create_doc: "git kb create <type> --slug <slug> --title <title>"
+  check_kb_state: "/home/flexnetos/FlexNetOS/usr/bin/git-kb list --path context/"
+  bootstrap_context: "/home/flexnetos/FlexNetOS/usr/bin/git-kb checkout --path context/"
+  view_tasks: "/home/flexnetos/FlexNetOS/usr/bin/git-kb board"
+  show_active: "/home/flexnetos/FlexNetOS/usr/bin/git-kb show context/overridable/active"
+  create_doc: "/home/flexnetos/FlexNetOS/usr/bin/git-kb create <type> --slug <slug> --title <title>"
 
 context_documents:
   required:
@@ -57,7 +57,7 @@ You are an expert software engineer with a unique constraint: your context perio
 Before ANY other actions, determine which path to follow:
 
 ```bash
-git kb list --path context/
+/home/flexnetos/FlexNetOS/usr/bin/git-kb list --path context/
 ```
 
 | Result | Path to Follow |
@@ -76,9 +76,9 @@ Do NOT rationalize skipping this step. Do NOT say "let me understand the codebas
 
 | User Request Type | REQUIRED First Action (do this IMMEDIATELY) |
 |-------------------|---------------------------------------------|
-| Bug report | `git kb create incident --title "Brief description" && git kb commit -m "Report bug"` |
-| Feature request | `git kb create task --title "Brief description" && git kb commit -m "Feature request"` |
-| "Fix this" / "There's a problem" | `git kb create incident --title "Brief description" && git kb commit -m "Report incident"` |
+| Bug report | `/home/flexnetos/FlexNetOS/usr/bin/git-kb create incident --title "Brief description" && /home/flexnetos/FlexNetOS/usr/bin/git-kb commit -m "Report bug"` |
+| Feature request | `/home/flexnetos/FlexNetOS/usr/bin/git-kb create task --title "Brief description" && /home/flexnetos/FlexNetOS/usr/bin/git-kb commit -m "Feature request"` |
+| "Fix this" / "There's a problem" | `/home/flexnetos/FlexNetOS/usr/bin/git-kb create incident --title "Brief description" && /home/flexnetos/FlexNetOS/usr/bin/git-kb commit -m "Report incident"` |
 | Question about code | Answer directly (no document needed) |
 | Trivial change (typo, one-liner) | Just do it (no document needed) |
 
@@ -94,7 +94,7 @@ Do NOT rationalize skipping this step. Do NOT say "let me understand the codebas
 
 ## PATH A: Empty KB (First-Time Setup)
 
-When `git kb list --path context/` returns no documents, the knowledge base is fresh. Help the user establish project context through conversational discovery.
+When `/home/flexnetos/FlexNetOS/usr/bin/git-kb list --path context/` returns no documents, the knowledge base is fresh. Help the user establish project context through conversational discovery.
 
 ### Step 1: Explain GitKB
 
@@ -130,30 +130,30 @@ Based on the conversation, create each context document:
 
 ```bash
 # Create immutable context (core truths)
-git kb create brief --slug context/immutable/project-brief --title "Project Brief"
-git kb create patterns --slug context/immutable/patterns --title "System Patterns"
-git kb create architecture --slug context/immutable/architecture --title "Architecture"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb create brief --slug context/immutable/project-brief --title "Project Brief"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb create patterns --slug context/immutable/patterns --title "System Patterns"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb create architecture --slug context/immutable/architecture --title "Architecture"
 
 # Create extensible context (evolving)
-git kb create context --slug context/extensible/product --title "Product Context"
-git kb create context --slug context/extensible/tech --title "Tech Context"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb create context --slug context/extensible/product --title "Product Context"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb create context --slug context/extensible/tech --title "Tech Context"
 
 # Create overridable context (current state)
-git kb create context --slug context/overridable/active --title "Active Context"
-git kb create context --slug context/overridable/progress --title "Progress"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb create context --slug context/overridable/active --title "Active Context"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb create context --slug context/overridable/progress --title "Progress"
 ```
 
 After creating, checkout to edit:
 ```bash
-git kb checkout --path context/
+/home/flexnetos/FlexNetOS/usr/bin/git-kb checkout --path context/
 ```
 
-Edit files in `.kb/workspace/context/` with the gathered information.
+Edit files in `.kb/workspaces/main/context/` with the gathered information.
 
 ### Step 4: Commit Initial Context
 
 ```bash
-git kb commit -m "Initial context setup"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb commit -m "Initial context setup"
 ```
 
 ### Context Document Guidelines
@@ -206,17 +206,17 @@ Before ANY work or file access:
 1. [ ] AGENTS.md fully read
 2. [ ] Context documents loaded:
    ```bash
-   git kb checkout --path context/
+   /home/flexnetos/FlexNetOS/usr/bin/git-kb checkout --path context/
    ```
 3. [ ] All required context read:
-   - [ ] `git kb show context/immutable/project-brief`
-   - [ ] `git kb show context/immutable/patterns`
-   - [ ] `git kb show context/immutable/architecture`
-   - [ ] `git kb show context/extensible/product`
-   - [ ] `git kb show context/extensible/tech`
-   - [ ] `git kb show context/overridable/active`
-   - [ ] `git kb show context/overridable/progress`
-4. [ ] Active tasks reviewed: `git kb board`
+   - [ ] `/home/flexnetos/FlexNetOS/usr/bin/git-kb show context/immutable/project-brief`
+   - [ ] `/home/flexnetos/FlexNetOS/usr/bin/git-kb show context/immutable/patterns`
+   - [ ] `/home/flexnetos/FlexNetOS/usr/bin/git-kb show context/immutable/architecture`
+   - [ ] `/home/flexnetos/FlexNetOS/usr/bin/git-kb show context/extensible/product`
+   - [ ] `/home/flexnetos/FlexNetOS/usr/bin/git-kb show context/extensible/tech`
+   - [ ] `/home/flexnetos/FlexNetOS/usr/bin/git-kb show context/overridable/active`
+   - [ ] `/home/flexnetos/FlexNetOS/usr/bin/git-kb show context/overridable/progress`
+4. [ ] Active tasks reviewed: `/home/flexnetos/FlexNetOS/usr/bin/git-kb board`
 5. [ ] Confidence level: 100%
 
 ### Context Validation State Machine
@@ -246,8 +246,8 @@ flowchart TD
 When context was already loaded in this session:
 
 ```bash
-git kb status                    # Check for pending changes
-git kb show context/overridable/active   # Refresh current state
+/home/flexnetos/FlexNetOS/usr/bin/git-kb status                    # Check for pending changes
+/home/flexnetos/FlexNetOS/usr/bin/git-kb show context/overridable/active   # Refresh current state
 ```
 
 If workspace is clean and context is still valid, resume work.
@@ -260,24 +260,24 @@ If workspace is clean and context is still valid, resume work.
 
 GitKB is a database-first knowledge base with a git-like CLI. All project context, tasks, and documentation live as **documents** in the KB database.
 
-**Key insight**: The workspace (`.kb/workspace/`) is an ephemeral editing surface. The database is the source of truth.
+**Key insight**: The workspace (`.kb/workspaces/main/`) is an ephemeral editing surface. The database is the source of truth.
 
 ### Essential Commands
 
 | Command | Purpose |
 |---------|---------|
-| `git kb list` | List all documents |
-| `git kb list --slug tasks` | List tasks by slug pattern match |
-| `git kb list task` | List tasks by type |
-| `git kb show <slug>` | View document content |
-| `git kb board` | Kanban view of tasks |
-| `git kb checkout <slug>` | Materialize for editing |
-| `git kb checkout --path context/` | Checkout by path prefix |
-| `git kb status` | Show workspace changes |
-| `git kb commit -m "msg"` | Save changes to database |
-| `git kb create <t> --slug <s> --title <t>` | Create new document |
-| `git kb graph <slug>` | Show document relationships |
-| `git kb search <query>` | Full-text search |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb list` | List all documents |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb list --slug tasks` | List tasks by slug pattern match |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb list task` | List tasks by type |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb show <slug>` | View document content |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb board` | Kanban view of tasks |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb checkout <slug>` | Materialize for editing |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb checkout --path context/` | Checkout by path prefix |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb status` | Show workspace changes |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb commit -m "msg"` | Save changes to database |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb create <t> --slug <s> --title <t>` | Create new document |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb graph <slug>` | Show document relationships |
+| `/home/flexnetos/FlexNetOS/usr/bin/git-kb search <query>` | Full-text search |
 
 ### MCP Tools (for AI agents)
 
@@ -345,10 +345,10 @@ flowchart TD
 ### Creating Tasks
 
 ```bash
-git kb create task --slug tasks/my-task --title "My Task"
-git kb checkout tasks/my-task
-# Edit .kb/workspace/tasks/my-task.md
-git kb commit -m "Add my-task"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb create task --slug tasks/my-task --title "My Task"
+/home/flexnetos/FlexNetOS/usr/bin/git-kb checkout tasks/my-task
+# Edit .kb/workspaces/main/tasks/my-task.md
+/home/flexnetos/FlexNetOS/usr/bin/git-kb commit -m "Add my-task"
 ```
 
 ### Task Document Structure
@@ -381,9 +381,9 @@ Steps to implement.
 ### Viewing Tasks
 
 ```bash
-git kb board                    # Kanban view
-git kb list task         # List all tasks
-git kb list task --status active   # Filter by status
+/home/flexnetos/FlexNetOS/usr/bin/git-kb board                    # Kanban view
+/home/flexnetos/FlexNetOS/usr/bin/git-kb list task         # List all tasks
+/home/flexnetos/FlexNetOS/usr/bin/git-kb list task --status active   # Filter by status
 ```
 
 ---
@@ -397,7 +397,7 @@ git kb list task --status active   # Filter by status
 
 2. **Context Management**
    - Context lives in GitKB as documents
-   - View with `git kb show <slug>`
+   - View with `/home/flexnetos/FlexNetOS/usr/bin/git-kb show <slug>`
    - Begin EVERY message with "PROJECT CONTEXT: ACTIVE"
 
 3. **Confidence Tracking**
@@ -433,7 +433,7 @@ git kb list task --status active   # Filter by status
 7. **Document Before Implementing**
    - NEVER jump directly into code fixes
    - When discovering bugs or work items during a task:
-     1. First create a task document (`git kb create task`)
+     1. First create a task document (`/home/flexnetos/FlexNetOS/usr/bin/git-kb create task`)
      2. Populate the task with context, goals, and acceptance criteria
      3. Only then implement the fix
    - This ensures work is tracked and survives context reinitialization
@@ -744,7 +744,7 @@ draft → review → active → superseded
 
 ### 18. Workspace Discipline
 
-**The Workspace IS Your Focus** - `.kb/workspace/` represents your current working context:
+**The Workspace IS Your Focus** - `.kb/workspaces/main/` represents your current working context:
 - **Check `kb_status`** before starting - what's already checked out?
 - **Checkout what you need** - only documents you're actively working on
 - **Commit frequently** - make progress visible
