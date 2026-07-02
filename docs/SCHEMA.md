@@ -34,3 +34,11 @@ Raw source bytes, token streams, generated outputs, and raw proof logs are blobs
 ## Stable hash rule
 
 Hash identities must include the context key and source/proof checksum. Public API and semantic hashes are proof aids, not a substitute for cargo/rustc gates.
+
+## CDB085 Static Hash Inputs
+
+Static semantic hashes are built from normalized Rust item rows: relative path,
+module path, item kind, item name, visibility, identity kind, and identity note.
+Public API hashes use the same normalized inputs but include only public rows.
+They intentionally exclude function bodies, type layout, macro expansion, and
+rustc semantic checks.

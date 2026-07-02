@@ -92,3 +92,14 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - Anonymous impl rows receive deterministic scan-order IDs and are marked
   `unstable_anonymous` so source-drift-sensitive identity cannot be treated as
   a permanent semantic key.
+
+## Closed By CDB085
+
+- Static Rust capture now emits semantic and public API hash reports from
+  normalized item rows.
+- Hash inputs include path, module path, item kind, name, visibility, identity
+  kind, and identity note.
+- Public API hashes include only public item rows; private item drift changes
+  the semantic hash while leaving the public API hash stable.
+- The report documents that these hashes exclude function bodies, type layout,
+  macro expansion, and rustc semantic checks.

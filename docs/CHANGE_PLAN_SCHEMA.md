@@ -79,3 +79,12 @@ Named syntax identities are stable keys. Anonymous syntax, such as impl blocks
 without an explicit name, receives deterministic scan-order identity for repeat
 captures but is marked `unstable_anonymous`; source drift around those nodes
 must be treated as conflict-prone until a new plan is generated.
+
+## CDB085 Semantic And API Hashes
+
+Semantic and public API hashes are proof aids for detecting source drift before
+apply. The static hash input is the normalized Rust item row: relative path,
+module path, item kind, item name, visibility, identity kind, and identity note.
+The public API hash includes only public rows. These hashes do not replace
+compiler/rustdoc proof because they exclude bodies, type layout, macro
+expansion, and rustc semantic checks.

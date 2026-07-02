@@ -62,6 +62,15 @@ pub struct NativeLinkInventory {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticHashReport {
+    pub semantic_hash: String,
+    pub public_api_hash: String,
+    pub semantic_inputs: Vec<String>,
+    pub public_api_inputs: Vec<String>,
+    pub limitation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeLibraryRow {
     pub stable_id: String,
     pub context_id: String,
@@ -765,6 +774,27 @@ pub fn capture_native_link_static(
         .gaps
         .sort_by(|left, right| left.missing_truth.cmp(&right.missing_truth));
     Ok(inventory)
+}
+
+pub fn semantic_hash_report(rows: &[RustItemRow]) -> SemanticHashReport {
+    let mut semantic_inputs = rows.iter().map(semantic_hash_input).collect::<Vec<_>>();
+    semantic_inputs.sort();
+    let mut public_api_inputs = rows
+        .iter()
+        .filter(|row| row.visibility == RustVisibility::Public)
+        .map(semantic_hash_input)
+        .collect::<Vec<_>>();
+    public_api_inputs.sort();
+
+    SemanticHashReport {
+        semantic_hash: hash_lines(&semantic_inputs),
+        public_api_hash: hash_lines(&public_api_inputs),
+        semantic_inputs,
+        public_api_inputs,
+        limitation:
+            "static syntax hash excludes function bodies, type layout, macro expansion, and rustc semantic checks"
+                .to_string(),
+    }
 }
 
 fn collect_items(
@@ -1978,6 +2008,28 @@ fn stable_macro_id(
     format!("{:x}", hasher.finalize())
 }
 
+fn semantic_hash_input(row: &RustItemRow) -> String {
+    format!(
+        "{}\0{}\0{}\0{}\0{}\0{}\0{}",
+        row.relative_path,
+        row.module_path,
+        row.item_kind.as_str(),
+        row.name,
+        row.visibility.as_str(),
+        row.identity_kind.as_str(),
+        row.identity_note
+    )
+}
+
+fn hash_lines(lines: &[String]) -> String {
+    let mut hasher = Sha256::new();
+    for line in lines {
+        hasher.update(line.as_bytes());
+        hasher.update([0]);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 fn path_to_string(path: &syn::Path) -> String {
     path.segments
         .iter()
@@ -2172,6 +2224,81 @@ impl Two {}
             named_rows
                 .iter()
                 .all(|row| row.identity_kind == RustIdentityKind::StableNamed)
+        );
+    }
+
+    // Defends: CDB085 public API hashing ignores private/body drift but moves on public symbol drift.
+    #[test]
+    fn semantic_and_public_api_hashes_are_stable_for_expected_inputs() {
+        let fixture = FixtureWorkspace::new();
+        fixture.write(
+            "src/lib.rs",
+            r#"
+pub fn public_api() -> usize {
+    1
+}
+
+fn helper() -> usize {
+    1
+}
+"#,
+        );
+        let base_rows =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+        let base = semantic_hash_report(&base_rows);
+
+        fixture.write(
+            "src/lib.rs",
+            r#"
+// comment drift should not affect static item hashes
+pub fn public_api() -> usize {
+    2
+}
+
+fn helper_private_renamed() -> usize {
+    2
+}
+"#,
+        );
+        let private_drift_rows =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+        let private_drift = semantic_hash_report(&private_drift_rows);
+
+        assert_ne!(base.semantic_hash, private_drift.semantic_hash);
+        assert_eq!(base.public_api_hash, private_drift.public_api_hash);
+        assert!(
+            private_drift
+                .limitation
+                .contains("excludes function bodies")
+        );
+
+        fixture.write(
+            "src/lib.rs",
+            r#"
+pub fn public_api_renamed() -> usize {
+    2
+}
+
+fn helper_private_renamed() -> usize {
+    2
+}
+"#,
+        );
+        let public_drift_rows =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+        let public_drift = semantic_hash_report(&public_drift_rows);
+
+        assert_ne!(base.public_api_hash, public_drift.public_api_hash);
+        assert!(
+            base.public_api_inputs
+                .iter()
+                .any(|input| input.contains("public_api"))
+        );
+        assert!(
+            public_drift
+                .public_api_inputs
+                .iter()
+                .any(|input| input.contains("public_api_renamed"))
         );
     }
 

@@ -258,3 +258,13 @@ notes. Tests prove repeated scans are stable while multiple anonymous impl rows
 remain distinct.
 
 Validation evidence is in `logs/CDB084-anonymous-identity.log`.
+
+## 2026-07-02T19:42:40Z — CDB085 — Semantic and public API hashes
+
+Added static semantic/public API hash reports to `codedb_rust_static`. Hash
+inputs are normalized item rows: path, module path, kind, name, visibility,
+identity kind, and identity note. Tests prove private item drift changes the
+semantic hash while preserving public API hash, and public symbol drift changes
+the public API hash.
+
+Validation evidence is in `logs/CDB085-semantic-api-hashing.log`.
