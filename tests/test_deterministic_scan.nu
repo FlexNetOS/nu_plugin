@@ -1,0 +1,72 @@
+# Test lane: default
+# Defends: repeated CodeDB scans of unchanged fixtures produce stable table outputs.
+
+def fail [message: string] {
+    error make { msg: $message }
+}
+
+def run_codedb [args: list<string>] {
+    let result = (^cargo run --quiet -p codedb -- ...$args | complete)
+    if $result.exit_code != 0 {
+        fail $"codedb command failed: ($args | str join ' ')\n($result.stderr)"
+    }
+    $result.stdout
+}
+
+def assert_same_hash [label: string, left: string, right: string] {
+    let left_hash = ($left | hash sha256)
+    let right_hash = ($right | hash sha256)
+    if $left_hash != $right_hash {
+        fail $"($label) was not deterministic: ($left_hash) != ($right_hash)"
+    }
+    { label: $label, sha256: $left_hash }
+}
+
+def main [] {
+    let repo_root = ($env.CODEDB_TEST_REPO_ROOT? | default (pwd))
+    let cargo_dir = ($env.CODEDB_TEST_CARGO_DIR? | default "")
+    let path = if $cargo_dir == "" {
+        $env.PATH
+    } else {
+        $env.PATH | prepend $cargo_dir
+    }
+
+    cd $repo_root
+
+    with-env { PATH: $path } {
+        let source_fixture = ([$repo_root fixtures single_simple_crate] | path join)
+        let temp_root = (mktemp -d)
+        let fixture = ([$temp_root single_simple_crate] | path join)
+
+        cp -r $source_fixture $fixture
+        run_codedb [scan $fixture --format json] | ignore
+
+        let scan_a = (run_codedb [scan $fixture --format json])
+        let scan_b = (run_codedb [scan $fixture --format json])
+        let scan_rows = ($scan_a | from json)
+
+        let checksum_a = (run_codedb [export codedb_table_checksums --repo-path $fixture --format json])
+        let checksum_b = (run_codedb [export codedb_table_checksums --repo-path $fixture --format json])
+        let checksum_rows = ($checksum_a | from json)
+
+        let source_lock = ([$source_fixture Cargo.lock] | path join)
+        if ($source_lock | path exists) {
+            fail "deterministic scan test mutated the source fixture Cargo.lock"
+        }
+
+        [
+            (assert_same_hash scan_summary $scan_a $scan_b),
+            (assert_same_hash table_checksums $checksum_a $checksum_b),
+            {
+                label: scan_tables,
+                tables: ($scan_rows | get table | str join ","),
+                row_count: ($scan_rows | length),
+            },
+            {
+                label: checksum_tables,
+                tables: ($checksum_rows | get source_table | str join ","),
+                row_count: ($checksum_rows | length),
+            },
+        ]
+    }
+}

@@ -1,0 +1,15 @@
+{
+  "created_at_utc": "2026-07-02T00:55:35.870608+00:00",
+  "extracted_byte_count": 140322,
+  "extracted_file_count": 23,
+  "extraction_path": "/mnt/data/nu_plugin_codedb_build_workspace/extracted",
+  "extraction_workspace": "/mnt/data/nu_plugin_codedb_build_workspace",
+  "package_root": "/mnt/data/nu_plugin_codedb_build_workspace/extracted/nu_plugin_codedb_execution_pack_v1_1",
+  "source_zip_filename": "nu_plugin_codedb_execution_pack_v1_1_final_verified.zip",
+  "source_zip_path": "/mnt/data/nu_plugin_codedb_execution_pack_v1_1_final_verified.zip",
+  "source_zip_sha256": "613f4b27326adc75bda89e590cd560cd27a9a1ac8c427f7952d17ad1fa2f39fd",
+  "source_zip_size_bytes": 49120,
+  "status": "extracted_verified",
+  "top_level_directory": "nu_plugin_codedb_execution_pack_v1_1",
+  "zip_integrity_bad_member": null
+}

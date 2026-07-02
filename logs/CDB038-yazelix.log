@@ -1,0 +1,20 @@
+# CDB038 Yazelix placement validation
+2026-07-02T06:44:47Z
+## required placement statements
+7:Yazelix hosts CodeDB as a runtime tool. CodeDB is not a Yazelix plugin, not a
+20:not bypass Yazelix pane/session ownership.
+## host/runtime Nu distinction
+24:Host Nushell and Yazelix runtime Nushell are separate runtimes. They can have
+25:different binary paths, versions, plugin protocol compatibility, registry files,
+32:| Host Nu | `codedb doctor --nu --format json` reports host `nu` path, version, protocol compatibility, and registration guidance. |
+33:| Yazelix runtime Nu | `codedb doctor --yazelix --format json` reports the Yazelix runtime `nu` when discoverable from explicit Yazelix environment variables. |
+## no tracked config mutation
+40:the operator's real HOME and must not mutate the tracked Yazelix runtime tree.
+53:tracked nushell/config/config.nu direct mutation
+## placement surfaces
+13:- a Nu plugin registered inside Yazelix runtime Nushell;
+14:- a CLI executable reachable from Yazelix shells and popups;
+15:- a Codex sidecar tool launched inside the Yazelix terminal workflow;
+16:- a status/report source if a later Yazelix widget consumes capture status.
+## forbidden ownership claims absent
+no forbidden Yazelix ownership claims found

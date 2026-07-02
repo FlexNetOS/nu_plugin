@@ -1,0 +1,46 @@
+CDB050 - Package nu_plugin_codedb as runtime tool
+Date: 2026-07-02
+Status: passed
+
+Changes:
+- Added flake.nix
+- Added packaging/codedb_runtime_tool.nix
+- Added docs/CODEDB_YAZELIX_RUNTIME_TOOL.md
+
+Package contract:
+- flake package default -> codedb_runtime_tools
+- flake package codedb_runtime_tools -> installs bin/codedb and bin/nu_plugin_codedb
+- flake package codedb -> same runtime-tool output
+- flake package nu_plugin_codedb -> same runtime-tool output
+- derivation writes share/codedb/runtime-tool-metadata.json
+- passthru.runtimeToolMetadata declares YAZELIX_CODEDB_BIN and YAZELIX_CODEDB_PLUGIN_BIN path contracts
+
+Forbidden action check:
+- No global install
+- No profile mutation
+- No Home Manager switch
+- No Nu plugin registry mutation
+
+Validation passed:
+- nix flake show /home/flexnetos/Downloads/nu_plugin --no-write-lock-file
+- nix fmt --no-write-lock-file
+  - package-local formatter wrapper formats flake.nix and packaging/*.nix
+- nix flake show /home/flexnetos/Downloads/nu_plugin --no-write-lock-file
+  - after formatter wrapper fix
+- nix build /home/flexnetos/Downloads/nu_plugin#codedb_runtime_tools --out-link /tmp/codedb-cdb050-result --no-write-lock-file
+- /tmp/codedb-cdb050-result/bin/codedb --version
+  - output: 0.1.0
+- test -x /tmp/codedb-cdb050-result/bin/nu_plugin_codedb
+- sed -n '1,160p' /tmp/codedb-cdb050-result/share/codedb/runtime-tool-metadata.json
+- nix build /home/flexnetos/Downloads/nu_plugin#checks.$(nix eval --raw --impure --expr builtins.currentSystem).codedb_runtime_tool_smoke --out-link /tmp/codedb-cdb050-check --no-write-lock-file
+- find -L /tmp/codedb-cdb050-check -maxdepth 2 -type f -print -exec sed -n '1,80p' {} \;
+  - codedb-version.txt: 0.1.0
+  - plugin-path.txt: /nix/store/...-codedb-runtime-tools-0.1.0/bin/nu_plugin_codedb
+- nix build /home/flexnetos/Downloads/nu_plugin#checks.$(nix eval --raw --impure --expr builtins.currentSystem).codedb_runtime_tool_smoke --out-link /tmp/codedb-cdb050-check --no-write-lock-file
+  - rerun passed after formatter wrapper fix
+- nix eval /home/flexnetos/Downloads/nu_plugin#codedb_runtime_tools.passthru.runtimeToolMetadata --json --no-write-lock-file
+  - commands: codedb; nu_plugin_codedb
+  - env: YAZELIX_CODEDB_BIN=bin/codedb; YAZELIX_CODEDB_PLUGIN_BIN=bin/nu_plugin_codedb
+
+Note:
+- Direct nu_plugin_codedb --version exits with the nu-plugin protocol message that plugins must be run from within Nushell. CDB050 keeps packaging validation to executable/metadata checks and leaves protocol execution to CDB051/CDB052.

@@ -1,0 +1,33 @@
+# CDB030 Nu plugin validation
+## fmt
+## build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+## transient plugin tables
+8
+## transient plugin scan
+5
+## transient plugin fs entries
+3
+## transient plugin rust items
+1
+## transient plugin export
+1
+## unsupported export fails clearly
+Error: nu::shell::error
+
+  x unsupported export table
+   ,-[source:1:1]
+ 1 | codedb export nope --repo /home/flexnetos/Downloads/nu_plugin/crates/codedb_fixtures
+   : ^^^^^^|^^^^^^
+   :       `-- nope; expected filesystem_entries, source_files, cargo_packages, cargo_dependencies, cargo_sources, rust_items, rust_macros, rust_cfg, or build_scripts
+   `----
+
+unsupported export rejected as expected
+## cargo test
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/main.rs (target/debug/deps/nu_plugin_codedb-44c408dbe925ad63)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

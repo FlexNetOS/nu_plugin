@@ -1,0 +1,43 @@
+# CDB013 workspace validation
+2026-07-02T06:53:43Z
+## root workspace manifest
+[workspace]
+members = [
+  "crates/codedb",
+  "crates/codedb_cargo",
+  "crates/codedb_core",
+  "crates/codedb_fixtures",
+  "crates/codedb_build_capture",
+  "crates/codedb_mcp",
+  "crates/codedb_rust_static",
+  "crates/codedb_store_redb",
+  "crates/nu_plugin_codedb",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.92"
+
+[workspace.dependencies]
+codedb-core = { path = "crates/codedb_core" }
+nu-plugin = "0.112.2"
+nu-protocol = "0.112.2"
+## workspace crate manifests
+crates/codedb/Cargo.toml
+crates/codedb_build_capture/Cargo.toml
+crates/codedb_cargo/Cargo.toml
+crates/codedb_core/Cargo.toml
+crates/codedb_fixtures/Cargo.toml
+crates/codedb_mcp/Cargo.toml
+crates/codedb_rust_static/Cargo.toml
+crates/codedb_store_redb/Cargo.toml
+crates/nu_plugin_codedb/Cargo.toml
+## cargo metadata --format-version 1 --no-deps
+9
+## cargo build workspace metadata targets
+   Compiling codedb v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb)
+   Compiling codedb-mcp v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb_mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s

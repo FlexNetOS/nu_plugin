@@ -1,0 +1,30 @@
+# CDB000 evidence log
+generated_at_utc: 2026-07-02T01:44:15Z
+repair_context: Created during CDB068 CSV source-of-truth repair because the audit found completed scaffold rows without raw log files.
+task_name: Initialize execution package
+status_in_task_graph: complete
+
+verified_artifacts:
+- path: CODEDB_START_HERE.md
+  exists: true
+  bytes: 1196
+  sha256: 7f39cebc006690752f3233c3ea4c5adb49d00313ee72db5eb51d65850226a3a5
+- path: GOAL.md
+  exists: true
+  bytes: 500
+  sha256: adfcf714f1a0a8d94f3bf79fc6bbc9016f198c22980ebd3872006bb62a6868a7
+- path: SUBGOALS.md
+  exists: true
+  bytes: 455
+  sha256: a01f38094ecb0aaebf8eb04726516bb1444bd95122b5dd865893eae1ca9716a4
+- path: ACCEPTANCE.md
+  exists: true
+  bytes: 910
+  sha256: 01018c7206398687526f1155f4a7d1096c9cfd7ca0497258806a7f9a7ab5dfa8
+- path: FIRST_RUN_PROMPT.md
+  exists: true
+  bytes: 1243
+  sha256: 35182b7b7e0bf9cc8dbeecd929bbdeeb37db6041736583ee1a8d1233d9e80284
+
+validation_signal: scaffold artifact paths are exact package-relative paths and exist unless explicitly future/planned.
+redaction: no raw secrets recorded in this log.

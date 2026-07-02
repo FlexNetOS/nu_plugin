@@ -1,0 +1,31 @@
+CDB057 - Add no-real-HOME plugin registration test
+Date: 2026-07-02
+Status: passed
+
+Scope:
+- Prove CodeDB plugin registration uses temp HOME/plugin config.
+- Record before/after real HOME registry hashes.
+- Fail if plugin registration mutates the operator's real HOME registry.
+
+Changes:
+- Added tests/test_no_real_home_plugin_registration.nu.
+
+Validation passed:
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin nu --no-config-file tests/test_no_real_home_plugin_registration.nu
+  - status: passed
+  - real_home_registry_unchanged: true
+  - plugin_table_rows: 8
+- nu --no-config-file --ide-check 100 tests/test_no_real_home_plugin_registration.nu
+  - exit 0, hints only
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin nu --no-config-file -c 'source tests/test_no_real_home_plugin_registration.nu; main | to json'
+  - real_before.file_count: 0
+  - real_after.file_count: 0
+  - real_before.snapshot_sha256: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
+  - real_after.snapshot_sha256: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
+  - temp_plugin_config_sha256: 1f6e2a9c5aa2905af0b40a048bcf74ab35da8722380a5aa7bddb8a121cafba92
+- marker search for CDB057/real HOME/temp HOME/before-after report text passed
+- find fixtures -name Cargo.lock -print | sort
+  - printed no paths
+
+Acceptance signal:
+- HOME safety proven.

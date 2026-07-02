@@ -1,0 +1,14 @@
+# CDB037 Codex bridge validation
+2026-07-02T06:42:12Z
+## config parses and command target is correct
+10
+## sample references bounded limits
+65536
+## forbidden auth/session patterns absent from sample config
+no forbidden auth/session patterns found in sample config
+## required doc references
+29:- Read-only tools only.
+32:- Raw source disabled by default.
+33:- No browser/session/auth hacks.
+37:`examples/codex/codedb_mcp_config.json` is a lintable MCP server configuration
+44:codedb mcp serve --repo-path <path> --store <path> --default-limit 50 --max-bytes 65536

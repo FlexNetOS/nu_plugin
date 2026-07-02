@@ -1,0 +1,26 @@
+# CDB005 evidence log
+generated_at_utc: 2026-07-02T01:44:15Z
+repair_context: Created during CDB068 CSV source-of-truth repair because the audit found completed scaffold rows without raw log files.
+task_name: Generate manifest, checksums, link report
+status_in_task_graph: complete
+
+verified_artifacts:
+- path: manifests/PACK_MANIFEST.json
+  exists: true
+  bytes: 8964
+  sha256: see final manifests/CHECKSUMS.sha256; not embedded here to avoid stale self-reference
+- path: manifests/CHECKSUMS.sha256
+  exists: true
+  bytes: 4577
+  sha256: see final manifests/CHECKSUMS.sha256; not embedded here to avoid stale self-reference
+- path: manifests/LINK_CHECK_REPORT.md
+  exists: true
+  bytes: 172
+  sha256: fc87878a187de35bb5e815b1ae57425816145667a66ce2d484688610008c3b85
+- path: manifests/PACKAGE_VALIDATION.json
+  exists: true
+  bytes: 1995
+  sha256: see final manifests/CHECKSUMS.sha256; not embedded here to avoid stale self-reference
+
+validation_signal: scaffold artifact paths are exact package-relative paths and exist unless explicitly future/planned.
+redaction: no raw secrets recorded in this log.

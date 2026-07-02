@@ -1,0 +1,16 @@
+# CDB066 checklist completion
+
+created_at_utc: 2026-07-02T01:02:12.784916+00:00
+item_count: 109
+unmapped_count: 0
+status: passed
+
+current_validation_utc: 2026-07-02T08:40Z
+current_validation:
+- PASS manifests/CHECKLIST_COMPLETION.json status is passed
+- PASS JSON item_count is 109 and equals the number of item entries
+- PASS JSON unmapped_count is 0
+- PASS computed status counts match manifests/CHECKLIST_COMPLETION.json
+- PASS all mapped CDB task IDs exist in execution/TASK_GRAPH.csv
+- PASS all evidence paths declared in checklist items exist in the package
+- PASS CHECKLIST_COMPLETION.md contains 109 mapped checklist rows

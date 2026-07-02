@@ -1,0 +1,118 @@
+# CDB031 doctor validation
+## fmt
+## build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+## doctor nu json
+[
+  {
+    "action": "use this path for runtime-specific plugin registration",
+    "check": "nu_path",
+    "component": "host_nu",
+    "note": "Nu executable discovered without mutating plugin registries",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "/nix/store/xwjz89mzwkvc39fnw6rdds1bj7a52r95-nushell-0.112.2/bin/nu"
+  },
+  {
+    "action": "compare against the plugin protocol version before registration",
+    "check": "nu_version",
+    "component": "host_nu",
+    "note": "Nu version command completed",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "0.112.2"
+  },
+  {
+    "action": "rebuild the plugin against the target Nu protocol if degraded",
+    "check": "plugin_protocol_compatibility",
+    "component": "host_nu",
+    "note": "runtime Nu version matches nu-plugin/nu-protocol 0.112.2",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "nu-plugin=0.112.2;nu-protocol=0.112.2"
+  },
+  {
+    "action": "run cargo build -p nu_plugin_codedb before registration",
+    "check": "plugin_binary_path",
+    "component": "host_nu",
+    "note": "expected sibling nu_plugin_codedb binary next to codedb",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "/home/flexnetos/Downloads/nu_plugin/target/debug/nu_plugin_codedb"
+  },
+  {
+    "action": "plugin add /home/flexnetos/Downloads/nu_plugin/target/debug/nu_plugin_codedb",
+    "check": "plugin_registration_status",
+    "component": "host_nu",
+    "note": "doctor does not mutate or inspect user plugin registries in CDB031",
+    "status": "degraded",
+    "table": "doctor_checks",
+    "value": "unknown"
+  }
+]
+## doctor yazelix json
+[
+  {
+    "action": "set YAZELIX_NU_PATH or YAZELIX_RUNTIME_NU for runtime-specific doctor checks",
+    "check": "runtime_nu_path",
+    "component": "yazelix_nu",
+    "note": "Yazelix runtime Nu was not discoverable from explicit Yazelix environment variables",
+    "status": "degraded",
+    "table": "doctor_checks",
+    "value": ""
+  }
+]
+## doctor codex meta envctl json
+[
+  {
+    "action": "use explicit CodeDB exports for integration boundaries",
+    "check": "tool_path",
+    "component": "codex",
+    "note": "tool discovered on PATH",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "/home/flexnetos/.local/bin/codex"
+  },
+  {
+    "action": "consume JSON/NUON/CSV output; do not read redb internals",
+    "check": "integration_boundary",
+    "component": "codex",
+    "note": "Codex CLI is optional; use codedb CLI/MCP directly if Codex is unavailable",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "codedb exports"
+  },
+  {
+    "action": "install the tool or use CodeDB's direct CLI/export surface",
+    "check": "tool_path",
+    "component": "meta",
+    "note": "meta is optional in V1.1; pass explicit repo paths when meta is unavailable",
+    "status": "degraded",
+    "table": "doctor_checks",
+    "value": ""
+  },
+  {
+    "action": "install the tool or use CodeDB's direct CLI/export surface",
+    "check": "tool_path",
+    "component": "envctl",
+    "note": "envctl should consume CodeDB exports; do not read redb internals",
+    "status": "degraded",
+    "table": "doctor_checks",
+    "value": ""
+  }
+]
+## parse nu rows
+5
+## parse yazelix rows
+1
+## parse integration rows
+4
+## cargo test
+   Compiling codedb v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/main.rs (target/debug/deps/codedb-63959afdeeed9c9d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

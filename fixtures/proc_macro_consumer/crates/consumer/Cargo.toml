@@ -1,0 +1,11 @@
+[package]
+name = "codedb_fixture_proc_macro_consumer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+codedb_fixture_demo_macro = { path = "../demo_macro" }
+
+[lib]
+path = "src/lib.rs"

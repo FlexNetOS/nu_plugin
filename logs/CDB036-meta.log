@@ -1,0 +1,19 @@
+# CDB036 meta repo selection validation
+2026-07-02T06:38:26Z
+## fmt
+## build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+## scan with explicit meta repo selection
+6
+## export selection nuon
+1
+## export selection csv
+1
+## conflicting selection refuses
+1:codedb: conflicting repo selection: positional repo path /tmp/one differs from explicit repo path /tmp/two
+## docs boundary
+21:codedb scan --repo-id <meta_project_id> --repo-path <path> --store <path> --format json
+22:codedb export meta_repo_selection --repo-id <meta_project_id> --repo-path <path> --store <path> --format nuon
+25:`--repo-path` is the scan root. `--repo-id` is a stable label supplied by meta or
+27:future store boundary, but CDB036 does not create, open, or mutate that store.
+34:`selection_source`, and `mutation_policy = read_only_no_meta_mutation`.

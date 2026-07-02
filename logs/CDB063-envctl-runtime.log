@@ -1,0 +1,22 @@
+CDB063 envctl runtime integration log
+
+Goal:
+- Add explicit CodeDB envctl runtime integration rows.
+- Keep CodeDB as the authoritative file/datatable, blob, Rust, and crate fact store.
+- Keep envctl as a downstream consumer that materializes files only when requested.
+
+Implemented:
+- Added codedb_runtime_integration direct export.
+- Included codedb_runtime_integration in aggregate `codedb export envctl`.
+- Included codedb_runtime_integration in codedb_table_checksums.
+- Documented the runtime integration table in docs/ENVCTL_EXPORT_CONTRACT.md.
+
+Validation:
+- PASS: PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo fmt --check
+- PASS: PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin cargo test -p codedb
+- PASS: codedb export envctl emitted 4 codedb_runtime_integration rows from a temporary fixture copy
+- PASS: codedb export envctl emitted 1 codedb_table_checksums row for codedb_runtime_integration
+- PASS: find fixtures -name Cargo.lock -print | sort produced no fixture lock files
+
+Acceptance signal:
+- envctl integration complete

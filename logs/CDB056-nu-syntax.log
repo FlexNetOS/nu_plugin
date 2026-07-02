@@ -1,0 +1,31 @@
+CDB056 - Extend syntax validator path for CodeDB fixtures
+Date: 2026-07-02
+Status: passed
+
+Scope:
+- Validate CodeDB Nu syntax surfaces with temp-HOME isolation.
+- Use stub initializer fixtures instead of the operator's real HOME or plugin registry.
+
+Changes:
+- Added tests/test_nushell_syntax_gate.nu.
+- Added fixtures/nushell_syntax/stub_initializer.nu.
+- Added docs/CODEDB_NUSHELL_SYNTAX_GATE.md.
+
+Validation passed:
+- nu --no-config-file tests/test_nushell_syntax_gate.nu
+  - status: passed
+  - checked_files: 13
+  - temp HOME and isolated plugin config used
+- nu --no-config-file --ide-check 100 tests/test_nushell_syntax_gate.nu
+  - exit 0, hints only
+- nu --no-config-file -c 'source tests/test_nushell_syntax_gate.nu; main | to json'
+  - 13 syntax rows returned
+  - every row status: passed
+  - every row exit_code: 0
+  - every row stderr_sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+- marker search for CDB056/temp-HOME/stub initializer/no real HOME/plugin registry text passed
+- find fixtures -name Cargo.lock -print | sort
+  - printed no paths
+
+Acceptance signal:
+- Nu syntax gate proven.

@@ -1,0 +1,18 @@
+# CDB039 runner proof validation
+2026-07-02T06:48:37Z
+## fmt
+## build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+## export runner proof json
+13
+## export runner proof nuon
+13
+## export runner proof csv
+13
+## release gate docs
+5:runner/fxrun owns release readiness. CodeDB provides runner-readable proof
+14:codedb export runner_proof_manifest --repo-id <id> --repo-path <path> --store <path> --format json
+20:- `status` (`satisfied`, `degraded`, `failed`, or `pending`)
+24:- `release_without_provenance = forbidden`
+26:Runner must treat `failed` and `pending` rows as release blockers. `degraded` rows
+34:- `codedb doctor --nu`, `--yazelix`, and `--codex` report usable or explicitly degraded status;

@@ -1,0 +1,49 @@
+Using saved setting for 'extra-substituters = https://yazelix.cachix.org' from ~/.local/share/nix/trusted-settings.json.
+Using saved setting for 'extra-trusted-public-keys = yazelix.cachix.org-1:ZgxIjQvaP0VTWL8Racx27mpUNzDJ97xC2y7QWYjmGNM=' from ~/.local/share/nix/trusted-settings.json.
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+evaluation warning: The xorg package set has been deprecated, 'xorg.libX11' has been renamed to 'libx11'
+evaluation warning: The xorg package set has been deprecated, 'xorg.libxcb' has been renamed to 'libxcb'
+evaluation warning: The xorg package set has been deprecated, 'xorg.libxshmfence' has been renamed to 'libxshmfence'
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+# CDB029 CLI validation
+Thu Jul  2 05:48:38 UTC 2026
+
+## cargo fmt -p codedb --check
+
+## cargo build -p codedb
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+
+## codedb schema --format json
+[
+  {
+    "note": "redb schema versioning starts after CDB015",
+    "rows": "0",
+    "status": "planned",
+    "table": "schema_versions"
+  },
+  {
+    "note": "redb store metadata starts after CDB015",
+    "rows": "0",
+    "status": "planned",
+    "table": "store_metadata"
+  }
+]
+
+## codedb scan <fixture> --format nuon
+[{note: "read-only filesystem scan completed", rows: "4", status: "available", table: "filesystem_entries"}, {note: "static syntax item scan completed", rows: "2", status: "available", table: "rust_items"}, {note: "cargo metadata package rows captured", rows: "1", status: "available", table: "cargo_packages"}, {note: "cargo metadata dependency rows captured", rows: "0", status: "available", table: "cargo_dependencies"}, {note: "cargo source provenance rows captured", rows: "1", status: "available", table: "cargo_sources"}]
+
+## codedb export rust_items --repo <fixture> --format csv
+confidence,item_kind,module_path,name,relative_path,stable_id,table,visibility
+syntax_only,function,,make,src/lib.rs,d896ee9dd505ddb602101c2112304c3bf48d210e90ebae6d936d089430a2af9c,rust_items,public
+syntax_only,struct,,Thing,src/lib.rs,45827339d619572320614a2ed1040e14172469ed8e956d06e8294ae582df9c46,rust_items,public
+
+## JSON parse validation
+2
+
+## NUON parse validation
+5
+
+## CSV parse validation
+2

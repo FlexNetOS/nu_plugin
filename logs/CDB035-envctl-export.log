@@ -1,0 +1,20 @@
+# CDB035 envctl export validation
+2026-07-02T06:32:53Z
+## envctl source repo
+## master...origin/master
+98a7e36090ddb53b3af1b7db622a14559a29665d
+98a7e36090ddb53b3af1b7db622a14559a29665d
+## fmt
+## build
+   Compiling codedb v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.46s
+## export json
+23
+## export nuon
+23
+## export csv
+9
+## authority boundary grep
+7:CodeDB is the authority for file-to-datatable conversion and code facts. It owns blob
+11:envctl is a downstream consumer. It consumes CodeDB exports and checksums when it needs
+12:to materialize, regenerate, or reconcile files. It must not read redb internals or

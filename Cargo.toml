@@ -1,0 +1,24 @@
+[workspace]
+members = [
+  "crates/codedb",
+  "crates/codedb_cargo",
+  "crates/codedb_core",
+  "crates/codedb_fixtures",
+  "crates/codedb_build_capture",
+  "crates/codedb_mcp",
+  "crates/codedb_rust_static",
+  "crates/codedb_store_redb",
+  "crates/nu_plugin_codedb",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.92"
+
+[workspace.dependencies]
+codedb-core = { path = "crates/codedb_core" }
+nu-plugin = "0.112.2"
+nu-protocol = "0.112.2"

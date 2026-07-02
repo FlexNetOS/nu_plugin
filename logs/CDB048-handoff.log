@@ -1,0 +1,40 @@
+# CDB048 handoff/backlog validation
+## required files
+-rw-r--r-- 1 flexnetos flexnetos 1824 Jul  2 02:22 BACKLOG.md
+-rw-rw-r-- 1 flexnetos flexnetos 2953 Jul  2 02:22 HANDOFF.md
+## handoff required markers
+3:Task: CDB048
+7:The V1.1 implementation slice has progressed through CDB047.
+18:- CDB047: release manifest and checksums
+22:- `logs/CDB046-validation.log`
+23:- `logs/CDB047-manifest.log`
+24:- `manifests/PACK_MANIFEST.json`
+44:CDB047 passed with:
+53:CodeDB is the authoritative file-to-table and crate-fact store layer for this package. It preserves table, blob, checksum, provenance, capture-gap, and no-mutation semantics. Envctl is a downstream edge integration that consumes CodeDB exports and can materialize files when needed.
+57:## Capture Gaps
+69:## Next Work
+73:The next planned block starts at CDB049:
+75:- CDB049: inspect Yazelix Nushell runtime bridge
+## backlog required markers
+7:- DataFusion/Arrow analytical projection
+8:- Tantivy full-text search index
+10:- DuckDB read-only analytical export
+12:- rust-analyzer/HIR semantic backend
+18:- envctl native CodeDB export importer
+19:- GitKB summarizer for capture gaps
+25:## V1.1 capture gaps to keep visible
+28:- proc-macro dynamic execution is blocked unless explicit unsafe approval is supplied
+33:- MCP raw source/blob reads remain blocked by default
+## PRD MVP2 cross-check
+175:- DataFusion/DuckDB/Qdrant/Tantivy/Postgres/libSQL server as primary V1 store.
+193:| DataFusion/DuckDB first | Useful later; too much query surface before capture correctness. |
+214:- Lower dependency and operational surface than DuckDB, DataFusion, Qdrant, Postgres, RocksDB, or libSQL server mode.
+1063:rustc/cargo/rustfmt/clippy/rust-analyzer paths and versions
+1171:- DataFusion/Arrow analytical projection.
+1172:- Tantivy full-text search index.
+1174:- DuckDB read-only analytical export.
+1183:- GitKB summarizer for capture gaps.
+## markdown parse smoke
+HANDOFF.md
+BACKLOG.md
+CDB048 validation passed

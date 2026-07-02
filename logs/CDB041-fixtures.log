@@ -1,0 +1,102 @@
+# CDB041 fixture matrix validation
+cargo_bin=/nix/store/xlli1a8m35h5kwavjajnp6nl90xmjgcx-cargo-1.94.0/bin/cargo
+cargo 1.94.0 (85eff7c80 2026-01-15)
+## fixture files
+fixtures/README.md
+fixtures/build_script/Cargo.toml
+fixtures/build_script/build.rs
+fixtures/build_script/src/lib.rs
+fixtures/clean_repo/Cargo.toml
+fixtures/clean_repo/src/lib.rs
+fixtures/dirty_repo/README.md
+fixtures/feature_cfg/Cargo.toml
+fixtures/feature_cfg/deps/unix_helper/Cargo.toml
+fixtures/feature_cfg/deps/unix_helper/src/lib.rs
+fixtures/feature_cfg/src/lib.rs
+fixtures/fixture_matrix.csv
+fixtures/include_edges/Cargo.toml
+fixtures/include_edges/assets/blob.bytes
+fixtures/include_edges/assets/message.txt
+fixtures/include_edges/src/lib.rs
+fixtures/macro_rules/Cargo.toml
+fixtures/macro_rules/src/lib.rs
+fixtures/native_link/Cargo.toml
+fixtures/native_link/build.rs
+fixtures/native_link/src/lib.rs
+fixtures/non_rust_assets/Cargo.toml
+fixtures/non_rust_assets/assets/config.kdl
+fixtures/non_rust_assets/assets/data.json
+fixtures/non_rust_assets/src/lib.rs
+fixtures/out_dir_generator/Cargo.toml
+fixtures/out_dir_generator/build.rs
+fixtures/out_dir_generator/src/lib.rs
+fixtures/proc_macro_consumer/Cargo.toml
+fixtures/proc_macro_consumer/crates/consumer/Cargo.toml
+fixtures/proc_macro_consumer/crates/consumer/src/lib.rs
+fixtures/proc_macro_consumer/crates/demo_macro/Cargo.toml
+fixtures/proc_macro_consumer/crates/demo_macro/src/lib.rs
+fixtures/secret_like/Cargo.toml
+fixtures/secret_like/src/lib.rs
+fixtures/single_simple_crate/Cargo.toml
+fixtures/single_simple_crate/src/lib.rs
+fixtures/symlink/README.md
+fixtures/symlink/symlink_manifest.txt
+fixtures/symlink/target.txt
+fixtures/workspace_two_crates/Cargo.toml
+fixtures/workspace_two_crates/crates/app/Cargo.toml
+fixtures/workspace_two_crates/crates/app/src/lib.rs
+fixtures/workspace_two_crates/crates/helper/Cargo.toml
+fixtures/workspace_two_crates/crates/helper/src/lib.rs
+## fixture matrix row count
+14
+## fixture ids
+single_simple_crate
+workspace_two_crates
+feature_cfg
+macro_rules
+proc_macro_consumer
+build_script
+out_dir_generator
+include_edges
+non_rust_assets
+native_link
+secret_like
+clean_repo
+dirty_repo
+symlink
+## cargo metadata manifests
+metadata fixtures/single_simple_crate/Cargo.toml
+1
+metadata fixtures/workspace_two_crates/Cargo.toml
+2
+metadata fixtures/feature_cfg/Cargo.toml
+2
+metadata fixtures/macro_rules/Cargo.toml
+1
+metadata fixtures/proc_macro_consumer/Cargo.toml
+2
+metadata fixtures/build_script/Cargo.toml
+1
+metadata fixtures/out_dir_generator/Cargo.toml
+1
+metadata fixtures/include_edges/Cargo.toml
+1
+metadata fixtures/non_rust_assets/Cargo.toml
+1
+metadata fixtures/native_link/Cargo.toml
+1
+metadata fixtures/secret_like/Cargo.toml
+1
+metadata fixtures/clean_repo/Cargo.toml
+1
+## required documentation checks
+fixtures/fixture_matrix.csv:8:out_dir_generator,out_dir_generator,generated artifact reproduction,"OUT_DIR generator source; generated artifact when unsafe run approved","CDB043;CDB045"
+fixtures/fixture_matrix.csv:12:secret_like,secret_like,secret policy fixture,"placeholder secret-looking strings; raw export refusal or hash-only rows","CDB043;CDB044"
+fixtures/fixture_matrix.csv:15:symlink,symlink,symlink/platform boundary,"symlink manifest row or platform limitation gap","CDB042;CDB043"
+fixtures/README.md:6:CodeDB is expected to preserve richer store semantics than envctl. The CodeDB
+fixtures/README.md:8:and validation evidence. Envctl is an edge integration that can receive selected
+fixtures/README.md:21:| out_dir_generator | out_dir_generator | OUT_DIR generated artifact when unsafe execution is approved |
+fixtures/README.md:25:| secret_like | secret_like | secret-looking placeholder rows with refusal/hash-only policy |
+fixtures/README.md:28:| symlink | symlink | symlink manifest rows or platform limitation gap |
+fixtures/README.md:30:## No-Mutation Boundary
+CDB041 validation passed

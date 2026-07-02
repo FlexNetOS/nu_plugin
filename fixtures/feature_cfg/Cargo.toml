@@ -1,0 +1,17 @@
+[package]
+name = "codedb_fixture_feature_cfg"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[features]
+default = []
+extra = []
+
+[target.'cfg(unix)'.dependencies]
+codedb_fixture_unix_helper = { path = "deps/unix_helper" }
+
+[lib]
+path = "src/lib.rs"

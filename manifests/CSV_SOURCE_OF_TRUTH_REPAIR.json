@@ -1,0 +1,60 @@
+{
+  "generated_at_utc": "2026-07-02T01:44:15Z",
+  "repair_task_id": "CDB068",
+  "input_audit": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md",
+  "source_truth": "execution/TASK_GRAPH.csv",
+  "repair_scope": [
+    "Normalize current package artifact references to exact package-relative paths.",
+    "Create missing evidence logs for completed scaffold rows CDB000-CDB005.",
+    "Add direct CSV governing-doc references to ACCEPTANCE.md, FIRST_RUN_PROMPT.md, and nu_plugin_codedb_remaining_execution_checklist.md.",
+    "Add source-of-truth/path-resolution columns to TASK_GRAPH.csv and TASK_FILE_MAP.csv.",
+    "Add CDB068 as a completed repair row and make CDB013 depend on it.",
+    "Reseal manifests, checksums, link report, validation, ledger, and worklog."
+  ],
+  "before": {
+    "task_count": 68,
+    "task_status_counts": {
+      "complete": 17,
+      "planned": 51
+    },
+    "missing_scaffold_logs": [
+      "logs/CDB000-",
+      "logs/CDB001-",
+      "logs/CDB002-",
+      "logs/CDB003-",
+      "logs/CDB004-",
+      "logs/CDB005-"
+    ],
+    "audit_report": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md"
+  },
+  "after": {
+    "task_count": 69,
+    "task_status_counts": {
+      "complete": 18,
+      "planned": 51
+    },
+    "new_task": "CDB068",
+    "cdb013_depends_on": "CDB006;CDB068",
+    "new_columns": [
+      "source_truth",
+      "governing_docs",
+      "acceptance_refs",
+      "first_run_refs",
+      "stop_condition_refs",
+      "checklist_source_files",
+      "current_artifact_paths",
+      "future_artifact_paths",
+      "non_file_outputs",
+      "path_resolution_status",
+      "evidence_status",
+      "path_policy",
+      "implementation_start_gate"
+    ]
+  },
+  "policy": {
+    "csv_source_of_truth": true,
+    "exact_current_paths_required": true,
+    "future_globs_allowed_only_for_planned_tasks": true,
+    "completed_tasks_require_existing_raw_logs": true
+  }
+}

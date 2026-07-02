@@ -1,0 +1,209 @@
+# CDB047 release manifest validation
+## manifest summary
+{
+  "task_id": "CDB047",
+  "generated_at_utc": "2026-07-02T07:19:25Z",
+  "file_count_in_checksum_scope": 166,
+  "validation_status": "generated",
+  "checksum_excluded_paths": [
+    "manifests/CHECKSUMS.sha256",
+    "manifests/PACKAGE_VALIDATION.json",
+    "manifests/PACK_MANIFEST.json",
+    "logs/CDB047-manifest.log"
+  ]
+}
+## checksum file line count
+166 manifests/CHECKSUMS.sha256
+## checksum verification
+ACCEPTANCE.md: OK
+BACKLOG.md: OK
+CHECKLIST_COMPLETION.md: OK
+CODEDB_START_HERE.md: OK
+Cargo.lock: OK
+Cargo.toml: OK
+DOC_GRAPH.md: OK
+DRIFT_GUARD.md: OK
+FIRST_RUN_PROMPT.md: OK
+GOAL.md: OK
+NAVIGATION.json: OK
+NAVIGATION.md: OK
+READINESS_GATE.md: OK
+STOP_CONDITIONS.md: OK
+SUBGOALS.md: OK
+crates/codedb/Cargo.toml: OK
+crates/codedb/src/main.rs: OK
+crates/codedb_build_capture/Cargo.toml: OK
+crates/codedb_build_capture/src/lib.rs: OK
+crates/codedb_cargo/Cargo.toml: OK
+crates/codedb_cargo/src/lib.rs: OK
+crates/codedb_core/Cargo.toml: OK
+crates/codedb_core/src/lib.rs: OK
+crates/codedb_fixtures/Cargo.toml: OK
+crates/codedb_fixtures/src/lib.rs: OK
+crates/codedb_mcp/Cargo.toml: OK
+crates/codedb_mcp/src/lib.rs: OK
+crates/codedb_rust_static/Cargo.toml: OK
+crates/codedb_rust_static/src/lib.rs: OK
+crates/codedb_store_redb/Cargo.toml: OK
+crates/codedb_store_redb/src/lib.rs: OK
+crates/nu_plugin_codedb/Cargo.toml: OK
+crates/nu_plugin_codedb/src/main.rs: OK
+docs/ARCHITECTURE.md: OK
+docs/CODEX_BRIDGE.md: OK
+docs/COMMANDS.md: OK
+docs/ENVCTL_EXPORT_CONTRACT.md: OK
+docs/FIXTURE_MATRIX.md: OK
+docs/INTEGRATION_CONTRACTS.md: OK
+docs/META_INTEGRATION.md: OK
+docs/NUSHELL_PLUGIN_COMPAT.md: OK
+docs/RELEASE_GATE.md: OK
+docs/SCHEMA.md: OK
+docs/SECURITY_AND_SECRET_POLICY.md: OK
+docs/TEST_PLAN.md: OK
+docs/UNSAFE_CAPTURE_POLICY.md: OK
+docs/YAZELIX_PLACEMENT.md: OK
+examples/codex/codedb_mcp_config.json: OK
+execution/COMMAND_LEDGER.csv: OK
+execution/TASK_FILE_MAP.csv: OK
+execution/TASK_GRAPH.csv: OK
+execution/TASK_GRAPH.md: OK
+execution/WORKLOG.md: OK
+fixtures/README.md: OK
+fixtures/build_script/Cargo.toml: OK
+fixtures/build_script/build.rs: OK
+fixtures/build_script/src/lib.rs: OK
+fixtures/clean_repo/Cargo.toml: OK
+fixtures/clean_repo/src/lib.rs: OK
+fixtures/dirty_repo/README.md: OK
+fixtures/feature_cfg/Cargo.toml: OK
+fixtures/feature_cfg/deps/unix_helper/Cargo.toml: OK
+fixtures/feature_cfg/deps/unix_helper/src/lib.rs: OK
+fixtures/feature_cfg/src/lib.rs: OK
+fixtures/fixture_matrix.csv: OK
+fixtures/include_edges/Cargo.toml: OK
+fixtures/include_edges/assets/blob.bytes: OK
+fixtures/include_edges/assets/message.txt: OK
+fixtures/include_edges/src/lib.rs: OK
+fixtures/macro_rules/Cargo.toml: OK
+fixtures/macro_rules/src/lib.rs: OK
+fixtures/native_link/Cargo.toml: OK
+fixtures/native_link/build.rs: OK
+fixtures/native_link/src/lib.rs: OK
+fixtures/non_rust_assets/Cargo.toml: OK
+fixtures/non_rust_assets/assets/config.kdl: OK
+fixtures/non_rust_assets/assets/data.json: OK
+fixtures/non_rust_assets/src/lib.rs: OK
+fixtures/out_dir_generator/Cargo.toml: OK
+fixtures/out_dir_generator/build.rs: OK
+fixtures/out_dir_generator/src/lib.rs: OK
+fixtures/proc_macro_consumer/Cargo.toml: OK
+fixtures/proc_macro_consumer/crates/consumer/Cargo.toml: OK
+fixtures/proc_macro_consumer/crates/consumer/src/lib.rs: OK
+fixtures/proc_macro_consumer/crates/demo_macro/Cargo.toml: OK
+fixtures/proc_macro_consumer/crates/demo_macro/src/lib.rs: OK
+fixtures/secret_like/Cargo.toml: OK
+fixtures/secret_like/src/lib.rs: OK
+fixtures/single_simple_crate/Cargo.toml: OK
+fixtures/single_simple_crate/src/lib.rs: OK
+fixtures/symlink/README.md: OK
+fixtures/symlink/symlink_manifest.txt: OK
+fixtures/symlink/target.txt: OK
+fixtures/workspace_two_crates/Cargo.toml: OK
+fixtures/workspace_two_crates/crates/app/Cargo.toml: OK
+fixtures/workspace_two_crates/crates/app/src/lib.rs: OK
+fixtures/workspace_two_crates/crates/helper/Cargo.toml: OK
+fixtures/workspace_two_crates/crates/helper/src/lib.rs: OK
+logs/CDB000-package-init.log: OK
+logs/CDB001-navigation.log: OK
+logs/CDB002-gates.log: OK
+logs/CDB003-task-graph.log: OK
+logs/CDB004-ledger.log: OK
+logs/CDB005-manifest.log: OK
+logs/CDB006-architecture.log: OK
+logs/CDB007-schema.log: OK
+logs/CDB008-commands.log: OK
+logs/CDB009-integration.log: OK
+logs/CDB010-security.log: OK
+logs/CDB011-bridge.log: OK
+logs/CDB012-tests-docs.log: OK
+logs/CDB013-workspace.log: OK
+logs/CDB014-core.log: OK
+logs/CDB015-redb-init.log: OK
+logs/CDB016-redb-restore.log: OK
+logs/CDB017-fs.log: OK
+logs/CDB018-source.log: OK
+logs/CDB019-cargo.log: OK
+logs/CDB020-cargo-sources.log: OK
+logs/CDB021-context.log: OK
+logs/CDB022-rust-items.log: OK
+logs/CDB023-macros.log: OK
+logs/CDB024-proc-macro.log: OK
+logs/CDB025-build-static.log: OK
+logs/CDB026-include.log: OK
+logs/CDB027-native.log: OK
+logs/CDB028-no-mutation.log: OK
+logs/CDB029-cli.log: OK
+logs/CDB030-nu-plugin.log: OK
+logs/CDB031-doctor.log: OK
+logs/CDB032-mcp.log: OK
+logs/CDB033-unsafe-gate.log: OK
+logs/CDB034-build-capture.log: OK
+logs/CDB035-envctl-export.log: OK
+logs/CDB036-meta.log: OK
+logs/CDB037-codex-bridge.log: OK
+logs/CDB038-yazelix.log: OK
+logs/CDB039-runner.log: OK
+logs/CDB040-tooling.log: OK
+logs/CDB041-fixtures.log: OK
+logs/CDB042-determinism.log: OK
+logs/CDB043-security-tests.log: OK
+logs/CDB044-no-mutation-tests.log: OK
+logs/CDB045-unsafe-tests.log: OK
+logs/CDB046-validation.log: OK
+logs/CDB064-extraction-proof.log: OK
+logs/CDB065-task-graph-final.log: OK
+logs/CDB066-checklist-completion.log: OK
+logs/CDB067-final-validation.log: OK
+logs/CDB068-csv-source-of-truth-repair.log: OK
+manifests/CHECKLIST_COMPLETION.json: OK
+manifests/CSV_DOC_LINK_AUDIT_INPUT.md: OK
+manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json: OK
+manifests/EXTRACTION_PROOF.json: OK
+manifests/LINK_CHECK_REPORT.md: OK
+nu_plugin_codedb_execution_package_checklist.md: OK
+nu_plugin_codedb_remaining_execution_checklist.md: OK
+original v1/01-envctl-table-doctrine.md: OK
+original v1/08-codex-operating-policy.md: OK
+original v1/NAVIGATION.md: OK
+prd/nu_plugin_codedb_v1_1_full_prd.md: OK
+research/nushell_yazelix_cross_reference_report.md: OK
+tests/test_deterministic_scan.nu: OK
+tests/test_no_mutation.nu: OK
+tests/test_security_no_leak.nu: OK
+tests/test_unsafe_capture.nu: OK
+## manifest/checksum count parity
+166
+## raw secret placeholder absence in manifests
+none
+## package validation summary
+{
+  "generated_at_utc": "2026-07-02T07:19:25Z",
+  "status": "passed",
+  "checks": {
+    "manifest_path": "manifests/PACK_MANIFEST.json",
+    "checksums_path": "manifests/CHECKSUMS.sha256",
+    "checksum_scope_count": 166,
+    "checksum_issues": [],
+    "excluded_paths": [
+      "manifests/CHECKSUMS.sha256",
+      "manifests/PACKAGE_VALIDATION.json",
+      "manifests/PACK_MANIFEST.json",
+      "logs/CDB047-manifest.log"
+    ]
+  },
+  "warnings": [
+    "CDB047 excludes self-referential generated files from checksum scope",
+    "logs/CDB047-manifest.log is excluded because it is produced after manifest generation"
+  ]
+}
+CDB047 validation passed

@@ -1,0 +1,22 @@
+# CDB033 unsafe gate validation
+## metadata includes codedb-build-capture
+true
+## fmt
+## build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+## tests
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/codedb_build_capture-8535899e2745c6b4)
+
+running 2 tests
+test tests::capture_build_records_approval_scaffold_with_unsafe_flag ... ok
+test tests::capture_build_refuses_without_unsafe_flag ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_build_capture
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

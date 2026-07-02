@@ -1,0 +1,1121 @@
+#![forbid(unsafe_code)]
+
+use std::error::Error as StdError;
+use std::fmt::{Display, Formatter};
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use sha2::{Digest, Sha256};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowState {
+    Planned,
+    Available,
+    Observed,
+    Degraded,
+    Expected,
+}
+
+impl RowState {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::Available => "available",
+            Self::Observed => "observed",
+            Self::Degraded => "degraded",
+            Self::Expected => "expected",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SchemaVersion {
+    pub major: u16,
+    pub minor: u16,
+    pub patch: u16,
+}
+
+impl SchemaVersion {
+    pub const fn new(major: u16, minor: u16, patch: u16) -> Self {
+        Self {
+            major,
+            minor,
+            patch,
+        }
+    }
+
+    pub const fn as_tuple(self) -> (u16, u16, u16) {
+        (self.major, self.minor, self.patch)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IdentityKey {
+    pub schema_version: SchemaVersion,
+    pub workspace_id: &'static str,
+    pub crate_id: &'static str,
+    pub module_path: &'static str,
+    pub object_kind: &'static str,
+    pub stable_name: &'static str,
+    pub source_span: &'static str,
+    pub context_hash: &'static str,
+    pub source_blob_hash: &'static str,
+}
+
+impl IdentityKey {
+    pub const fn new(
+        schema_version: SchemaVersion,
+        workspace_id: &'static str,
+        crate_id: &'static str,
+        module_path: &'static str,
+        object_kind: &'static str,
+        stable_name: &'static str,
+        source_span: &'static str,
+        context_hash: &'static str,
+        source_blob_hash: &'static str,
+    ) -> Self {
+        Self {
+            schema_version,
+            workspace_id,
+            crate_id,
+            module_path,
+            object_kind,
+            stable_name,
+            source_span,
+            context_hash,
+            source_blob_hash,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TableSpec {
+    pub name: &'static str,
+    pub domain: &'static str,
+    pub state: RowState,
+    pub row_count: u64,
+    pub note: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CaptureGap {
+    pub table: &'static str,
+    pub reason: &'static str,
+    pub required_task: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ValidationError {
+    pub table: &'static str,
+    pub code: &'static str,
+    pub message: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilesystemEntryKind {
+    Directory,
+    File,
+    Symlink,
+    Other,
+}
+
+impl FilesystemEntryKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Directory => "directory",
+            Self::File => "file",
+            Self::Symlink => "symlink",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileClassification {
+    RustSource,
+    CargoManifest,
+    CargoLock,
+    Hidden,
+    Vendor,
+    Generated,
+    NonRustAsset,
+    Directory,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceBlobMode {
+    MetadataOnly,
+    HashedBlob,
+    RedactedExport,
+    RawLocal,
+}
+
+impl SourceBlobMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MetadataOnly => "metadata-only",
+            Self::HashedBlob => "hashed-blob",
+            Self::RedactedExport => "redacted-export",
+            Self::RawLocal => "raw-local",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextEncodingStatus {
+    Utf8,
+    Binary,
+    InvalidUtf8,
+}
+
+impl TextEncodingStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Utf8 => "utf8",
+            Self::Binary => "binary",
+            Self::InvalidUtf8 => "invalid_utf8",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NewlineStyle {
+    None,
+    Lf,
+    CrLf,
+    Mixed,
+}
+
+impl NewlineStyle {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Lf => "lf",
+            Self::CrLf => "crlf",
+            Self::Mixed => "mixed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceBlobMetadata {
+    pub relative_path: String,
+    pub byte_len: u64,
+    pub sha256: String,
+    pub encoding_status: TextEncodingStatus,
+    pub newline_style: NewlineStyle,
+    pub has_utf8_bom: bool,
+    pub has_secret_like_material: bool,
+    pub default_mode: SourceBlobMode,
+    pub export_raw_by_default: bool,
+    pub policy_reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcePolicyRow {
+    pub relative_path: String,
+    pub mode: SourceBlobMode,
+    pub raw_export_allowed: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoMutationStatus {
+    Proven,
+    Mutated,
+    Degraded,
+}
+
+impl NoMutationStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Proven => "proven",
+            Self::Mutated => "mutated",
+            Self::Degraded => "degraded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitRepoSnapshot {
+    pub status_porcelain: String,
+    pub file_manifest_hash: String,
+}
+
+impl GitRepoSnapshot {
+    pub fn is_clean(&self) -> bool {
+        self.status_porcelain.trim().is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoMutationProof {
+    pub operation: String,
+    pub status: NoMutationStatus,
+    pub before: GitRepoSnapshot,
+    pub after: GitRepoSnapshot,
+    pub pre_existing_dirty: bool,
+    pub mutation_detected: bool,
+    pub degradation_reason: Option<String>,
+}
+
+impl FileClassification {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::RustSource => "rust_source",
+            Self::CargoManifest => "cargo_manifest",
+            Self::CargoLock => "cargo_lock",
+            Self::Hidden => "hidden",
+            Self::Vendor => "vendor",
+            Self::Generated => "generated",
+            Self::NonRustAsset => "non_rust_asset",
+            Self::Directory => "directory",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilesystemEntry {
+    pub relative_path: String,
+    pub kind: FilesystemEntryKind,
+    pub size_bytes: u64,
+    pub readonly: bool,
+    pub is_symlink: bool,
+    pub symlink_target: Option<String>,
+    pub classification: FileClassification,
+}
+
+impl FilesystemEntry {
+    pub fn table_row_note(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            self.kind.as_str(),
+            self.classification.as_str(),
+            self.size_bytes
+        )
+    }
+}
+
+#[derive(Debug)]
+pub enum ScanError {
+    RootMetadata { path: PathBuf, source: io::Error },
+    ReadDir { path: PathBuf, source: io::Error },
+    Entry { path: PathBuf, source: io::Error },
+    Metadata { path: PathBuf, source: io::Error },
+    SymlinkTarget { path: PathBuf, source: io::Error },
+    NonUtf8Path { path: PathBuf },
+}
+
+#[derive(Debug)]
+pub enum SourceCaptureError {
+    Read { path: PathBuf, source: io::Error },
+    Metadata { path: PathBuf, source: io::Error },
+    NonUtf8Path { path: PathBuf },
+}
+
+#[derive(Debug)]
+pub enum NoMutationError {
+    Snapshot { path: PathBuf, source: io::Error },
+    NonUtf8Path { path: PathBuf },
+}
+
+impl Display for NoMutationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Snapshot { path, source } => {
+                write!(f, "failed to snapshot repo {}: {source}", path.display())
+            }
+            Self::NonUtf8Path { path } => write!(f, "path is not valid UTF-8: {}", path.display()),
+        }
+    }
+}
+
+impl StdError for NoMutationError {}
+
+impl Display for SourceCaptureError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read { path, source } => {
+                write!(
+                    f,
+                    "failed to read source bytes {}: {source}",
+                    path.display()
+                )
+            }
+            Self::Metadata { path, source } => {
+                write!(
+                    f,
+                    "failed to inspect source path {}: {source}",
+                    path.display()
+                )
+            }
+            Self::NonUtf8Path { path } => write!(f, "path is not valid UTF-8: {}", path.display()),
+        }
+    }
+}
+
+impl StdError for SourceCaptureError {}
+
+impl Display for ScanError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RootMetadata { path, source } => {
+                write!(
+                    f,
+                    "failed to inspect scan root {}: {source}",
+                    path.display()
+                )
+            }
+            Self::ReadDir { path, source } => {
+                write!(f, "failed to read directory {}: {source}", path.display())
+            }
+            Self::Entry { path, source } => {
+                write!(
+                    f,
+                    "failed to read directory entry under {}: {source}",
+                    path.display()
+                )
+            }
+            Self::Metadata { path, source } => {
+                write!(f, "failed to inspect entry {}: {source}", path.display())
+            }
+            Self::SymlinkTarget { path, source } => {
+                write!(
+                    f,
+                    "failed to read symlink target {}: {source}",
+                    path.display()
+                )
+            }
+            Self::NonUtf8Path { path } => write!(f, "path is not valid UTF-8: {}", path.display()),
+        }
+    }
+}
+
+impl StdError for ScanError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TableRow {
+    pub table: &'static str,
+    pub status: &'static str,
+    pub rows: u64,
+    pub note: &'static str,
+}
+
+impl From<TableSpec> for TableRow {
+    fn from(spec: TableSpec) -> Self {
+        Self {
+            table: spec.name,
+            status: spec.state.as_str(),
+            rows: spec.row_count,
+            note: spec.note,
+        }
+    }
+}
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(1, 0, 0);
+
+pub fn workspace_identity() -> IdentityKey {
+    IdentityKey::new(
+        SCHEMA_VERSION,
+        "workspace::unknown",
+        "crate::unknown",
+        "module::unknown",
+        "identity",
+        "workspace_identity",
+        "span::unknown",
+        "context::unknown",
+        "blob::unknown",
+    )
+}
+
+pub fn schema_tables() -> Vec<TableSpec> {
+    vec![
+        TableSpec {
+            name: "codedb_contexts",
+            domain: "core identity",
+            state: RowState::Planned,
+            row_count: 0,
+            note: "identity context rows are not captured in CDB013",
+        },
+        TableSpec {
+            name: "source_files",
+            domain: "filesystem/source",
+            state: RowState::Available,
+            row_count: 0,
+            note: "filesystem scanner is available after CDB017",
+        },
+        TableSpec {
+            name: "cargo_packages",
+            domain: "cargo",
+            state: RowState::Planned,
+            row_count: 0,
+            note: "cargo metadata capture starts after CDB019",
+        },
+        TableSpec {
+            name: "rust_items",
+            domain: "rust static",
+            state: RowState::Planned,
+            row_count: 0,
+            note: "static Rust inventory starts after CDB022",
+        },
+        TableSpec {
+            name: "capture_gaps",
+            domain: "proof/artifact",
+            state: RowState::Available,
+            row_count: 1,
+            note: "CDB013 skeleton records unsupported observations as gaps",
+        },
+        TableSpec {
+            name: "validation_errors",
+            domain: "proof/artifact",
+            state: RowState::Available,
+            row_count: 0,
+            note: "no validation has run yet",
+        },
+        TableSpec {
+            name: "source_blobs",
+            domain: "store/blob",
+            state: RowState::Available,
+            row_count: 0,
+            note: "source blob metadata capture is metadata-only by default after CDB018",
+        },
+        TableSpec {
+            name: "blob_policies",
+            domain: "store/blob",
+            state: RowState::Available,
+            row_count: 0,
+            note: "raw source export is disabled by default after CDB018",
+        },
+    ]
+}
+
+pub fn table_inventory() -> Vec<TableRow> {
+    schema_tables().into_iter().map(Into::into).collect()
+}
+
+pub fn capture_gaps() -> Vec<TableRow> {
+    vec![TableRow {
+        table: "capture_gaps",
+        status: RowState::Expected.as_str(),
+        rows: 1,
+        note: "compiler-observable capture is intentionally not implemented before CDB014-CDB030",
+    }]
+}
+
+pub fn validation_errors() -> Vec<TableRow> {
+    Vec::new()
+}
+
+pub fn schema_rows() -> Vec<TableRow> {
+    vec![
+        TableRow {
+            table: "schema_versions",
+            status: RowState::Planned.as_str(),
+            rows: 0,
+            note: "redb schema versioning starts after CDB015",
+        },
+        TableRow {
+            table: "store_metadata",
+            status: RowState::Planned.as_str(),
+            rows: 0,
+            note: "redb store metadata starts after CDB015",
+        },
+    ]
+}
+
+pub fn doctor_rows() -> Vec<TableRow> {
+    vec![
+        TableRow {
+            table: "host_nu",
+            status: RowState::Observed.as_str(),
+            rows: 1,
+            note: "package skeleton targets nu-plugin/nu-protocol 0.112.2",
+        },
+        TableRow {
+            table: "codedb_store",
+            status: RowState::Degraded.as_str(),
+            rows: 0,
+            note: "redb store is not implemented until CDB015",
+        },
+    ]
+}
+
+pub fn capture_gap_specs() -> Vec<CaptureGap> {
+    vec![CaptureGap {
+        table: "capture_gaps",
+        reason: "static capture intentionally stops before later tasks implement the scanner and cargo/static layers",
+        required_task: "CDB014-CDB030",
+    }]
+}
+
+pub fn validation_error_specs() -> Vec<ValidationError> {
+    Vec::new()
+}
+
+pub fn capture_source_metadata(
+    root: impl AsRef<Path>,
+    path: impl AsRef<Path>,
+) -> Result<SourceBlobMetadata, SourceCaptureError> {
+    let root = root.as_ref();
+    let path = path.as_ref();
+    let metadata = fs::metadata(path).map_err(|source| SourceCaptureError::Metadata {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let bytes = fs::read(path).map_err(|source| SourceCaptureError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let relative_path = source_relative_path(root, path)?;
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let encoding_status = detect_encoding_status(&bytes);
+    let newline_style = detect_newline_style(&bytes);
+    let has_utf8_bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
+    let has_secret_like_material = contains_secret_like_material(&bytes);
+    let default_mode = if has_secret_like_material {
+        SourceBlobMode::RedactedExport
+    } else {
+        SourceBlobMode::MetadataOnly
+    };
+    let policy_reason = if has_secret_like_material {
+        "secret-looking material detected; raw source export disabled".to_string()
+    } else {
+        "metadata-only source capture; raw source export disabled by default".to_string()
+    };
+
+    Ok(SourceBlobMetadata {
+        relative_path,
+        byte_len: metadata.len(),
+        sha256,
+        encoding_status,
+        newline_style,
+        has_utf8_bom,
+        has_secret_like_material,
+        default_mode,
+        export_raw_by_default: false,
+        policy_reason,
+    })
+}
+
+pub fn source_policy_row(metadata: &SourceBlobMetadata) -> SourcePolicyRow {
+    SourcePolicyRow {
+        relative_path: metadata.relative_path.clone(),
+        mode: metadata.default_mode,
+        raw_export_allowed: metadata.export_raw_by_default,
+        reason: metadata.policy_reason.clone(),
+    }
+}
+
+fn source_relative_path(root: &Path, path: &Path) -> Result<String, SourceCaptureError> {
+    if root == path {
+        return Ok(".".to_string());
+    }
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let value = relative
+        .to_str()
+        .ok_or_else(|| SourceCaptureError::NonUtf8Path {
+            path: path.to_path_buf(),
+        })?
+        .replace('\\', "/");
+    Ok(value)
+}
+
+fn detect_encoding_status(bytes: &[u8]) -> TextEncodingStatus {
+    if bytes.contains(&0) {
+        TextEncodingStatus::Binary
+    } else if std::str::from_utf8(bytes).is_ok() {
+        TextEncodingStatus::Utf8
+    } else {
+        TextEncodingStatus::InvalidUtf8
+    }
+}
+
+fn detect_newline_style(bytes: &[u8]) -> NewlineStyle {
+    let has_crlf = bytes.windows(2).any(|window| window == b"\r\n");
+    let has_lf = bytes.iter().enumerate().any(|(index, byte)| {
+        *byte == b'\n' && index == 0 || *byte == b'\n' && bytes[index - 1] != b'\r'
+    });
+    match (has_lf, has_crlf) {
+        (false, false) => NewlineStyle::None,
+        (true, false) => NewlineStyle::Lf,
+        (false, true) => NewlineStyle::CrLf,
+        (true, true) => NewlineStyle::Mixed,
+    }
+}
+
+fn contains_secret_like_material(bytes: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+    [
+        "api_key",
+        "apikey",
+        "access_token",
+        "auth_token",
+        "secret=",
+        "secret:",
+        "password=",
+        "private_key",
+        "-----begin private key-----",
+        "sk-",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
+pub fn scan_filesystem(root: impl AsRef<Path>) -> Result<Vec<FilesystemEntry>, ScanError> {
+    let root = root.as_ref();
+    fs::symlink_metadata(root).map_err(|source| ScanError::RootMetadata {
+        path: root.to_path_buf(),
+        source,
+    })?;
+
+    let mut entries = Vec::new();
+    scan_path(root, root, &mut entries)?;
+    entries.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(entries)
+}
+
+fn scan_path(
+    root: &Path,
+    path: &Path,
+    entries: &mut Vec<FilesystemEntry>,
+) -> Result<(), ScanError> {
+    let metadata = fs::symlink_metadata(path).map_err(|source| ScanError::Metadata {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let file_type = metadata.file_type();
+    let kind = if file_type.is_symlink() {
+        FilesystemEntryKind::Symlink
+    } else if file_type.is_dir() {
+        FilesystemEntryKind::Directory
+    } else if file_type.is_file() {
+        FilesystemEntryKind::File
+    } else {
+        FilesystemEntryKind::Other
+    };
+    let relative_path = relative_path_string(root, path)?;
+    let symlink_target = if file_type.is_symlink() {
+        Some(
+            fs::read_link(path)
+                .map_err(|source| ScanError::SymlinkTarget {
+                    path: path.to_path_buf(),
+                    source,
+                })?
+                .to_string_lossy()
+                .into_owned(),
+        )
+    } else {
+        None
+    };
+
+    entries.push(FilesystemEntry {
+        relative_path,
+        kind,
+        size_bytes: if file_type.is_file() {
+            metadata.len()
+        } else {
+            0
+        },
+        readonly: metadata.permissions().readonly(),
+        is_symlink: file_type.is_symlink(),
+        symlink_target,
+        classification: classify_path(path, kind),
+    });
+
+    if file_type.is_dir() && !file_type.is_symlink() {
+        let mut children = Vec::new();
+        let read_dir = fs::read_dir(path).map_err(|source| ScanError::ReadDir {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        for child in read_dir {
+            let child = child.map_err(|source| ScanError::Entry {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            children.push(child.path());
+        }
+        children.sort();
+        for child in children {
+            scan_path(root, &child, entries)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn relative_path_string(root: &Path, path: &Path) -> Result<String, ScanError> {
+    if root == path {
+        return Ok(".".to_string());
+    }
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let value = relative
+        .to_str()
+        .ok_or_else(|| ScanError::NonUtf8Path {
+            path: path.to_path_buf(),
+        })?
+        .replace('\\', "/");
+    Ok(value)
+}
+
+fn classify_path(path: &Path, kind: FilesystemEntryKind) -> FileClassification {
+    if kind == FilesystemEntryKind::Directory {
+        return FileClassification::Directory;
+    }
+
+    let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+        return FileClassification::Other;
+    };
+    if file_name == "Cargo.toml" {
+        return FileClassification::CargoManifest;
+    }
+    if file_name == "Cargo.lock" {
+        return FileClassification::CargoLock;
+    }
+    if file_name.ends_with(".rs") {
+        return FileClassification::RustSource;
+    }
+    if file_name.starts_with('.') {
+        return FileClassification::Hidden;
+    }
+
+    let mut has_vendor_component = false;
+    let mut has_generated_component = false;
+    for component in path.components() {
+        let name = component.as_os_str().to_string_lossy();
+        has_vendor_component |= matches!(name.as_ref(), "vendor" | ".cargo" | "target");
+        has_generated_component |= matches!(name.as_ref(), "target" | "generated" | "out");
+    }
+    if has_vendor_component {
+        FileClassification::Vendor
+    } else if has_generated_component {
+        FileClassification::Generated
+    } else if kind == FilesystemEntryKind::File {
+        FileClassification::NonRustAsset
+    } else {
+        FileClassification::Other
+    }
+}
+
+pub fn prove_no_mutation(
+    repo_path: impl AsRef<Path>,
+    operation: impl AsRef<str>,
+    run_read_only_operation: impl FnOnce(),
+) -> Result<NoMutationProof, NoMutationError> {
+    let repo_path = repo_path.as_ref();
+    let before = capture_git_repo_snapshot(repo_path)?;
+    run_read_only_operation();
+    let after = capture_git_repo_snapshot(repo_path)?;
+    let pre_existing_dirty = !before.is_clean();
+    let mutation_detected = before != after;
+    let status = if git_unavailable_snapshot(&before) || git_unavailable_snapshot(&after) {
+        NoMutationStatus::Degraded
+    } else if mutation_detected {
+        NoMutationStatus::Mutated
+    } else {
+        NoMutationStatus::Proven
+    };
+    let degradation_reason = if status == NoMutationStatus::Degraded {
+        Some("git status was unavailable; proof is degraded".to_string())
+    } else {
+        None
+    };
+
+    Ok(NoMutationProof {
+        operation: operation.as_ref().to_string(),
+        status,
+        before,
+        after,
+        pre_existing_dirty,
+        mutation_detected,
+        degradation_reason,
+    })
+}
+
+pub fn capture_git_repo_snapshot(
+    repo_path: impl AsRef<Path>,
+) -> Result<GitRepoSnapshot, NoMutationError> {
+    let repo_path = repo_path.as_ref();
+    let status_porcelain = git_status_porcelain(repo_path);
+    let file_manifest_hash = file_manifest_hash(repo_path)?;
+    Ok(GitRepoSnapshot {
+        status_porcelain,
+        file_manifest_hash,
+    })
+}
+
+fn git_status_porcelain(repo_path: &Path) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["status", "--porcelain=v1"])
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        }
+        Ok(output) => format!(
+            "__GIT_UNAVAILABLE__ status={} stderr={}",
+            output.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+        Err(error) => format!("__GIT_UNAVAILABLE__ error={error}"),
+    }
+}
+
+fn git_unavailable_snapshot(snapshot: &GitRepoSnapshot) -> bool {
+    snapshot.status_porcelain.starts_with("__GIT_UNAVAILABLE__")
+}
+
+fn file_manifest_hash(root: &Path) -> Result<String, NoMutationError> {
+    let mut entries = Vec::new();
+    collect_manifest_hash_entries(root, root, &mut entries)?;
+    entries.sort();
+    let mut hasher = Sha256::new();
+    for entry in entries {
+        hasher.update(entry.as_bytes());
+        hasher.update([0]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn collect_manifest_hash_entries(
+    root: &Path,
+    path: &Path,
+    entries: &mut Vec<String>,
+) -> Result<(), NoMutationError> {
+    let metadata = fs::symlink_metadata(path).map_err(|source| NoMutationError::Snapshot {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if path.file_name().and_then(|value| value.to_str()) == Some(".git") {
+        return Ok(());
+    }
+    if metadata.is_dir() {
+        let mut children = Vec::new();
+        for child in fs::read_dir(path).map_err(|source| NoMutationError::Snapshot {
+            path: path.to_path_buf(),
+            source,
+        })? {
+            children.push(
+                child
+                    .map_err(|source| NoMutationError::Snapshot {
+                        path: path.to_path_buf(),
+                        source,
+                    })?
+                    .path(),
+            );
+        }
+        children.sort();
+        for child in children {
+            collect_manifest_hash_entries(root, &child, entries)?;
+        }
+    } else if metadata.is_file() {
+        let relative = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_str()
+            .ok_or_else(|| NoMutationError::NonUtf8Path {
+                path: path.to_path_buf(),
+            })?
+            .replace('\\', "/");
+        let bytes = fs::read(path).map_err(|source| NoMutationError::Snapshot {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let content_hash = format!("{:x}", Sha256::digest(&bytes));
+        entries.push(format!("{relative}:{content_hash}"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Test lane: default
+    // Defends: the core schema models stay structured and stable for the package workspace.
+    #[test]
+    fn schema_tables_convert_into_rows() {
+        let rows = table_inventory();
+        assert_eq!(rows[0].table, "codedb_contexts");
+        assert_eq!(rows[4].status, "available");
+        assert!(rows.iter().any(|row| row.table == "source_blobs"));
+        assert!(rows.iter().any(|row| row.table == "blob_policies"));
+    }
+
+    // Test lane: default
+    // Defends: identity keys remain explicit and deterministic for later capture layers.
+    #[test]
+    fn workspace_identity_is_deterministic() {
+        let identity = workspace_identity();
+        assert_eq!(identity.schema_version.as_tuple(), (1, 0, 0));
+        assert_eq!(identity.object_kind, "identity");
+        assert_eq!(identity.stable_name, "workspace_identity");
+    }
+
+    // Test lane: default
+    // Defends: CDB017 scanner rows must be deterministic for repeated fixture scans.
+    #[test]
+    fn filesystem_scan_rows_are_stable() {
+        let root = temp_fixture_root();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(root.join("Cargo.toml"), "[package]\nname = \"fixture\"\n")
+            .expect("write manifest");
+        fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write rust source");
+        fs::write(root.join("README.md"), "fixture docs\n").expect("write asset");
+
+        let first = scan_filesystem(&root).expect("first scan");
+        let second = scan_filesystem(&root).expect("second scan");
+
+        assert_eq!(first, second);
+        assert_eq!(first[0].relative_path, ".");
+        assert!(first.iter().any(|entry| {
+            entry.relative_path == "Cargo.toml"
+                && entry.kind == FilesystemEntryKind::File
+                && entry.classification == FileClassification::CargoManifest
+        }));
+        assert!(first.iter().any(|entry| {
+            entry.relative_path == "src/lib.rs"
+                && entry.kind == FilesystemEntryKind::File
+                && entry.classification == FileClassification::RustSource
+        }));
+        assert!(first.iter().any(|entry| {
+            entry.relative_path == "README.md"
+                && entry.classification == FileClassification::NonRustAsset
+        }));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB018 source capture must record exact metadata without exporting raw source.
+    #[test]
+    fn source_metadata_is_metadata_only_by_default() {
+        let root = temp_fixture_root();
+        fs::create_dir_all(&root).expect("create root");
+        let source_path = root.join("src.rs");
+        fs::write(&source_path, "pub fn source() {}\n").expect("write source");
+
+        let metadata = capture_source_metadata(&root, &source_path).expect("capture metadata");
+        assert_eq!(metadata.relative_path, "src.rs");
+        assert_eq!(metadata.byte_len, 19);
+        assert_eq!(metadata.sha256.len(), 64);
+        assert_eq!(metadata.encoding_status, TextEncodingStatus::Utf8);
+        assert_eq!(metadata.newline_style, NewlineStyle::Lf);
+        assert!(!metadata.has_secret_like_material);
+        assert_eq!(metadata.default_mode, SourceBlobMode::MetadataOnly);
+        assert!(!metadata.export_raw_by_default);
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default
+    // Defends: secret-looking source must become policy metadata rather than raw export.
+    #[test]
+    fn secret_like_source_is_redacted_by_policy() {
+        let root = temp_fixture_root();
+        fs::create_dir_all(&root).expect("create root");
+        let source_path = root.join("secret.rs");
+        fs::write(&source_path, "const API_KEY: &str = \"sk-test-value\";\n")
+            .expect("write source");
+
+        let metadata = capture_source_metadata(&root, &source_path).expect("capture metadata");
+        let policy = source_policy_row(&metadata);
+        assert!(metadata.has_secret_like_material);
+        assert_eq!(metadata.default_mode, SourceBlobMode::RedactedExport);
+        assert!(!metadata.export_raw_by_default);
+        assert!(!policy.raw_export_allowed);
+        assert!(policy.reason.contains("raw source export disabled"));
+        assert!(!policy.reason.contains("sk-test-value"));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB028 proves a clean Git fixture remains unchanged by a read-only operation.
+    #[test]
+    fn clean_git_fixture_proves_no_mutation() {
+        let root = temp_fixture_root();
+        fs::create_dir_all(&root).expect("create root");
+        init_git_fixture(&root);
+        fs::write(root.join("src.rs"), "pub fn clean() {}\n").expect("write source");
+        git(&root, ["add", "src.rs"]);
+        git(&root, ["commit", "-m", "initial"]);
+
+        let proof = prove_no_mutation(&root, "scan", || {
+            let _ = scan_filesystem(&root).expect("scan fixture");
+        })
+        .expect("prove no mutation");
+
+        assert_eq!(proof.status, NoMutationStatus::Proven);
+        assert!(!proof.pre_existing_dirty);
+        assert!(!proof.mutation_detected);
+        assert!(proof.before.is_clean());
+        assert_eq!(proof.before, proof.after);
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB028 records pre-existing dirty state without blaming the read-only operation.
+    #[test]
+    fn dirty_git_fixture_proves_no_new_mutation() {
+        let root = temp_fixture_root();
+        fs::create_dir_all(&root).expect("create root");
+        init_git_fixture(&root);
+        fs::write(root.join("src.rs"), "pub fn clean() {}\n").expect("write source");
+        git(&root, ["add", "src.rs"]);
+        git(&root, ["commit", "-m", "initial"]);
+        fs::write(root.join("src.rs"), "pub fn dirty() {}\n").expect("dirty source");
+
+        let proof = prove_no_mutation(&root, "scan", || {
+            let _ = scan_filesystem(&root).expect("scan fixture");
+        })
+        .expect("prove no mutation");
+
+        assert_eq!(proof.status, NoMutationStatus::Proven);
+        assert!(proof.pre_existing_dirty);
+        assert!(!proof.mutation_detected);
+        assert!(!proof.before.is_clean());
+        assert_eq!(proof.before, proof.after);
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    fn temp_fixture_root() -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("codedb_core_fs_fixture_{stamp}"))
+    }
+
+    fn init_git_fixture(root: &Path) {
+        git(root, ["init"]);
+        git(root, ["config", "user.email", "codedb@example.invalid"]);
+        git(root, ["config", "user.name", "CodeDB Test"]);
+    }
+
+    fn git<const N: usize>(root: &Path, args: [&str; N]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

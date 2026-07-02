@@ -1,0 +1,35 @@
+{
+  "generated_at_utc": "2026-07-02T08:40:04Z",
+  "status": "passed",
+  "checks": {
+    "manifest_path": "manifests/PACK_MANIFEST.json",
+    "checksums_path": "manifests/CHECKSUMS.sha256",
+    "link_report_path": "manifests/LINK_CHECK_REPORT.md",
+    "checksum_scope_count": 206,
+    "checksum_issues": [],
+    "active_markdown_files_checked": 42,
+    "active_local_markdown_links_checked": 54,
+    "active_broken_links": 0,
+    "task_graph_rows": 69,
+    "task_file_map_rows": 69,
+    "task_graph_errors": [],
+    "checklist_items": 109,
+    "checklist_unmapped_count": 0,
+    "zip_source_sha256": "613f4b27326adc75bda89e590cd560cd27a9a1ac8c427f7952d17ad1fa2f39fd",
+    "zip_integrity_status": "passed",
+    "secret_hygiene_status": "passed_with_allowed_fixture_placeholders",
+    "csv_source_of_truth_repair_status": "passed",
+    "excluded_paths": [
+      "manifests/CHECKSUMS.sha256",
+      "manifests/PACKAGE_VALIDATION.json",
+      "manifests/PACK_MANIFEST.json",
+      "logs/CDB067-final-validation.log"
+    ]
+  },
+  "warnings": [
+    "CDB067 excludes self-referential generated files from checksum scope",
+    "logs/CDB067-final-validation.log is excluded because it is produced after manifest generation",
+    "Archived original v1 source-input links are excluded from the active package link gate",
+    "Secret-looking placeholder strings are allowed only in tests, fixtures, docs, and logs that explicitly assert no default output leakage"
+  ]
+}

@@ -1,0 +1,48 @@
+Using saved setting for 'extra-substituters = https://yazelix.cachix.org' from ~/.local/share/nix/trusted-settings.json.
+Using saved setting for 'extra-trusted-public-keys = yazelix.cachix.org-1:ZgxIjQvaP0VTWL8Racx27mpUNzDJ97xC2y7QWYjmGNM=' from ~/.local/share/nix/trusted-settings.json.
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+evaluation warning: The xorg package set has been deprecated, 'xorg.libX11' has been renamed to 'libx11'
+evaluation warning: The xorg package set has been deprecated, 'xorg.libxcb' has been renamed to 'libxcb'
+evaluation warning: The xorg package set has been deprecated, 'xorg.libxshmfence' has been renamed to 'libxshmfence'
+building '/nix/store/0n2zg66wm2b0s20wpn712img82ii1kx5-cargo-vendor-dir.drv'...
+building '/nix/store/6i0w8d5p0j5f2km3xiqd40jrpji1iw2l-yazelix-core-0.1.0.drv'...
+building '/nix/store/m4qgr0a9f9v44n7drik6pd6l0mi369kz-yzx.drv'...
+building '/nix/store/z2q2r1jdsxp6srm7cvc8mjw57xghk3sp-nix-shell-env.drv'...
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+# CDB025 build.rs static detection validation
+Thu Jul  2 05:33:29 UTC 2026
+
+## cargo fmt -p codedb-rust-static --check
+
+## cargo test -p codedb-rust-static build_script_fixture_emits_static_rows_and_gaps
+   Compiling codedb-rust-static v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb_rust_static)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running unittests src/lib.rs (target/debug/deps/codedb_rust_static-c47a5d39749741f8)
+
+running 1 test
+test tests::build_script_fixture_emits_static_rows_and_gaps ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+## cargo test -p codedb-rust-static
+   Compiling codedb-rust-static v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb_rust_static)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src/lib.rs (target/debug/deps/codedb_rust_static-c47a5d39749741f8)
+
+running 4 tests
+test tests::macro_fixture_passes_with_gaps ... ok
+test tests::build_script_fixture_emits_static_rows_and_gaps ... ok
+test tests::simple_item_fixture_passes ... ok
+test tests::proc_macro_fixture_emits_static_rows_and_gaps ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_rust_static
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,32 @@
+{
+  "task_id": "CDB062",
+  "schema_version": 1,
+  "status": "expected_by_test",
+  "test": "tests/test_codex_bounded_bridge.nu",
+  "cli_samples": [
+    {
+      "command": "codedb doctor --codex --format json",
+      "max_rows": 50,
+      "max_bytes": 65536,
+      "raw_source_default": "disabled"
+    },
+    {
+      "command": "codedb scan fixtures/secret_like --format json",
+      "max_rows": 50,
+      "max_bytes": 65536,
+      "raw_source_default": "disabled"
+    }
+  ],
+  "mcp_sample": {
+    "config": "examples/codex/codedb_mcp_config.json",
+    "default_limit": 50,
+    "max_bytes": 65536,
+    "raw_source_default": "disabled",
+    "auth": "external_official_codex_auth_only",
+    "mutation": "forbidden"
+  },
+  "notes": [
+    "This report is a stable contract sample. The live hashes and row counts are emitted by tests/test_codex_bounded_bridge.nu.",
+    "Do not add credential, browser-session, token, or raw-source fields to Codex bridge examples."
+  ]
+}

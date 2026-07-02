@@ -1,0 +1,6 @@
+# CDB011 documentation evidence
+
+created_at_utc: 2026-07-02T01:02:12.757218+00:00
+artifacts: docs/CODEX_BRIDGE.md;docs/NUSHELL_PLUGIN_COMPAT.md;docs/YAZELIX_PLACEMENT.md
+source: prd/nu_plugin_codedb_v1_1_full_prd.md
+status: complete

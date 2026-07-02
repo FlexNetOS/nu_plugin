@@ -1,0 +1,1906 @@
+{
+  "created_at_utc": "2026-07-02T01:02:12.782019+00:00",
+  "status": "passed",
+  "source_checklist_files": [
+    "nu_plugin_codedb_execution_package_checklist.md",
+    "nu_plugin_codedb_remaining_execution_checklist.md"
+  ],
+  "semantics": {
+    "complete_artifact": "Artifact exists in final package and is validated.",
+    "mapped_to_controlled_planned_task": "Implementation work is not falsely marked done; it is assigned to a stable task with dependencies, gates, evidence path, and status planned.",
+    "complete_doc_artifact_future_task_still_planned": "Documentation artifact exists now; executable proof remains controlled by future task."
+  },
+  "item_count": 109,
+  "unmapped_count": 0,
+  "status_counts": {
+    "complete_artifact": 47,
+    "complete_doc_artifact_future_task_still_planned": 11,
+    "mapped_to_controlled_planned_task": 36,
+    "mapped_to_controlled_planned_gate": 15
+  },
+  "items": [
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 57,
+      "item": "- [ ] Create `CODEDB_START_HERE.md` with one mandatory path: read gate first, then navigation, then PRD, then task graph.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB064",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "CODEDB_START_HERE.md",
+        "NAVIGATION.md",
+        "NAVIGATION.json",
+        "DOC_GRAPH.md",
+        "DRIFT_GUARD.md",
+        "STOP_CONDITIONS.md",
+        "READINESS_GATE.md",
+        "manifests/LINK_CHECK_REPORT.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Required package artifact exists and is validated."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 58,
+      "item": "- [ ] Create `NAVIGATION.md` with a numbered file index.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB064",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "CODEDB_START_HERE.md",
+        "NAVIGATION.md",
+        "NAVIGATION.json",
+        "DOC_GRAPH.md",
+        "DRIFT_GUARD.md",
+        "STOP_CONDITIONS.md",
+        "READINESS_GATE.md",
+        "manifests/LINK_CHECK_REPORT.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Required package artifact exists and is validated."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 59,
+      "item": "- [ ] Create `NAVIGATION.json` with the same file order and purposes.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB064",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "CODEDB_START_HERE.md",
+        "NAVIGATION.md",
+        "NAVIGATION.json",
+        "DOC_GRAPH.md",
+        "DRIFT_GUARD.md",
+        "STOP_CONDITIONS.md",
+        "READINESS_GATE.md",
+        "manifests/LINK_CHECK_REPORT.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Required package artifact exists and is validated."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 60,
+      "item": "- [ ] Create `DOC_GRAPH.md` with dependency edges:",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB064",
+        "CDB067"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "CODEDB_START_HERE.md",
+        "NAVIGATION.md",
+        "NAVIGATION.json",
+        "DOC_GRAPH.md",
+        "DRIFT_GUARD.md",
+        "STOP_CONDITIONS.md",
+        "READINESS_GATE.md",
+        "manifests/LINK_CHECK_REPORT.md"
+      ],
+      "completion_semantics": "Required package artifact exists and is validated."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 64,
+      "item": "- [ ] Create `DRIFT_GUARD.md` with explicit context-size and ownership limits.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB064",
+        "CDB067"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "CODEDB_START_HERE.md",
+        "NAVIGATION.md",
+        "NAVIGATION.json",
+        "DOC_GRAPH.md",
+        "DRIFT_GUARD.md",
+        "STOP_CONDITIONS.md",
+        "READINESS_GATE.md",
+        "manifests/LINK_CHECK_REPORT.md"
+      ],
+      "completion_semantics": "Required package artifact exists and is validated."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 65,
+      "item": "- [ ] Create `STOP_CONDITIONS.md` with hard stops for source overwrite, hidden mutation, plugin version mismatch, unbounded MCP output, unsafe build execution, secret capture, and missing raw logs.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB064",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "CODEDB_START_HERE.md",
+        "NAVIGATION.md",
+        "NAVIGATION.json",
+        "DOC_GRAPH.md",
+        "DRIFT_GUARD.md",
+        "STOP_CONDITIONS.md",
+        "READINESS_GATE.md",
+        "manifests/LINK_CHECK_REPORT.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Required package artifact exists and is validated."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 66,
+      "item": "- [ ] Create `READINESS_GATE.md` requiring task ID, PRD section, source-of-truth owner, generated artifact status, validation command, raw log path, and no-secret path.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB064",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "CODEDB_START_HERE.md",
+        "NAVIGATION.md",
+        "NAVIGATION.json",
+        "DOC_GRAPH.md",
+        "DRIFT_GUARD.md",
+        "STOP_CONDITIONS.md",
+        "READINESS_GATE.md",
+        "manifests/LINK_CHECK_REPORT.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Required package artifact exists and is validated."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 67,
+      "item": "- [ ] Link every file from `CODEDB_START_HERE.md` and `NAVIGATION.md`.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB064",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "CODEDB_START_HERE.md",
+        "NAVIGATION.md",
+        "NAVIGATION.json",
+        "DOC_GRAPH.md",
+        "DRIFT_GUARD.md",
+        "STOP_CONDITIONS.md",
+        "READINESS_GATE.md",
+        "manifests/LINK_CHECK_REPORT.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Required package artifact exists and is validated."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 68,
+      "item": "- [ ] Run a local markdown link check and save `LINK_CHECK_REPORT.md`.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB064",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "CODEDB_START_HERE.md",
+        "NAVIGATION.md",
+        "NAVIGATION.json",
+        "DOC_GRAPH.md",
+        "DRIFT_GUARD.md",
+        "STOP_CONDITIONS.md",
+        "READINESS_GATE.md",
+        "manifests/LINK_CHECK_REPORT.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Required package artifact exists and is validated."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 74,
+      "item": "- [ ] Create `TASK_GRAPH.csv`.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 75,
+      "item": "- [ ] Use stable task IDs: `CDB000`–`CDB999`.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 76,
+      "item": "- [ ] Include columns:",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 90,
+      "item": "- [ ] Ensure no duplicate task IDs.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 91,
+      "item": "- [ ] Ensure every P0 PRD requirement has at least one task.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 92,
+      "item": "- [ ] Ensure every task maps back to one PRD section.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 93,
+      "item": "- [ ] Add dependency edges for storage before scan, scan before export, export before MCP, fixtures before release.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 94,
+      "item": "- [ ] Add tasks for no-mutation proof and secret-policy tests before any reproduction task.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 95,
+      "item": "- [ ] Add tasks for host Nu and Yazelix Nu compatibility before declaring plugin install complete.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 96,
+      "item": "- [ ] Add tasks for Codex CLI and MCP bridge before Codex is allowed to use CodeDB.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 97,
+      "item": "- [ ] Add tasks for envctl export contract before envctl integration.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 98,
+      "item": "- [ ] Add tasks for meta project selection before multi-repo scanning.",
+      "mapped_tasks": [
+        "CDB003",
+        "CDB065"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Task graph artifact exists, includes requested columns, and validates."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 122,
+      "item": "- [ ] `ARCHITECTURE.md`: system diagram, crates, data flow, runtime modes.",
+      "mapped_tasks": [
+        "CDB006"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/ARCHITECTURE.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 123,
+      "item": "- [ ] `SCHEMA.md`: table groups, field-level schema, identity rules, checksums.",
+      "mapped_tasks": [
+        "CDB007",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/SCHEMA.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 124,
+      "item": "- [ ] `COMMANDS.md`: CLI, Nu plugin commands, MCP tools, flags, examples.",
+      "mapped_tasks": [
+        "CDB008"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/COMMANDS.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 125,
+      "item": "- [ ] `INTEGRATION_CONTRACTS.md`: Codex, Yazelix, meta, envctl, runner, GitKB, RTK, Kache/wild/Fenix.",
+      "mapped_tasks": [
+        "CDB009"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/INTEGRATION_CONTRACTS.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 126,
+      "item": "- [ ] `SECURITY_AND_SECRET_POLICY.md`: source blob modes, secret detection, MCP leak guard.",
+      "mapped_tasks": [
+        "CDB010"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/SECURITY_AND_SECRET_POLICY.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 127,
+      "item": "- [ ] `UNSAFE_CAPTURE_POLICY.md`: build.rs/proc-macro execution gates, raw logs, approval flow.",
+      "mapped_tasks": [
+        "CDB010"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/UNSAFE_CAPTURE_POLICY.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 128,
+      "item": "- [ ] `NUSHELL_PLUGIN_COMPAT.md`: host/Yazelix Nu plugin registration and version strategy.",
+      "mapped_tasks": [
+        "CDB011"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/NUSHELL_PLUGIN_COMPAT.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 129,
+      "item": "- [ ] `CODEX_BRIDGE.md`: CLI/MCP bridge, config fragments, output bounds, no-mutation rules.",
+      "mapped_tasks": [
+        "CDB011"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/CODEX_BRIDGE.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 130,
+      "item": "- [ ] `META_INTEGRATION.md`: repo selection, project IDs, no meta replacement.",
+      "mapped_tasks": [
+        "CDB036"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/META_INTEGRATION.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 131,
+      "item": "- [ ] `ENVCTL_EXPORT_CONTRACT.md`: exported tables/checksums/env facts.",
+      "mapped_tasks": [
+        "CDB035",
+        "CDB068"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/ENVCTL_EXPORT_CONTRACT.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 132,
+      "item": "- [ ] `YAZELIX_PLACEMENT.md`: where plugin/CLI appears in Yazelix runtime.",
+      "mapped_tasks": [
+        "CDB011"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/YAZELIX_PLACEMENT.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 133,
+      "item": "- [ ] `TEST_PLAN.md`: unit, fixture, integration, security, no-mutation, MCP, CLI, Nu plugin.",
+      "mapped_tasks": [
+        "CDB012"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/TEST_PLAN.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 134,
+      "item": "- [ ] `FIXTURE_MATRIX.md`: fixture definitions and expected rows.",
+      "mapped_tasks": [
+        "CDB012"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "docs/FIXTURE_MATRIX.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 135,
+      "item": "- [ ] `RELEASE_GATE.md`: release proof requirements.",
+      "mapped_tasks": [
+        "CDB039"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/RELEASE_GATE.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 136,
+      "item": "- [ ] `BACKLOG.md`: MVP2 features and downgrade exclusions.",
+      "mapped_tasks": [
+        "CDB048"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "BACKLOG.md"
+      ],
+      "completion_semantics": "Standalone documentation artifact exists; implementation task remains governed by TASK_GRAPH if applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 185,
+      "item": "- [ ] Create Rust workspace skeleton.",
+      "mapped_tasks": [
+        "CDB013"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 186,
+      "item": "- [ ] Add `nu_plugin_codedb` crate.",
+      "mapped_tasks": [
+        "CDB030"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 187,
+      "item": "- [ ] Add `codedb` CLI crate.",
+      "mapped_tasks": [
+        "CDB029"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 188,
+      "item": "- [ ] Add `codedb-core` crate.",
+      "mapped_tasks": [
+        "CDB014"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 189,
+      "item": "- [ ] Add `codedb-store-redb` crate.",
+      "mapped_tasks": [
+        "CDB015"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 190,
+      "item": "- [ ] Add `codedb-cargo` crate.",
+      "mapped_tasks": [
+        "CDB019"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 191,
+      "item": "- [ ] Add `codedb-rust-static` crate.",
+      "mapped_tasks": [
+        "CDB022"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 192,
+      "item": "- [ ] Add `codedb-build-capture` crate, gated and disabled by default.",
+      "mapped_tasks": [
+        "CDB033"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 193,
+      "item": "- [ ] Add `codedb-mcp` crate.",
+      "mapped_tasks": [
+        "CDB032"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 194,
+      "item": "- [ ] Add `codedb-fixtures` crate/folder.",
+      "mapped_tasks": [
+        "CDB041"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 195,
+      "item": "- [ ] Add schema definitions and version metadata.",
+      "mapped_tasks": [
+        "CDB014"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 196,
+      "item": "- [ ] Implement redb initialization and metadata record.",
+      "mapped_tasks": [
+        "CDB015"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 197,
+      "item": "- [ ] Implement filesystem scanner.",
+      "mapped_tasks": [
+        "CDB017"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 198,
+      "item": "- [ ] Implement exact source metadata capture.",
+      "mapped_tasks": [
+        "CDB018"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 199,
+      "item": "- [ ] Implement source blob policy modes.",
+      "mapped_tasks": [
+        "CDB018"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 200,
+      "item": "- [ ] Implement Cargo metadata capture.",
+      "mapped_tasks": [
+        "CDB019"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 201,
+      "item": "- [ ] Implement Cargo source provenance capture.",
+      "mapped_tasks": [
+        "CDB020"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 202,
+      "item": "- [ ] Implement static Rust item/macro/build-script detection.",
+      "mapped_tasks": [
+        "CDB022"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 203,
+      "item": "- [ ] Implement `cfg`/feature/target/toolchain context capture.",
+      "mapped_tasks": [
+        "CDB021"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 204,
+      "item": "- [ ] Implement capture gaps and validation errors.",
+      "mapped_tasks": [
+        "CDB027"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 205,
+      "item": "- [ ] Implement no-mutation proof.",
+      "mapped_tasks": [
+        "CDB028"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 206,
+      "item": "- [ ] Implement Nu plugin command outputs.",
+      "mapped_tasks": [
+        "CDB030"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 207,
+      "item": "- [ ] Implement CLI JSON/NUON/CSV outputs.",
+      "mapped_tasks": [
+        "CDB029"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 208,
+      "item": "- [ ] Implement read-only MCP server.",
+      "mapped_tasks": [
+        "CDB032"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 209,
+      "item": "- [ ] Implement output pagination and byte limits.",
+      "mapped_tasks": [
+        "CDB032"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 210,
+      "item": "- [ ] Implement backup/restore smoke.",
+      "mapped_tasks": [
+        "CDB016"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 211,
+      "item": "- [ ] Implement fixtures and tests.",
+      "mapped_tasks": [
+        "CDB041"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 212,
+      "item": "- [ ] Implement docs and examples.",
+      "mapped_tasks": [
+        "CDB006"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md"
+      ],
+      "completion_semantics": "Implementation not claimed complete; execution package completes the item by assigning a controlled task, dependency, gate, and evidence path."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 218,
+      "item": "- [ ] `cargo fmt --check` passes.",
+      "mapped_tasks": [
+        "CDB046"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 219,
+      "item": "- [ ] `cargo clippy --all-targets --all-features` passes or documented exceptions exist.",
+      "mapped_tasks": [
+        "CDB046"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 220,
+      "item": "- [ ] `cargo test` passes.",
+      "mapped_tasks": [
+        "CDB046"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 221,
+      "item": "- [ ] `codedb doctor --nu` reports usable or degraded status clearly.",
+      "mapped_tasks": [
+        "CDB031"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 222,
+      "item": "- [ ] `codedb doctor --yazelix` reports usable or degraded status clearly.",
+      "mapped_tasks": [
+        "CDB031"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 223,
+      "item": "- [ ] `codedb doctor --codex` reports usable or degraded status clearly.",
+      "mapped_tasks": [
+        "CDB031"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 224,
+      "item": "- [ ] Repeated scan of unchanged fixture produces same table checksums.",
+      "mapped_tasks": [
+        "CDB042",
+        "CDB068"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 225,
+      "item": "- [ ] Clean fixture repo remains clean after scan.",
+      "mapped_tasks": [
+        "CDB044"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 226,
+      "item": "- [ ] Dirty fixture repo records pre-existing dirty state and does not worsen it.",
+      "mapped_tasks": [
+        "CDB044"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 227,
+      "item": "- [ ] Secret-looking fixture follows configured policy.",
+      "mapped_tasks": [
+        "CDB043"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 228,
+      "item": "- [ ] MCP cannot dump raw source by default.",
+      "mapped_tasks": [
+        "CDB062"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 229,
+      "item": "- [ ] `capture build` refuses without unsafe flag.",
+      "mapped_tasks": [
+        "CDB045"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 230,
+      "item": "- [ ] `capture build --unsafe-execute-build` preserves raw logs if implemented.",
+      "mapped_tasks": [
+        "CDB034"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 231,
+      "item": "- [ ] redb backup and restore smoke passes.",
+      "mapped_tasks": [
+        "CDB016"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 232,
+      "item": "- [ ] envctl export JSON/NUON/CSV validates.",
+      "mapped_tasks": [
+        "CDB035"
+      ],
+      "status": "mapped_to_controlled_planned_gate",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 233,
+      "item": "- [ ] task graph has no duplicate IDs.",
+      "mapped_tasks": [
+        "CDB065",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 234,
+      "item": "- [ ] all local markdown links resolve.",
+      "mapped_tasks": [
+        "CDB067"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 235,
+      "item": "- [ ] package manifest checksums match actual files.",
+      "mapped_tasks": [
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "manifests/PACKAGE_VALIDATION.json",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Release/implementation validation gate is controlled by TASK_GRAPH; package-level graph/link/manifest gates are validated now where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 245,
+      "item": "- [x] `CODEDB_START_HERE.md` exists and points to `READINESS_GATE.md`.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 246,
+      "item": "- [x] PRD is standalone V1.1 full.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 247,
+      "item": "- [x] `TASK_GRAPH.csv` exists and has unique task IDs.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 248,
+      "item": "- [x] `TASK_FILE_MAP.csv` maps every task to docs/files.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 249,
+      "item": "- [x] `FIRST_RUN_PROMPT.md` includes no-mutation and unsafe-capture rules.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 250,
+      "item": "- [x] `STOP_CONDITIONS.md` includes plugin version mismatch and unsafe execution stop rules.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 251,
+      "item": "- [x] Link check passes.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 252,
+      "item": "- [x] Secret-pattern scan over package passes.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 253,
+      "item": "- [x] Manifest and checksums exist.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 254,
+      "item": "- [x] Scaffold tasks `CDB000`–`CDB005` are marked complete.",
+      "mapped_tasks": [
+        "CDB000",
+        "CDB001",
+        "CDB002",
+        "CDB003",
+        "CDB004",
+        "CDB005",
+        "CDB067"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "manifests/PACKAGE_VALIDATION.json",
+        "manifests/PACK_MANIFEST.json",
+        "manifests/CHECKSUMS.sha256"
+      ],
+      "completion_semantics": "Existing scaffold evidence plus regenerated validation passes."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 260,
+      "item": "- [ ] Codex bridge: CLI/MCP path, absolute binary paths, output bounds, no auth hacks.",
+      "mapped_tasks": [
+        "CDB037"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/CODEX_BRIDGE.md",
+        "docs/NUSHELL_PLUGIN_COMPAT.md",
+        "docs/ENVCTL_EXPORT_CONTRACT.md",
+        "docs/META_INTEGRATION.md",
+        "docs/YAZELIX_PLACEMENT.md",
+        "docs/SECURITY_AND_SECRET_POLICY.md",
+        "docs/RELEASE_GATE.md",
+        "execution/TASK_GRAPH.csv"
+      ],
+      "completion_semantics": "Bridge documentation exists and implementation proof remains controlled by mapped task."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 261,
+      "item": "- [ ] Nushell plugin compatibility: host/runtime Nu protocol checks and registry isolation.",
+      "mapped_tasks": [
+        "CDB051"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/CODEX_BRIDGE.md",
+        "docs/NUSHELL_PLUGIN_COMPAT.md",
+        "docs/ENVCTL_EXPORT_CONTRACT.md",
+        "docs/META_INTEGRATION.md",
+        "docs/YAZELIX_PLACEMENT.md",
+        "docs/SECURITY_AND_SECRET_POLICY.md",
+        "docs/RELEASE_GATE.md",
+        "execution/TASK_GRAPH.csv"
+      ],
+      "completion_semantics": "Bridge documentation exists and implementation proof remains controlled by mapped task."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 262,
+      "item": "- [ ] envctl export contract: envctl reads exported rows/checksums, not redb internals.",
+      "mapped_tasks": [
+        "CDB035",
+        "CDB068"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/CODEX_BRIDGE.md",
+        "docs/NUSHELL_PLUGIN_COMPAT.md",
+        "docs/ENVCTL_EXPORT_CONTRACT.md",
+        "docs/META_INTEGRATION.md",
+        "docs/YAZELIX_PLACEMENT.md",
+        "docs/SECURITY_AND_SECRET_POLICY.md",
+        "docs/RELEASE_GATE.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Bridge documentation exists and implementation proof remains controlled by mapped task."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 263,
+      "item": "- [ ] meta integration: selected repo graph input, no meta replacement.",
+      "mapped_tasks": [
+        "CDB036"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/CODEX_BRIDGE.md",
+        "docs/NUSHELL_PLUGIN_COMPAT.md",
+        "docs/ENVCTL_EXPORT_CONTRACT.md",
+        "docs/META_INTEGRATION.md",
+        "docs/YAZELIX_PLACEMENT.md",
+        "docs/SECURITY_AND_SECRET_POLICY.md",
+        "docs/RELEASE_GATE.md",
+        "execution/TASK_GRAPH.csv"
+      ],
+      "completion_semantics": "Bridge documentation exists and implementation proof remains controlled by mapped task."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 264,
+      "item": "- [ ] Yazelix placement: runtime tool + generated init/extern bridge, no tracked `config.nu` edit.",
+      "mapped_tasks": [
+        "CDB038"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/CODEX_BRIDGE.md",
+        "docs/NUSHELL_PLUGIN_COMPAT.md",
+        "docs/ENVCTL_EXPORT_CONTRACT.md",
+        "docs/META_INTEGRATION.md",
+        "docs/YAZELIX_PLACEMENT.md",
+        "docs/SECURITY_AND_SECRET_POLICY.md",
+        "docs/RELEASE_GATE.md",
+        "execution/TASK_GRAPH.csv"
+      ],
+      "completion_semantics": "Bridge documentation exists and implementation proof remains controlled by mapped task."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 265,
+      "item": "- [ ] Security and secret policy: source blob modes, MCP leak guard, log redaction.",
+      "mapped_tasks": [
+        "CDB010"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/CODEX_BRIDGE.md",
+        "docs/NUSHELL_PLUGIN_COMPAT.md",
+        "docs/ENVCTL_EXPORT_CONTRACT.md",
+        "docs/META_INTEGRATION.md",
+        "docs/YAZELIX_PLACEMENT.md",
+        "docs/SECURITY_AND_SECRET_POLICY.md",
+        "docs/RELEASE_GATE.md",
+        "execution/TASK_GRAPH.csv"
+      ],
+      "completion_semantics": "Bridge documentation exists and implementation proof remains controlled by mapped task."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 266,
+      "item": "- [ ] Release gate: no-mutation proof, table checksums, raw logs, manifest.",
+      "mapped_tasks": [
+        "CDB039",
+        "CDB068"
+      ],
+      "status": "complete_doc_artifact_future_task_still_planned",
+      "evidence": [
+        "docs/CODEX_BRIDGE.md",
+        "docs/NUSHELL_PLUGIN_COMPAT.md",
+        "docs/ENVCTL_EXPORT_CONTRACT.md",
+        "docs/META_INTEGRATION.md",
+        "docs/YAZELIX_PLACEMENT.md",
+        "docs/SECURITY_AND_SECRET_POLICY.md",
+        "docs/RELEASE_GATE.md",
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Bridge documentation exists and implementation proof remains controlled by mapped task."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 356,
+      "item": "- [ ] During implementation, generate the standalone docs listed in section 6 or explicitly fold each topic into existing docs with a `covered_by` entry in `TASK_FILE_MAP.csv`.",
+      "mapped_tasks": [
+        "CDB006",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 357,
+      "item": "- [ ] Implement the Rust workspace and crates from the PRD.",
+      "mapped_tasks": [
+        "CDB013"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 358,
+      "item": "- [ ] Implement redb store init, schema version, locking, backup, and restore smoke.",
+      "mapped_tasks": [
+        "CDB016"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 359,
+      "item": "- [ ] Implement read-only scan and no-mutation proof before any dynamic capture.",
+      "mapped_tasks": [
+        "CDB028"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 360,
+      "item": "- [ ] Implement Nu plugin command surface and host/Yazelix runtime compatibility checks.",
+      "mapped_tasks": [
+        "CDB030"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 361,
+      "item": "- [ ] Implement generated CodeDB init/extern bridge under Yazelix state paths only.",
+      "mapped_tasks": [
+        "CDB054"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 362,
+      "item": "- [ ] Implement bounded CLI/MCP surfaces for Codex.",
+      "mapped_tasks": [
+        "CDB062"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 363,
+      "item": "- [ ] Implement envctl export contract and sample exported tables.",
+      "mapped_tasks": [
+        "CDB035"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 364,
+      "item": "- [ ] Implement fixture matrix, deterministic scan tests, no-leak tests, no-mutation tests, and unsafe-capture refusal tests.",
+      "mapped_tasks": [
+        "CDB041"
+      ],
+      "status": "mapped_to_controlled_planned_task",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    },
+    {
+      "source_file": "nu_plugin_codedb_execution_package_checklist.md",
+      "line": 365,
+      "item": "- [ ] Run final release proof and regenerate package manifest/checksums.",
+      "mapped_tasks": [
+        "CDB067",
+        "CDB068"
+      ],
+      "status": "complete_artifact",
+      "evidence": [
+        "execution/TASK_GRAPH.csv",
+        "execution/TASK_GRAPH.md",
+        "docs/RELEASE_GATE.md",
+        "manifests/PACKAGE_VALIDATION.json",
+        "execution/TASK_FILE_MAP.csv",
+        "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json"
+      ],
+      "completion_semantics": "Remaining implementation item is explicitly controlled by TASK_GRAPH; package docs/release metadata completed where applicable."
+    }
+  ],
+  "updated_at_utc": "2026-07-02T01:44:15Z",
+  "source_of_truth_repair": {
+    "task_id": "CDB068",
+    "evidence": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json",
+    "policy": "execution/TASK_GRAPH.csv is the task source of truth and uses exact current package-relative file paths."
+  }
+}

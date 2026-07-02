@@ -1,0 +1,30 @@
+{
+  "task_id": "CDB055",
+  "schema_version": 1,
+  "status": "provenance_manifest_declared",
+  "generator": "codedb generate-yazelix-bridge",
+  "source_truth": "templates",
+  "verification_test": "tests/test_init_provenance.nu",
+  "artifacts": [
+    {
+      "artifact": "codedb_init",
+      "template": "templates/nushell/codedb_init.nu",
+      "generated_file": "codedb_init.nu",
+      "sha256": "d769c2bdca562fc53979cb3bad0fd7940f12c2f55fdcc65bf6b79f35f3987797",
+      "manual_edits_allowed": false,
+      "mutates_plugin_registry": false
+    },
+    {
+      "artifact": "codedb_extern",
+      "template": "templates/nushell/codedb_extern.nu",
+      "generated_file": "codedb_extern.nu",
+      "sha256": "203233735d97fa16eb19d4b96efb2d5f44cb9114163724266e6d35275b41e7e0",
+      "manual_edits_allowed": false,
+      "mutates_plugin_registry": false
+    }
+  ],
+  "notes": [
+    "The generated bridge manifest contains a generation timestamp, so test_init_provenance.nu verifies its structure and artifact checksums instead of pinning its file checksum.",
+    "No generated bridge file is source truth; templates and emitted manifest rows are the reviewable provenance surface."
+  ]
+}

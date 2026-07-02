@@ -1,0 +1,17 @@
+# CDB064 extraction proof log
+
+source_zip: /mnt/data/nu_plugin_codedb_execution_pack_v1_1_final_verified.zip
+source_zip_sha256: 613f4b27326adc75bda89e590cd560cd27a9a1ac8c427f7952d17ad1fa2f39fd
+package_root: /mnt/data/nu_plugin_codedb_build_workspace/extracted/nu_plugin_codedb_execution_pack_v1_1
+extraction_proof: manifests/EXTRACTION_PROOF.json
+status: verified
+created_at_utc: 2026-07-02T01:02:12.728883+00:00
+
+current_validation_utc: 2026-07-02T08:29Z
+current_source_zip: /home/flexnetos/Downloads/nu_plugin_codedb_execution_pack_v1_1_final_verified.zip
+current_source_zip_sha256: 613f4b27326adc75bda89e590cd560cd27a9a1ac8c427f7952d17ad1fa2f39fd
+current_validation:
+- PASS sha256sum matches manifests/EXTRACTION_PROOF.json source_zip_sha256
+- PASS unzip -t reports no compressed data errors
+- PASS ZIP non-directory file count is 23 and matches manifests/EXTRACTION_PROOF.json
+- PASS ZIP size is 49120 bytes and matches manifests/EXTRACTION_PROOF.json

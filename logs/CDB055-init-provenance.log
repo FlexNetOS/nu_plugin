@@ -1,0 +1,22 @@
+CDB055 - Verify generated initializer checksums/provenance
+Date: 2026-07-02
+Status: passed
+
+Scope:
+- Verify generated Yazelix initializer and extern bridge artifact provenance.
+- Use manifest rows and checksum report from generated files.
+- Do not treat generated files as source truth.
+
+Changes:
+- Added tests/test_init_provenance.nu.
+- Added manifests/INIT_PROVENANCE.json.
+
+Validation passed:
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin nu --no-config-file tests/test_init_provenance.nu
+  - status: passed
+  - row_count: 3
+  - codedb_init sha256: d769c2bdca562fc53979cb3bad0fd7940f12c2f55fdcc65bf6b79f35f3987797
+  - codedb_extern sha256: 203233735d97fa16eb19d4b96efb2d5f44cb9114163724266e6d35275b41e7e0
+
+Acceptance signal:
+- initializer provenance proven.

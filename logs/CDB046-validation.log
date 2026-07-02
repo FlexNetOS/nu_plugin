@@ -1,0 +1,423 @@
+# CDB046 full local validation
+toolchain_bin=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin
+cargo 1.96.0 (30a34c682 2026-05-25)
+rustc 1.96.0 (ac68faa20 2026-05-25)
+0.112.2
+## cargo fmt --check
+## cargo clippy --all-targets --all-features
+warning: this function has too many arguments (9/7)
+  --> crates/codedb_core/src/lib.rs:68:5
+   |
+68 | /     pub const fn new(
+69 | |         schema_version: SchemaVersion,
+70 | |         workspace_id: &'static str,
+71 | |         crate_id: &'static str,
+...  |
+77 | |         source_blob_hash: &'static str,
+78 | |     ) -> Self {
+   | |_____________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#too_many_arguments
+   = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: this boolean expression can be simplified
+   --> crates/codedb_core/src/lib.rs:641:9
+    |
+641 |         *byte == b'\n' && index == 0 || *byte == b'\n' && bytes[index - 1] != b'\r'
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#nonminimal_bool
+    = note: `#[warn(clippy::nonminimal_bool)]` on by default
+help: try
+    |
+641 -         *byte == b'\n' && index == 0 || *byte == b'\n' && bytes[index - 1] != b'\r'
+641 +         !(*byte != b'\n' || index != 0 && bytes[index - 1] == b'\r')
+    |
+641 -         *byte == b'\n' && index == 0 || *byte == b'\n' && bytes[index - 1] != b'\r'
+641 +         (bytes[index - 1] != b'\r' || index == 0) && *byte == b'\n'
+    |
+
+warning: consider using `sort_by_key`
+   --> crates/codedb_rust_static/src/lib.rs:629:5
+    |
+629 | /     inventory
+630 | |         .gaps
+631 | |         .sort_by(|left, right| left.missing_truth.cmp(&right.missing_truth));
+    | |____________________________________________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#unnecessary_sort_by
+    = note: `#[warn(clippy::unnecessary_sort_by)]` on by default
+help: try
+    |
+631 -         .sort_by(|left, right| left.missing_truth.cmp(&right.missing_truth));
+631 +         .sort_by_key(|left| left.missing_truth);
+    |
+
+warning: consider using `sort_by_key`
+   --> crates/codedb_rust_static/src/lib.rs:713:5
+    |
+713 | /     inventory
+714 | |         .gaps
+715 | |         .sort_by(|left, right| left.missing_truth.cmp(&right.missing_truth));
+    | |____________________________________________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#unnecessary_sort_by
+help: try
+    |
+715 -         .sort_by(|left, right| left.missing_truth.cmp(&right.missing_truth));
+715 +         .sort_by_key(|left| left.missing_truth);
+    |
+
+warning: this `if` statement can be collapsed
+    --> crates/codedb_rust_static/src/lib.rs:1110:17
+     |
+1110 | /                 if let Expr::Lit(expr_lit) = &name_value.value {
+1111 | |                     if let Lit::Str(lit_str) = &expr_lit.lit {
+1112 | |                         push_include_edge(
+1113 | |                             inventory,
+...    |
+1122 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+     = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+     |
+1110 ~                 if let Expr::Lit(expr_lit) = &name_value.value
+1111 ~                     && let Lit::Str(lit_str) = &expr_lit.lit {
+1112 |                         push_include_edge(
+ ...
+1120 |                         continue;
+1121 ~                     }
+     |
+
+warning: `codedb-core` (lib) generated 2 warnings
+warning: `codedb-rust-static` (lib) generated 3 warnings (run `cargo clippy --fix --lib -p codedb-rust-static -- ` to apply 3 suggestions)
+warning: `codedb-core` (lib test) generated 2 warnings (2 duplicates)
+warning: `codedb-rust-static` (lib test) generated 3 warnings (3 duplicates)
+warning: the `Err`-variant returned from this function is very large
+   --> crates/codedb_store_redb/src/lib.rs:134:6
+    |
+ 66 |     Transaction(TransactionError),
+    |     ----------------------------- the largest variant contains at least 160 bytes
+...
+134 | ) -> Result<StoreInitReport, StoreError> {
+    |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: try reducing the size of `StoreError`, for example by boxing large elements or replacing it with `Box<StoreError>`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#result_large_err
+    = note: `#[warn(clippy::result_large_err)]` on by default
+
+warning: the `Err`-variant returned from this function is very large
+   --> crates/codedb_store_redb/src/lib.rs:175:53
+    |
+ 66 |     Transaction(TransactionError),
+    |     ----------------------------- the largest variant contains at least 160 bytes
+...
+175 | pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, StoreError> {
+    |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: try reducing the size of `StoreError`, for example by boxing large elements or replacing it with `Box<StoreError>`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#result_large_err
+
+warning: the `Err`-variant returned from this function is very large
+   --> crates/codedb_store_redb/src/lib.rs:223:56
+    |
+ 66 |     Transaction(TransactionError),
+    |     ----------------------------- the largest variant contains at least 160 bytes
+...
+223 | pub fn checksum_file_sha256(path: impl AsRef<Path>) -> Result<String, StoreError> {
+    |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: try reducing the size of `StoreError`, for example by boxing large elements or replacing it with `Box<StoreError>`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#result_large_err
+
+warning: the `Err`-variant returned from this function is very large
+   --> crates/codedb_store_redb/src/lib.rs:240:6
+    |
+ 66 |     Transaction(TransactionError),
+    |     ----------------------------- the largest variant contains at least 160 bytes
+...
+240 | ) -> Result<StoreBackupReport, StoreError> {
+    |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: try reducing the size of `StoreError`, for example by boxing large elements or replacing it with `Box<StoreError>`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#result_large_err
+
+warning: the `Err`-variant returned from this function is very large
+   --> crates/codedb_store_redb/src/lib.rs:262:6
+    |
+ 66 |     Transaction(TransactionError),
+    |     ----------------------------- the largest variant contains at least 160 bytes
+...
+262 | ) -> Result<StoreRestoreReport, StoreError> {
+    |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: try reducing the size of `StoreError`, for example by boxing large elements or replacing it with `Box<StoreError>`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#result_large_err
+
+warning: `codedb-store-redb` (lib) generated 5 warnings
+warning: `codedb-store-redb` (lib test) generated 5 warnings (5 duplicates)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+## cargo test
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/main.rs (target/debug/deps/codedb-eb84c9b8dfd3e080)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/codedb_build_capture-8535899e2745c6b4)
+
+running 4 tests
+test tests::approved_fixture_capture_still_refuses_without_unsafe_flag ... ok
+test tests::capture_build_records_approval_scaffold_with_unsafe_flag ... ok
+test tests::capture_build_refuses_without_unsafe_flag ... ok
+test tests::approved_fixture_capture_writes_raw_logs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running unittests src/lib.rs (target/debug/deps/codedb_cargo-1a3448c38e2cdf8a)
+
+running 3 tests
+test tests::cargo_source_classifier_covers_registry_git_and_path ... ok
+test tests::context_rows_are_keyed_and_deterministic ... ok
+test tests::cargo_metadata_fixture_capture_is_stable ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running unittests src/lib.rs (target/debug/deps/codedb_core-c6977de25c23796e)
+
+running 7 tests
+test tests::schema_tables_convert_into_rows ... ok
+test tests::workspace_identity_is_deterministic ... ok
+test tests::secret_like_source_is_redacted_by_policy ... ok
+test tests::filesystem_scan_rows_are_stable ... ok
+test tests::source_metadata_is_metadata_only_by_default ... ok
+test tests::clean_git_fixture_proves_no_mutation ... ok
+test tests::dirty_git_fixture_proves_no_new_mutation ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/codedb_fixtures-ed45418f34ef4d32)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/codedb_mcp-21f7e7af4711fd12)
+
+running 5 tests
+test tests::allowed_and_blocked_tools_are_explicit ... ok
+test tests::excessive_limit_is_rejected ... ok
+test tests::byte_limit_truncates_rows ... ok
+test tests::table_page_enforces_row_limits ... ok
+test tests::repo_summary_does_not_leak_raw_source ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/codedb_rust_static-c47a5d39749741f8)
+
+running 6 tests
+test tests::build_script_fixture_emits_static_rows_and_gaps ... ok
+test tests::include_fixture_passes ... ok
+test tests::native_link_fixture_emits_static_rows_and_gaps ... ok
+test tests::macro_fixture_passes_with_gaps ... ok
+test tests::proc_macro_fixture_emits_static_rows_and_gaps ... ok
+test tests::simple_item_fixture_passes ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/codedb_store_redb-1759b472f6c25de5)
+
+running 2 tests
+test tests::initialize_and_read_back_metadata ... ok
+test tests::backup_and_restore_smoke_preserves_metadata ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+     Running unittests src/main.rs (target/debug/deps/nu_plugin_codedb-44c408dbe925ad63)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_build_capture
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_cargo
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_fixtures
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_rust_static
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_store_redb
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+## codedb doctor --nu
+[
+  {
+    "action": "use this path for runtime-specific plugin registration",
+    "check": "nu_path",
+    "component": "host_nu",
+    "note": "Nu executable discovered without mutating plugin registries",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "/nix/store/hk4m00bfnqddhlymfy8s6afrr8fd93kk-yazelix/toolbin/nu"
+  },
+  {
+    "action": "compare against the plugin protocol version before registration",
+    "check": "nu_version",
+    "component": "host_nu",
+    "note": "Nu version command completed",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "0.112.2"
+  },
+  {
+    "action": "rebuild the plugin against the target Nu protocol if degraded",
+    "check": "plugin_protocol_compatibility",
+    "component": "host_nu",
+    "note": "runtime Nu version matches nu-plugin/nu-protocol 0.112.2",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "nu-plugin=0.112.2;nu-protocol=0.112.2"
+  },
+  {
+    "action": "run cargo build -p nu_plugin_codedb before registration",
+    "check": "plugin_binary_path",
+    "component": "host_nu",
+    "note": "expected sibling nu_plugin_codedb binary next to codedb",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "/home/flexnetos/Downloads/nu_plugin/target/debug/nu_plugin_codedb"
+  },
+  {
+    "action": "plugin add /home/flexnetos/Downloads/nu_plugin/target/debug/nu_plugin_codedb",
+    "check": "plugin_registration_status",
+    "component": "host_nu",
+    "note": "doctor does not mutate or inspect user plugin registries in CDB031",
+    "status": "degraded",
+    "table": "doctor_checks",
+    "value": "unknown"
+  }
+]
+## codedb doctor --yazelix
+[
+  {
+    "action": "set YAZELIX_NU_PATH or YAZELIX_RUNTIME_NU for runtime-specific doctor checks",
+    "check": "runtime_nu_path",
+    "component": "yazelix_nu",
+    "note": "Yazelix runtime Nu was not discoverable from explicit Yazelix environment variables",
+    "status": "degraded",
+    "table": "doctor_checks",
+    "value": ""
+  }
+]
+## codedb doctor --codex
+[
+  {
+    "action": "use explicit CodeDB exports for integration boundaries",
+    "check": "tool_path",
+    "component": "codex",
+    "note": "tool discovered on PATH",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "/home/flexnetos/.local/bin/codex"
+  },
+  {
+    "action": "consume JSON/NUON/CSV output; do not read redb internals",
+    "check": "integration_boundary",
+    "component": "codex",
+    "note": "Codex CLI is optional; use codedb CLI/MCP directly if Codex is unavailable",
+    "status": "available",
+    "table": "doctor_checks",
+    "value": "codedb exports"
+  }
+]
+## task graph duplicate id check
+69
+## envctl export formats validate
+24
+24
+24
+## CDB042 deterministic scan test
+╭───┬─────────────────┬──────────────────────────────────────────────────┬─────╮
+│ # │      label      │                      sha256                      │ ... │
+├───┼─────────────────┼──────────────────────────────────────────────────┼─────┤
+│ 0 │ scan_summary    │ 0f2e27a6ddc5729d5b15afb1a99ceaa5928a5013980bc35a │ ... │
+│   │                 │ 4c2d0b6ea6a8afa4                                 │     │
+│ 1 │ table_checksums │ ec60bcdd90f637ca9af5516252ae24eab708ae1754b3525b │ ... │
+│   │                 │ d985c36fcb5833aa                                 │     │
+│ 2 │ scan_tables     │                                               ❎ │ ... │
+│ 3 │ checksum_tables │                                               ❎ │ ... │
+╰───┴─────────────────┴──────────────────────────────────────────────────┴─────╯
+## CDB043 security no-leak test
+╭───┬────────────────────┬────────┬────────────────────────┬───────────────────╮
+│ # │       label        │ status │         sha256         │ raw_secret_values │
+├───┼────────────────────┼────────┼────────────────────────┼───────────────────┤
+│ 0 │ mcp_security_tests │ passed │ 1952f05b3918efebb581d9 │                ❎ │
+│   │                    │        │ 9640089f8d608313456a2f │                   │
+│   │                    │        │ caf098901ae0dd50d7e0   │                   │
+│ 1 │ scan_summary       │     ❎ │ 5043c55bccef92d9e15577 │ absent            │
+│   │                    │        │ 2a8200c79df5a830bf1b31 │                   │
+│   │                    │        │ 72a92b33e3f5537d80cf   │                   │
+│ 2 │ rust_items         │     ❎ │ 977492044a00f6c2659214 │ absent            │
+│   │                    │        │ 3a017b29b58d6d344e0871 │                   │
+│   │                    │        │ c3b019b5354436982722   │                   │
+│ 3 │ table_checksums    │     ❎ │ 4e0ba7c90ebc1ca5519c0d │ absent            │
+│   │                    │        │ e6039a81c376838e87f823 │                   │
+│   │                    │        │ 1a0e23172316f4a302df   │                   │
+│ 4 │ envctl_export      │     ❎ │ 7b716a6b14c6fdfc73c111 │ absent            │
+│   │                    │        │ 2ea320eccce2a244e0895c │                   │
+│   │                    │        │ 1f42b4149aae5d4b66e0   │                   │
+╰───┴────────────────────┴────────┴────────────────────────┴───────────────────╯
+## CDB044 no-mutation test
+╭───┬────────────┬──────────────┬────────────────────┬───────────────────┬─────╮
+│ # │   label    │ proof_status │ pre_existing_dirty │ mutation_detected │ ... │
+├───┼────────────┼──────────────┼────────────────────┼───────────────────┼─────┤
+│ 0 │ clean_repo │ proven       │ false              │ false             │ ... │
+│ 1 │ dirty_repo │ proven       │ true               │ false             │ ... │
+╰───┴────────────┴──────────────┴────────────────────┴───────────────────┴─────╯
+## CDB045 unsafe capture test
+╭───┬───────────────────────────┬───────────┬────────────────────────────┬─────╮
+│ # │           label           │  status   │           sha256           │ ... │
+├───┼───────────────────────────┼───────────┼────────────────────────────┼─────┤
+│ 0 │ build_capture_crate_tests │ passed    │ c2f8f6e4697f4432471099f93d │ ... │
+│   │                           │           │ 649d1e4d51dc79ac41623d3d55 │     │
+│   │                           │           │ 2d7127489c0a               │     │
+│ 1 │ runner_unsafe_gate        │ satisfied │                         ❎ │ ... │
+╰───┴───────────────────────────┴───────────┴────────────────────────────┴─────╯
+## fixture source lockfile check
+none
+CDB046 validation passed

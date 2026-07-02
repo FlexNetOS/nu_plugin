@@ -1,0 +1,20 @@
+# CDB065 task graph finalization
+
+created_at_utc: 2026-07-02T01:02:12.778863+00:00
+task_count: 68
+status: complete
+
+current_validation_utc: 2026-07-02T08:35Z
+current_task_count: 69
+current_status_counts:
+- complete: 18
+- planned: 51
+current_validation:
+- PASS execution/TASK_GRAPH.csv parses with 69 rows and 40 columns
+- PASS execution/TASK_GRAPH.md projection contains 69 task rows
+- PASS required controlled-execution columns are present
+- PASS task IDs are unique
+- PASS dependency and blocking references resolve
+- PASS dependency graph is acyclic
+- PASS completed rows have existing raw log paths and exact evidence file references where file paths are declared
+note: original task_count above is retained as historical package-builder output; current validation reflects the repaired TASK_GRAPH.csv state.

@@ -1,0 +1,11 @@
+[package]
+name = "codedb_fixture_build_script"
+version = "0.1.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"

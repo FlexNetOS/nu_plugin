@@ -1,0 +1,25 @@
+# CDB067 final validation
+
+created_at_utc: 2026-07-02T01:02:55.125891+00:00
+status: resealed
+note: manifest and checksums generated after ledger/worklog/log finalization.
+
+current_validation_utc: 2026-07-02T08:35Z
+current_status: resealed
+current_validation:
+- PASS active Markdown link check: 42 files, 54 local links, 0 broken links
+- PASS task graph validation: 69 rows, unique IDs, dependency refs resolve, graph acyclic
+- PASS checklist validation: 109 items, 0 unmapped, all evidence paths exist
+- PASS source ZIP integrity: /home/flexnetos/Downloads/nu_plugin_codedb_execution_pack_v1_1_final_verified.zip sha256 613f4b27326adc75bda89e590cd560cd27a9a1ac8c427f7952d17ad1fa2f39fd and unzip -t passes
+- PASS secret hygiene audit: placeholder secret strings are confined to intentional fixtures/tests/docs/log evidence that assert no default output leakage
+- PASS manifests/PACKAGE_VALIDATION.json status is passed
+- PASS manifests/PACK_MANIFEST.json validation_status is resealed
+- PASS sha256sum -c manifests/CHECKSUMS.sha256 validates 206 scoped package files
+checksum_exclusions:
+- manifests/CHECKSUMS.sha256
+- manifests/PACKAGE_VALIDATION.json
+- manifests/PACK_MANIFEST.json
+- logs/CDB067-final-validation.log
+
+Acceptance signal:
+- final package validation passes

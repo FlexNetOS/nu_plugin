@@ -1,0 +1,31 @@
+CDB054 - Generate CodeDB extern/init bridge artifact
+Date: 2026-07-02
+Status: passed
+
+Changes:
+- Added codedb generate-yazelix-bridge --out-dir <path>.
+- Added templates/nushell/codedb_init.nu.
+- Added templates/nushell/codedb_extern.nu.
+- Added docs/CODEDB_YAZELIX_INIT_CONTRACT.md.
+
+Bridge behavior:
+- Generates codedb_init.nu, codedb_extern.nu, and codedb_bridge_manifest.json.
+- Emits artifact rows with checksums and provenance.
+- Does not edit tracked Yazelix config.nu.
+- Does not mutate plugin registries or run plugin add.
+
+Validation passed:
+- PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo fmt --check
+- PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo test -p codedb
+- PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo run -p codedb -- generate-yazelix-bridge --out-dir /tmp/codedb-cdb054.FeH4Rr --format json
+  - codedb_init sha256: d769c2bdca562fc53979cb3bad0fd7940f12c2f55fdcc65bf6b79f35f3987797
+  - codedb_extern sha256: 203233735d97fa16eb19d4b96efb2d5f44cb9114163724266e6d35275b41e7e0
+  - codedb_bridge_manifest sha256: 2364c2aeeab041cf30ab7d963b3235b9a8c97da20d9b74d78d2969f026e4bc07
+  - generated files: codedb_init.nu, codedb_extern.nu, codedb_bridge_manifest.json
+- nu --no-config-file --ide-check 100 /tmp/codedb-cdb054.FeH4Rr/codedb_init.nu
+  - exit 0, hints only
+- nu --no-config-file --ide-check 100 /tmp/codedb-cdb054.FeH4Rr/codedb_extern.nu
+  - exit 0
+
+Acceptance signal:
+- init bridge generated.

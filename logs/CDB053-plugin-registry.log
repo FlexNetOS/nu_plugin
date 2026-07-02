@@ -1,0 +1,34 @@
+CDB053 - Implement temp-HOME plugin registry smoke test
+Date: 2026-07-02
+Status: passed
+
+Changes:
+- Added tests/test_plugin_registry.nu.
+- Added examples/nushell/plugin_registry_smoke.nu.
+
+Intended proof:
+- Build nu_plugin_codedb.
+- Run plugin add with --plugin-config pointing at a temp HOME file.
+- Run a second Nu process with --plugin-config and plugin use nu_plugin_codedb.
+- Execute codedb tables and parse table-shaped output.
+- Compare likely real HOME Nushell plugin registry files before/after.
+
+Forbidden action check:
+- No plugin add against real HOME.
+- No default plugin registry path.
+- No tracked Yazelix runtime config edit.
+
+Validation passed:
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin CODEDB_TEST_REPO_ROOT=/home/flexnetos/Downloads/nu_plugin nu /home/flexnetos/Downloads/nu_plugin/tests/test_plugin_registry.nu
+  - status: passed
+  - row_count: 8
+  - first_table: codedb_contexts
+  - temp plugin registry: /tmp/tmp.AeewBHO9Wa/plugins.msgpackz
+  - temp plugin registry sha256: 1f6e2a9c5aa2905af0b40a048bcf74ab35da8722380a5aa7bddb8a121cafba92
+- PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo fmt --check
+
+Acceptance signal:
+- registry path proven safely.
+
+Probe note:
+- After `plugin add`, Nu 0.112 accepts `plugin use codedb` or the full plugin executable path. It does not accept `plugin use nu_plugin_codedb`.

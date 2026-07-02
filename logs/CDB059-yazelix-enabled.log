@@ -1,0 +1,37 @@
+CDB059 - Add Yazelix launch smoke with CodeDB enabled
+Date: 2026-07-02
+Status: passed
+
+Scope:
+- Prove a Yazelix-like Nu launch remains ready when CodeDB bridge paths are present.
+- Keep startup light: no plugin add, plugin use, registry creation, or heavy import.
+- Do not edit tracked Yazelix config.
+
+Changes:
+- Added tests/test_yazelix_enabled_smoke.nu.
+- Updated docs/YAZELIX_PLACEMENT.md with enabled launch smoke expectations.
+
+Validation passed:
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin nu --no-config-file tests/test_yazelix_enabled_smoke.nu
+  - status: passed
+  - enabled_mode_safe: true
+  - launch_status: ready
+  - codedb_cli_status: available
+  - codedb_plugin_status: available
+  - bridge_rows: 3
+  - plugin_registry_created: false
+- nu --no-config-file --ide-check 100 tests/test_yazelix_enabled_smoke.nu
+  - exit 0, hints only
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin nu --no-config-file -c 'source tests/test_yazelix_enabled_smoke.nu; main | to json'
+  - launch_status: ready
+  - enabled_mode_safe: true
+  - plugin_registry_created: false
+- marker search for CDB059/enabled/startup-light/no registry text passed
+- find fixtures -name Cargo.lock -print | sort
+  - printed no paths
+- nu --no-config-file tests/test_nushell_syntax_gate.nu
+  - status: passed
+  - checked_files: 16
+
+Acceptance signal:
+- enabled mode safe.

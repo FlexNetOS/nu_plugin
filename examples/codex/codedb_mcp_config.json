@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "codedb": {
+      "command": "/absolute/path/to/codedb",
+      "args": [
+        "mcp",
+        "serve",
+        "--repo-path",
+        "/absolute/path/to/repo",
+        "--store",
+        "/absolute/path/to/repo/.codedb/store.redb",
+        "--default-limit",
+        "50",
+        "--max-bytes",
+        "65536"
+      ],
+      "env": {}
+    }
+  },
+  "codedbPolicy": {
+    "access": "read_only",
+    "bounded": true,
+    "defaultRowLimit": 50,
+    "maxBytes": 65536,
+    "rawSourceDefault": "disabled",
+    "unsafeBuildCapture": "blocked_in_mcp",
+    "mutation": "forbidden",
+    "auth": "external_official_codex_auth_only",
+    "notes": "Replace absolute paths before use. Do not add credential or private material fields."
+  }
+}

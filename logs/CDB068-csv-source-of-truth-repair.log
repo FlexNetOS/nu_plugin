@@ -1,0 +1,31 @@
+# CDB068 CSV source-of-truth repair log
+generated_at_utc: 2026-07-02T01:44:15Z
+input_audit: manifests/CSV_DOC_LINK_AUDIT_INPUT.md
+source_truth: execution/TASK_GRAPH.csv
+
+actions:
+- normalized basename-only current package references to exact package-relative paths
+- created missing raw evidence logs for CDB000-CDB005
+- added expanded source-of-truth/path-resolution columns to TASK_GRAPH.csv
+- expanded TASK_FILE_MAP.csv with source-of-truth and exact path columns
+- added CDB068 repair row and made CDB013 depend on CDB068
+- added direct CSV references to ACCEPTANCE.md, FIRST_RUN_PROMPT.md, and nu_plugin_codedb_remaining_execution_checklist.md
+- updated navigation, readiness gate, checklist evidence, manifest/checksum/link/validation artifacts
+
+redaction: no raw secrets recorded
+
+current_validation_utc: 2026-07-02T08:46Z
+current_validation:
+- PASS execution/TASK_GRAPH.csv parses with 69 task rows
+- PASS execution/TASK_FILE_MAP.csv has 69 task rows
+- PASS required source-of-truth/path-resolution columns are present
+- PASS task IDs are unique and dependency/blocking references resolve
+- PASS dependency graph is acyclic
+- PASS CDB013 depends on CDB068 before implementation starts
+- PASS completed rows use complete_current_paths_exact and evidence_files_present
+- PASS completed-row raw logs and exact evidence/current artifact paths exist
+- PASS manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json after.task_count is 69 and new_task is CDB068
+- PASS sha256sum -c manifests/CHECKSUMS.sha256 validates the resealed package checksum scope
+
+Acceptance signal:
+- CSV has exact current package links, evidence logs exist, and validation passes

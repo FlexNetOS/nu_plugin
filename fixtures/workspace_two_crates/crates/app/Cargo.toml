@@ -1,0 +1,11 @@
+[package]
+name = "codedb_fixture_workspace_app"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+codedb_fixture_workspace_helper = { path = "../helper" }
+
+[lib]
+path = "src/lib.rs"

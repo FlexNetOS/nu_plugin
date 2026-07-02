@@ -1,0 +1,10 @@
+[package]
+name = "codedb_fixture_macro_rules"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"

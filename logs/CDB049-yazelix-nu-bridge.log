@@ -1,0 +1,40 @@
+CDB049 - Inspect Yazelix Nushell runtime bridge
+Date: 2026-07-02
+Status: passed
+
+Scope:
+- Source-only inspection of /home/flexnetos/FlexNetOS/src/yazelix runtime, packaging, Home Manager, and Nu bridge surfaces.
+- No tracked Yazelix runtime config edits.
+- No real HOME Nu plugin registry mutation.
+- No runtime restart.
+
+Evidence:
+- Read nushell/config/config.nu
+  - Guarded by IN_YAZELIX_SHELL or YAZELIX_RUNTIME_DIR
+  - Sources ~/.local/share/yazelix/initializers/nushell/yazelix_init.nu
+  - Sources ~/.local/share/yazelix/initializers/nushell/yazelix_extern.nu
+- Read shells/posix/yazelix_nu.sh
+  - Requires YAZELIX_NU_BIN
+  - Writes $YAZELIX_STATE_DIR/generated/nushell/config.nu
+  - Runs nu --login --env-config /dev/null --config <generated-config>
+- Read shells/posix/runtime_env.sh
+  - Exports YAZELIX_NU_BIN from runtime libexec/nu when available
+  - Falls back to host nu when runtime nu is absent
+- Read packaging/runtime_tool_registry.nix
+  - Runtime tool registry includes nushell with command nu
+- Read packaging/mk_runtime_tree.nix
+  - Runtime links the nushell tree and puts packaged nu on the yzx PATH
+- Read home_manager/runtime_integration.nix
+  - Activation runs yzx_control generate_shell_initializers
+- Read rust_core/yazelix_core/src/initializer_commands.rs
+  - Generates ~/.local/share/yazelix/initializers/nushell/yazelix_init.nu
+  - Applies Nu-specific zoxide/carapace shell name overrides
+- Read docs/contracts/rust_nushell_bridge_contract.md
+  - Generated extern bridge is Rust metadata/startup glue, not public command business logic
+
+Artifacts:
+- docs/YAZELIX_NUSHELL_RUNTIME.md
+- research/nushell_yazelix_cross_reference_report.md
+
+Conclusion:
+Yazelix/Nu bridge understood. CodeDB should be the higher-fidelity typed store and Nushell table plugin surface. Envctl remains the environment/export and file materialization layer. Integration should use packaged runtime variables and generated/transient plugin wiring, not direct edits to tracked Yazelix config.nu.

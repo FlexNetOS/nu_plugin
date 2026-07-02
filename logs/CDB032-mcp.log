@@ -1,0 +1,23 @@
+# CDB032 MCP validation
+## fmt
+## build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+## tests
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/codedb_mcp-22dd524cb1391397)
+
+running 5 tests
+test tests::allowed_and_blocked_tools_are_explicit ... ok
+test tests::excessive_limit_is_rejected ... ok
+test tests::table_page_enforces_row_limits ... ok
+test tests::byte_limit_truncates_rows ... ok
+test tests::repo_summary_does_not_leak_raw_source ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

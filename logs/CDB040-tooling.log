@@ -1,0 +1,36 @@
+# CDB040 tooling boundary validation
+2026-07-02T06:51:18Z
+## GitKB boundary
+21:## GitKB Boundary
+24:of Rust/crate truth, not a raw-source store, and not sufficient release proof by
+32:| `capture_gaps` | Known incomplete compiler-observable facts |
+33:| `validation_errors` | Malformed, unreadable, ambiguous, or policy-invalid facts |
+34:| `meta_repo_selection` | Repo/project label and explicit scan root |
+35:| `runner_proof_manifest` | Runner-owned release proof rows and raw log paths |
+52:| `runner_proof_manifest.raw_log_path` | Release-gate log references |
+53:| `capture_gaps` summary | Human-sized overview that still points to full rows |
+54:| `validation_errors` summary | Human-sized overview that still points to full rows |
+## RTK boundary
+41:## RTK Boundary
+45:paths and must not replace root-cause evidence.
+51:| `raw_log_paths` | Paths to uncompressed command output and failure evidence |
+56:RTK must not hide a failing command behind a successful summary, drop stderr,
+## Kache wild Fenix boundary
+15:| Kache/wild/Fenix | Toolchain/cache/linker context must be captured as facts. | Do not confuse toolchain optimization with crate truth. |
+59:## Kache, wild, and Fenix Boundary
+61:Kache, wild, and Fenix are environment/toolchain facts for CodeDB context. They
+62:are not CodeDB-owned installs, not substitutes for Cargo/rustc evidence, and not
+69:| Kache | `kache_status`, wrapper path, cache root, enabled/disabled state, provenance source |
+70:| wild | linker path, opt-in feature state, target triple, link args source |
+71:| Fenix | toolchain channel, component list, target list, rustc/cargo/rustfmt/clippy/rust-analyzer paths and versions |
+76:a capture gap or validation row instead of guessing.
+85:| wild | Host/toolchain owner | Capture linker facts and opt-in state | Treat linker optimization as crate truth |
+86:| Fenix | Host/toolchain owner | Capture toolchain/channel/component/target facts | Install or mutate toolchains |
+## ownership matrix
+78:## Ownership Matrix
+82:| GitKB | GitKB project workflow | Store durable explanations, handoffs, task evidence, and proof links | Store raw source blobs or replace runner proof |
+84:| Kache | Host/toolchain owner | Capture cache/wrapper facts | Install or tune cache state |
+85:| wild | Host/toolchain owner | Capture linker facts and opt-in state | Treat linker optimization as crate truth |
+86:| Fenix | Host/toolchain owner | Capture toolchain/channel/component/target facts | Install or mutate toolchains |
+## forbidden ownership confusion absent
+no forbidden ownership confusion found

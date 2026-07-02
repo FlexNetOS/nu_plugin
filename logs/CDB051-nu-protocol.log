@@ -1,0 +1,31 @@
+CDB051 - Validate host Nu vs Yazelix runtime Nu protocol
+Date: 2026-07-02
+Status: passed
+
+Initial observation:
+- codedb doctor --nu reported host Nu path/version and plugin_protocol_compatibility.
+- codedb doctor --yazelix degraded even when Yazelix's actual runtime contract uses YAZELIX_NU_BIN.
+
+Changes:
+- Updated crates/codedb/src/main.rs so Yazelix runtime Nu discovery prefers YAZELIX_NU_BIN before older compatibility variables.
+- Updated docs/NUSHELL_PLUGIN_COMPAT.md with the runtime variable order and degraded behavior.
+
+Forbidden action check:
+- No Nu plugin registry mutation.
+- No real HOME registry inspection.
+- No tracked Yazelix runtime config edit.
+
+Validation passed:
+- PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo fmt --check
+- PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo test -p codedb
+- env -u YAZELIX_NU_BIN -u YAZELIX_NU_PATH -u YAZELIX_RUNTIME_NU -u YZX_NU -u YAZELIX_TOOLBIN PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo run -p codedb -- doctor --yazelix --format json
+  - output includes component=yazelix_nu check=runtime_nu_path status=degraded
+  - action names YAZELIX_NU_BIN, YAZELIX_NU_PATH, or YAZELIX_RUNTIME_NU
+- NU_BIN=$(command -v nu); PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH YAZELIX_NU_BIN="$NU_BIN" cargo run -p codedb -- doctor --nu --yazelix --format json
+  - output includes host_nu and yazelix_nu components
+  - output includes nu_path, nu_version, plugin_protocol_compatibility, plugin_binary_path, and plugin_registration_status rows
+  - nu_version value: 0.112.2
+  - plugin_protocol_compatibility status: available
+
+Acceptance signal:
+- Nu compatibility gate exists.

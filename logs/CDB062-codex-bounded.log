@@ -1,0 +1,37 @@
+CDB062 - Add Codex bounded CLI/MCP invocation smoke
+Date: 2026-07-02
+Status: passed
+
+Scope:
+- Prove Codex-facing CLI samples stay bounded and raw-source-free.
+- Prove MCP config and tests keep row/byte limits and no auth/session hacks.
+- Record CLI sample and MCP tool report evidence.
+
+Changes:
+- Added tests/test_codex_bounded_bridge.nu.
+- Added examples/codex/codedb_bounded_smoke_report.json.
+- Updated docs/CODEX_BRIDGE.md with CDB062 executable proof details.
+
+Validation passed:
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin nu --no-config-file tests/test_codex_bounded_bridge.nu
+  - codex_mcp_config: passed
+  - codex_doctor_cli rows: 2
+  - codex_doctor_cli bytes: 603
+  - codex_scan_cli rows: 6
+  - codex_scan_cli bytes: 1020
+  - codex_mcp_tests: passed
+- nu --no-config-file --ide-check 100 tests/test_codex_bounded_bridge.nu
+  - exit 0, hints only
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin nu --no-config-file -c 'source tests/test_codex_bounded_bridge.nu; main | to json'
+  - bounded JSON report emitted config, CLI sample, and MCP test rows
+- marker search for CDB062/Codex/bounded/raw-source/auth/session text passed
+- find fixtures -name Cargo.lock -print | sort
+  - printed no paths
+- nu --no-config-file tests/test_nushell_syntax_gate.nu
+  - status: passed
+  - checked_files: 19
+- jq . examples/codex/codedb_bounded_smoke_report.json
+  - parsed successfully
+
+Acceptance signal:
+- Codex bridge safe.

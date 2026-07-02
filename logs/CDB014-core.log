@@ -1,0 +1,38 @@
+Using saved setting for 'extra-substituters = https://yazelix.cachix.org' from ~/.local/share/nix/trusted-settings.json.
+Using saved setting for 'extra-trusted-public-keys = yazelix.cachix.org-1:ZgxIjQvaP0VTWL8Racx27mpUNzDJ97xC2y7QWYjmGNM=' from ~/.local/share/nix/trusted-settings.json.
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+evaluation warning: The xorg package set has been deprecated, 'xorg.libX11' has been renamed to 'libx11'
+evaluation warning: The xorg package set has been deprecated, 'xorg.libxcb' has been renamed to 'libxcb'
+evaluation warning: The xorg package set has been deprecated, 'xorg.libxshmfence' has been renamed to 'libxshmfence'
+building '/nix/store/61d5pfq1v3j5qlmk5rzlrs4x7k1yx45g-cargo-vendor-dir.drv'...
+building '/nix/store/64avnkrkiw9sm92kzmdmlhpnc3czanfb-yazelix-core-0.1.0.drv'...
+building '/nix/store/j78ii2lsd1af8245ic98vf3bndphbk3p-yzx.drv'...
+building '/nix/store/idpb4qlknih3wcfzxws3g8y74vyj5g7v-nix-shell-env.drv'...
+warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
+# CDB014 core schema validation
+Thu Jul  2 03:30:46 UTC 2026
+
+## cargo test -p codedb-core
+   Compiling codedb-core v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb_core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (target/debug/deps/codedb_core-cd134f37d755e460)
+
+running 2 tests
+test tests::schema_tables_convert_into_rows ... ok
+test tests::workspace_identity_is_deterministic ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codedb_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+## cargo build -p nu_plugin_codedb -p codedb
+   Compiling codedb v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb)
+   Compiling nu_plugin_codedb v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/nu_plugin_codedb)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.62s

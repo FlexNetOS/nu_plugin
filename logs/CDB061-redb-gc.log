@@ -1,0 +1,40 @@
+CDB061 - Add redb lock/plugin-GC behavior test
+Date: 2026-07-02
+Status: passed
+
+Scope:
+- Prove redb write lock contention is documented and safe.
+- Prove plugin-like lifecycle drop releases the redb write lock.
+- Preserve backup/restore and metadata tests.
+
+Changes:
+- Added redb validation rows:
+  - lock_contention_behavior: single_writer_blocks_until_release
+  - plugin_lifecycle_gc: drop_releases_write_lock
+- Added crates/codedb_store_redb::tests::lock_contention_blocks_until_writer_lifecycle_release.
+- Added tests/test_redb_lifecycle.nu.
+
+Validation passed:
+- PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo fmt --check
+- PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo test -p codedb-store-redb lock_contention_blocks_until_writer_lifecycle_release --quiet
+  - 1 passed
+- PATH=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin:$PATH cargo test -p codedb-store-redb --quiet
+  - 3 passed
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin nu --no-config-file tests/test_redb_lifecycle.nu
+  - redb_lock_contention: passed
+  - redb_store_crate_tests: passed
+- nu --no-config-file --ide-check 100 tests/test_redb_lifecycle.nu
+  - exit 0, hints only
+- CODEDB_TEST_CARGO_DIR=/nix/store/amnp0j1awapnf8vqs3bwlyvffpkjl5cl-rust-mixed/bin nu --no-config-file -c 'source tests/test_redb_lifecycle.nu; main | to json'
+  - redb_lock_contention behavior: single_writer_blocks_until_release
+  - lifecycle_release: drop_releases_write_lock
+  - redb_store_crate_tests behavior: backup_restore_and_lifecycle_tests_pass
+- marker search for CDB061/lock contention/plugin lifecycle text passed
+- find fixtures -name Cargo.lock -print | sort
+  - printed no paths
+- nu --no-config-file tests/test_nushell_syntax_gate.nu
+  - status: passed
+  - checked_files: 18
+
+Acceptance signal:
+- redb lifecycle safe.

@@ -1,0 +1,454 @@
+{
+  "package": "nu_plugin_codedb_execution_pack_v1_1",
+  "entrypoint": "CODEDB_START_HERE.md",
+  "canonical_prd": "prd/nu_plugin_codedb_v1_1_full_prd.md",
+  "task_graph": "execution/TASK_GRAPH.csv",
+  "created_at_utc": "2026-07-02T01:02:12.761439+00:00",
+  "files": [
+    {
+      "order": 0,
+      "path": "CODEDB_START_HERE.md",
+      "purpose": "Single session entrypoint."
+    },
+    {
+      "order": 1,
+      "path": "READINESS_GATE.md",
+      "purpose": "Pre-edit launch checklist."
+    },
+    {
+      "order": 2,
+      "path": "NAVIGATION.md",
+      "purpose": "Human file map."
+    },
+    {
+      "order": 3,
+      "path": "NAVIGATION.json",
+      "purpose": "Machine-readable file map."
+    },
+    {
+      "order": 4,
+      "path": "DOC_GRAPH.md",
+      "purpose": "Read order and dependency graph."
+    },
+    {
+      "order": 5,
+      "path": "GOAL.md",
+      "purpose": "North-star goal."
+    },
+    {
+      "order": 6,
+      "path": "SUBGOALS.md",
+      "purpose": "Linked subgoals."
+    },
+    {
+      "order": 7,
+      "path": "ACCEPTANCE.md",
+      "purpose": "Acceptance gates."
+    },
+    {
+      "order": 8,
+      "path": "DRIFT_GUARD.md",
+      "purpose": "Anti-drift rules."
+    },
+    {
+      "order": 9,
+      "path": "STOP_CONDITIONS.md",
+      "purpose": "Hard stop rules."
+    },
+    {
+      "order": 10,
+      "path": "FIRST_RUN_PROMPT.md",
+      "purpose": "Pasteable Codex prompt."
+    },
+    {
+      "order": 11,
+      "path": "prd/nu_plugin_codedb_v1_1_full_prd.md",
+      "purpose": "Canonical PRD."
+    },
+    {
+      "order": 12,
+      "path": "research/nushell_yazelix_cross_reference_report.md",
+      "purpose": "Nushell/Yazelix cross-reference evidence."
+    },
+    {
+      "order": 13,
+      "path": "nu_plugin_codedb_execution_package_checklist.md",
+      "purpose": "Professional package and execution checklist."
+    },
+    {
+      "order": 14,
+      "path": "nu_plugin_codedb_remaining_execution_checklist.md",
+      "purpose": "Remaining implementation checklist and gates."
+    },
+    {
+      "order": 15,
+      "path": "CHECKLIST_COMPLETION.md",
+      "purpose": "Checklist completion evidence summary."
+    },
+    {
+      "order": 16,
+      "path": "docs/ARCHITECTURE.md",
+      "purpose": "Architecture specification derived from PRD."
+    },
+    {
+      "order": 17,
+      "path": "docs/SCHEMA.md",
+      "purpose": "Schema/table specification derived from PRD."
+    },
+    {
+      "order": 18,
+      "path": "docs/COMMANDS.md",
+      "purpose": "CLI/Nu/MCP command reference."
+    },
+    {
+      "order": 19,
+      "path": "docs/INTEGRATION_CONTRACTS.md",
+      "purpose": "Integration ownership and boundary contracts."
+    },
+    {
+      "order": 20,
+      "path": "docs/SECURITY_AND_SECRET_POLICY.md",
+      "purpose": "Secret, source blob, and MCP leak policy."
+    },
+    {
+      "order": 21,
+      "path": "docs/UNSAFE_CAPTURE_POLICY.md",
+      "purpose": "build.rs/proc-macro unsafe capture gate."
+    },
+    {
+      "order": 22,
+      "path": "docs/NUSHELL_PLUGIN_COMPAT.md",
+      "purpose": "Host/Yazelix Nu compatibility strategy."
+    },
+    {
+      "order": 23,
+      "path": "docs/CODEX_BRIDGE.md",
+      "purpose": "Codex CLI/MCP bridge contract."
+    },
+    {
+      "order": 24,
+      "path": "docs/META_INTEGRATION.md",
+      "purpose": "meta project selection integration."
+    },
+    {
+      "order": 25,
+      "path": "docs/ENVCTL_EXPORT_CONTRACT.md",
+      "purpose": "envctl export/checksum contract."
+    },
+    {
+      "order": 26,
+      "path": "docs/YAZELIX_PLACEMENT.md",
+      "purpose": "Yazelix runtime placement and init bridge."
+    },
+    {
+      "order": 27,
+      "path": "docs/TEST_PLAN.md",
+      "purpose": "Test and validation plan."
+    },
+    {
+      "order": 28,
+      "path": "docs/FIXTURE_MATRIX.md",
+      "purpose": "Fixture coverage matrix."
+    },
+    {
+      "order": 29,
+      "path": "docs/RELEASE_GATE.md",
+      "purpose": "Release proof gates."
+    },
+    {
+      "order": 30,
+      "path": "BACKLOG.md",
+      "purpose": "MVP2 backlog and downgrade exclusions."
+    },
+    {
+      "order": 31,
+      "path": "execution/TASK_GRAPH.csv",
+      "purpose": "Canonical controlled task graph table."
+    },
+    {
+      "order": 32,
+      "path": "execution/TASK_GRAPH.md",
+      "purpose": "Readable task graph projection."
+    },
+    {
+      "order": 33,
+      "path": "execution/TASK_FILE_MAP.csv",
+      "purpose": "Task-to-file map."
+    },
+    {
+      "order": 34,
+      "path": "execution/COMMAND_LEDGER.csv",
+      "purpose": "Command evidence ledger."
+    },
+    {
+      "order": 35,
+      "path": "execution/WORKLOG.md",
+      "purpose": "Narrative worklog."
+    },
+    {
+      "order": 36,
+      "path": "manifests/EXTRACTION_PROOF.json",
+      "purpose": "Source ZIP extraction proof."
+    },
+    {
+      "order": 37,
+      "path": "manifests/CHECKLIST_COMPLETION.json",
+      "purpose": "Checklist item completion map."
+    },
+    {
+      "order": 38,
+      "path": "manifests/PACK_MANIFEST.json",
+      "purpose": "Package manifest."
+    },
+    {
+      "order": 39,
+      "path": "manifests/CHECKSUMS.sha256",
+      "purpose": "Package checksums."
+    },
+    {
+      "order": 40,
+      "path": "manifests/LINK_CHECK_REPORT.md",
+      "purpose": "Local link check report."
+    },
+    {
+      "order": 41,
+      "path": "manifests/PACKAGE_VALIDATION.json",
+      "purpose": "Package validation results."
+    },
+    {
+      "order": 42,
+      "path": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md",
+      "purpose": "Input audit used for CSV source-of-truth repair."
+    },
+    {
+      "order": 43,
+      "path": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json",
+      "purpose": "Machine-readable strict task/file linkage repair evidence."
+    }
+  ],
+  "docs": [
+    {
+      "order": 0,
+      "path": "CODEDB_START_HERE.md",
+      "purpose": "Single session entrypoint."
+    },
+    {
+      "order": 1,
+      "path": "READINESS_GATE.md",
+      "purpose": "Pre-edit launch checklist."
+    },
+    {
+      "order": 2,
+      "path": "NAVIGATION.md",
+      "purpose": "Human file map."
+    },
+    {
+      "order": 3,
+      "path": "NAVIGATION.json",
+      "purpose": "Machine-readable file map."
+    },
+    {
+      "order": 4,
+      "path": "DOC_GRAPH.md",
+      "purpose": "Read order and dependency graph."
+    },
+    {
+      "order": 5,
+      "path": "GOAL.md",
+      "purpose": "North-star goal."
+    },
+    {
+      "order": 6,
+      "path": "SUBGOALS.md",
+      "purpose": "Linked subgoals."
+    },
+    {
+      "order": 7,
+      "path": "ACCEPTANCE.md",
+      "purpose": "Acceptance gates."
+    },
+    {
+      "order": 8,
+      "path": "DRIFT_GUARD.md",
+      "purpose": "Anti-drift rules."
+    },
+    {
+      "order": 9,
+      "path": "STOP_CONDITIONS.md",
+      "purpose": "Hard stop rules."
+    },
+    {
+      "order": 10,
+      "path": "FIRST_RUN_PROMPT.md",
+      "purpose": "Pasteable Codex prompt."
+    },
+    {
+      "order": 11,
+      "path": "prd/nu_plugin_codedb_v1_1_full_prd.md",
+      "purpose": "Canonical PRD."
+    },
+    {
+      "order": 12,
+      "path": "research/nushell_yazelix_cross_reference_report.md",
+      "purpose": "Nushell/Yazelix cross-reference evidence."
+    },
+    {
+      "order": 13,
+      "path": "nu_plugin_codedb_execution_package_checklist.md",
+      "purpose": "Professional package and execution checklist."
+    },
+    {
+      "order": 14,
+      "path": "nu_plugin_codedb_remaining_execution_checklist.md",
+      "purpose": "Remaining implementation checklist and gates."
+    },
+    {
+      "order": 15,
+      "path": "CHECKLIST_COMPLETION.md",
+      "purpose": "Checklist completion evidence summary."
+    },
+    {
+      "order": 16,
+      "path": "docs/ARCHITECTURE.md",
+      "purpose": "Architecture specification derived from PRD."
+    },
+    {
+      "order": 17,
+      "path": "docs/SCHEMA.md",
+      "purpose": "Schema/table specification derived from PRD."
+    },
+    {
+      "order": 18,
+      "path": "docs/COMMANDS.md",
+      "purpose": "CLI/Nu/MCP command reference."
+    },
+    {
+      "order": 19,
+      "path": "docs/INTEGRATION_CONTRACTS.md",
+      "purpose": "Integration ownership and boundary contracts."
+    },
+    {
+      "order": 20,
+      "path": "docs/SECURITY_AND_SECRET_POLICY.md",
+      "purpose": "Secret, source blob, and MCP leak policy."
+    },
+    {
+      "order": 21,
+      "path": "docs/UNSAFE_CAPTURE_POLICY.md",
+      "purpose": "build.rs/proc-macro unsafe capture gate."
+    },
+    {
+      "order": 22,
+      "path": "docs/NUSHELL_PLUGIN_COMPAT.md",
+      "purpose": "Host/Yazelix Nu compatibility strategy."
+    },
+    {
+      "order": 23,
+      "path": "docs/CODEX_BRIDGE.md",
+      "purpose": "Codex CLI/MCP bridge contract."
+    },
+    {
+      "order": 24,
+      "path": "docs/META_INTEGRATION.md",
+      "purpose": "meta project selection integration."
+    },
+    {
+      "order": 25,
+      "path": "docs/ENVCTL_EXPORT_CONTRACT.md",
+      "purpose": "envctl export/checksum contract."
+    },
+    {
+      "order": 26,
+      "path": "docs/YAZELIX_PLACEMENT.md",
+      "purpose": "Yazelix runtime placement and init bridge."
+    },
+    {
+      "order": 27,
+      "path": "docs/TEST_PLAN.md",
+      "purpose": "Test and validation plan."
+    },
+    {
+      "order": 28,
+      "path": "docs/FIXTURE_MATRIX.md",
+      "purpose": "Fixture coverage matrix."
+    },
+    {
+      "order": 29,
+      "path": "docs/RELEASE_GATE.md",
+      "purpose": "Release proof gates."
+    },
+    {
+      "order": 30,
+      "path": "BACKLOG.md",
+      "purpose": "MVP2 backlog and downgrade exclusions."
+    },
+    {
+      "order": 31,
+      "path": "execution/TASK_GRAPH.csv",
+      "purpose": "Canonical controlled task graph table."
+    },
+    {
+      "order": 32,
+      "path": "execution/TASK_GRAPH.md",
+      "purpose": "Readable task graph projection."
+    },
+    {
+      "order": 33,
+      "path": "execution/TASK_FILE_MAP.csv",
+      "purpose": "Task-to-file map."
+    },
+    {
+      "order": 34,
+      "path": "execution/COMMAND_LEDGER.csv",
+      "purpose": "Command evidence ledger."
+    },
+    {
+      "order": 35,
+      "path": "execution/WORKLOG.md",
+      "purpose": "Narrative worklog."
+    },
+    {
+      "order": 36,
+      "path": "manifests/EXTRACTION_PROOF.json",
+      "purpose": "Source ZIP extraction proof."
+    },
+    {
+      "order": 37,
+      "path": "manifests/CHECKLIST_COMPLETION.json",
+      "purpose": "Checklist item completion map."
+    },
+    {
+      "order": 38,
+      "path": "manifests/PACK_MANIFEST.json",
+      "purpose": "Package manifest."
+    },
+    {
+      "order": 39,
+      "path": "manifests/CHECKSUMS.sha256",
+      "purpose": "Package checksums."
+    },
+    {
+      "order": 40,
+      "path": "manifests/LINK_CHECK_REPORT.md",
+      "purpose": "Local link check report."
+    },
+    {
+      "order": 41,
+      "path": "manifests/PACKAGE_VALIDATION.json",
+      "purpose": "Package validation results."
+    },
+    {
+      "order": 42,
+      "path": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md",
+      "purpose": "Input audit used for CSV source-of-truth repair."
+    },
+    {
+      "order": 43,
+      "path": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json",
+      "purpose": "Machine-readable strict task/file linkage repair evidence."
+    }
+  ],
+  "rules": [
+    "execution/TASK_GRAPH.csv is the source of truth for all task execution; exact package-relative paths in the CSV override prose summaries."
+  ]
+}

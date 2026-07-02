@@ -1,0 +1,14 @@
+[package]
+name = "codedb-store-redb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+codedb-core.workspace = true
+redb = "2.6.1"
+sha2 = "0.10"
