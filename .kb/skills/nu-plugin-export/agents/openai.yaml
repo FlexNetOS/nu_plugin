@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nu Plugin Export"
+  short_description: "Export database content through Rust nu_plugin workflows"
+  default_prompt: "Use $nu-plugin-export for /nu_plugin:export: design and implement Rust-backed exports from database tables to Nushell rows, files, or declared artifacts, including failure-task and PR workflow."
