@@ -157,71 +157,76 @@
     },
     {
       "order": 30,
+      "path": "docs/AUDIT_UPGRADE_COMPLETION.md",
+      "purpose": "Post-audit authority, upgrade-only policy, and remaining product gaps."
+    },
+    {
+      "order": 31,
       "path": "BACKLOG.md",
       "purpose": "MVP2 backlog and downgrade exclusions."
     },
     {
-      "order": 31,
+      "order": 32,
       "path": "execution/TASK_GRAPH.csv",
       "purpose": "Canonical controlled task graph table."
     },
     {
-      "order": 32,
+      "order": 33,
       "path": "execution/TASK_GRAPH.md",
       "purpose": "Readable task graph projection."
     },
     {
-      "order": 33,
+      "order": 34,
       "path": "execution/TASK_FILE_MAP.csv",
       "purpose": "Task-to-file map."
     },
     {
-      "order": 34,
+      "order": 35,
       "path": "execution/COMMAND_LEDGER.csv",
       "purpose": "Command evidence ledger."
     },
     {
-      "order": 35,
+      "order": 36,
       "path": "execution/WORKLOG.md",
       "purpose": "Narrative worklog."
     },
     {
-      "order": 36,
+      "order": 37,
       "path": "manifests/EXTRACTION_PROOF.json",
       "purpose": "Source ZIP extraction proof."
     },
     {
-      "order": 37,
+      "order": 38,
       "path": "manifests/CHECKLIST_COMPLETION.json",
       "purpose": "Checklist item completion map."
     },
     {
-      "order": 38,
+      "order": 39,
       "path": "manifests/PACK_MANIFEST.json",
       "purpose": "Package manifest."
     },
     {
-      "order": 39,
+      "order": 40,
       "path": "manifests/CHECKSUMS.sha256",
       "purpose": "Package checksums."
     },
     {
-      "order": 40,
+      "order": 41,
       "path": "manifests/LINK_CHECK_REPORT.md",
       "purpose": "Local link check report."
     },
     {
-      "order": 41,
+      "order": 42,
       "path": "manifests/PACKAGE_VALIDATION.json",
       "purpose": "Package validation results."
     },
     {
-      "order": 42,
+      "order": 43,
       "path": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md",
       "purpose": "Input audit used for CSV source-of-truth repair."
     },
     {
-      "order": 43,
+      "order": 44,
       "path": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json",
       "purpose": "Machine-readable strict task/file linkage repair evidence."
     }

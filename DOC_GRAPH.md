@@ -14,11 +14,12 @@ Read order:
 10. `execution/TASK_GRAPH.csv`
 11. `execution/TASK_GRAPH.md`
 12. `execution/TASK_FILE_MAP.csv`
-13. selected target docs/task files
-14. optional: `research/nushell_yazelix_cross_reference_report.md` only for Yazelix/Nushell bridge tasks
-15. `execution/COMMAND_LEDGER.csv`
-16. `execution/WORKLOG.md`
-17. `manifests/PACKAGE_VALIDATION.json`
+13. `docs/AUDIT_UPGRADE_COMPLETION.md` for post-audit upgrade and authority work
+14. selected target docs/task files
+15. optional: `research/nushell_yazelix_cross_reference_report.md` only for Yazelix/Nushell bridge tasks
+16. `execution/COMMAND_LEDGER.csv`
+17. `execution/WORKLOG.md`
+18. `manifests/PACKAGE_VALIDATION.json`
 
 Dependency rule:
 

@@ -74,3 +74,23 @@ Surgical repair performed:
 - resealed validation, manifest, checksums, link report, ledger, and worklog.
 
 Evidence: `logs/CDB068-csv-source-of-truth-repair.log`, `manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json`, `execution/TASK_GRAPH.csv`.
+
+## 2026-07-02T15:45:00Z — CDB069 — Audit upgrade hardening
+
+Input audit: `docs/original_package_cross_reference.md`.
+
+Upgrade-only repair performed:
+
+- added `docs/AUDIT_UPGRADE_COMPLETION.md` so the Git repository is the
+  authoritative forward source and the older Downloads package remains legacy
+  evidence only;
+- added `devShells.ci` with Rust, Cargo, rustfmt, Nushell, Python, and nixfmt;
+- added Nix `nushell_syntax_smoke` coverage;
+- added GitHub CI `Nu smoke` coverage for syntax, transient plugin, and plugin
+  registry smokes;
+- upgraded `nu-plugin` and `nu-protocol` to `0.113.1`, matching the shell's
+  Nushell package, and raised `rust-version` to `1.93.1`;
+- added CDB069 to the controlled task graph and file map;
+- updated navigation surfaces.
+
+Validation evidence is in `logs/CDB069-audit-upgrade-completion.log`.

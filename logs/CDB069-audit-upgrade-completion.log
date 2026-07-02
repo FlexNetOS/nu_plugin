@@ -1,0 +1,63 @@
+# CDB069 audit upgrade completion log
+
+Task: CDB069
+Source audit: docs/original_package_cross_reference.md
+GitKB task: tasks/nu-plugin-audit-upgrade-completion
+
+## Changes
+
+- Added `docs/AUDIT_UPGRADE_COMPLETION.md` to make the Git repository the
+  authoritative forward source and mark `/home/flexnetos/Downloads/nu_plugin`
+  as stale legacy evidence.
+- Added `devShells.ci` to `flake.nix` with Cargo, Rust, rustfmt, Nushell,
+  Python, and nixfmt.
+- Added `checks.nushell_syntax_smoke` to the flake.
+- Added GitHub CI `Nu smoke` job for:
+  - `nu tests/test_nushell_syntax_gate.nu`
+  - `nu tests/test_transient_plugin.nu`
+  - `nu tests/test_plugin_registry.nu`
+- Upgraded `nu-plugin` and `nu-protocol` from `0.112.2` to `0.113.1` to match
+  the Nushell package exposed by the Nix CI shell.
+- Raised workspace `rust-version` from `1.92` to `1.93.1`, matching the
+  upgraded Nushell crates' minimum supported Rust version.
+- Added CDB069 to `execution/TASK_GRAPH.csv`, `execution/TASK_GRAPH.md`, and
+  `execution/TASK_FILE_MAP.csv`.
+- Updated `NAVIGATION.md`, `NAVIGATION.json`, and `DOC_GRAPH.md`.
+
+## Validation evidence
+
+- `nix develop .#ci -c nu --version`
+  - Result: passed
+  - Observed Nu version: `0.113.1`
+- `nix develop .#ci -c cargo --version`
+  - Result: passed
+  - Observed Cargo version: `cargo 1.95.0`
+- `nix fmt`
+  - Result: passed
+- `nix develop .#ci -c nu tests/test_nushell_syntax_gate.nu`
+  - Result: passed
+  - Checked files: 19
+- `nix develop .#ci -c cargo update -p nu-plugin -p nu-protocol`
+  - Result: passed
+  - Upgraded Nushell plugin/protocol crates to 0.113.1.
+- `nix develop .#ci -c cargo test --workspace`
+  - Result: passed
+  - Workspace unit/doc tests passed after the Nushell dependency upgrade.
+- `nix develop .#ci -c cargo fmt --all -- --check`
+  - Result: passed after adding `rustfmt` to `devShells.ci`.
+- `nix develop .#ci -c nu tests/test_transient_plugin.nu`
+  - Result: passed
+  - Row count: 8
+- `nix develop .#ci -c nu tests/test_plugin_registry.nu`
+  - Result: passed
+  - Row count: 8
+- `nix flake check --no-write-lock-file`
+  - Result: passed
+  - Checks passed: `codedb_runtime_tool_smoke`, `nushell_syntax_smoke`,
+    `envctl_inventory_smoke`, and `repo_truth_surface`.
+
+## Non-downgrade notes
+
+- The Downloads package was not copied over the repository.
+- Unfinished product gaps remain explicit in `docs/AUDIT_UPGRADE_COMPLETION.md`
+  and the GitKB task rather than being marked complete without proof.
