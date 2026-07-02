@@ -50,3 +50,11 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   required flag `--unsafe-execute-build`.
 - Approved fixture capture records approval provenance, build-script run rows,
   raw log rows, and observed Cargo warning output.
+
+## Closed By CDB080
+
+- Approved dynamic capture now records `out_dir_artifacts` as an explicit GAP
+  until generated artifact manifests include relative paths, sha256 checksums,
+  Cargo `OUT_DIR` provenance, target/rustc environment, and filesystem metadata.
+- The focused `out_dir_generator` fixture proves CodeDB does not silently claim
+  generated artifact reproduction when only raw build logs are available.

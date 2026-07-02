@@ -180,16 +180,19 @@ pub fn capture_approved_fixture_build(
                 ("repo_path", request.repo_path.display().to_string()),
             ])]
         },
-        capture_gaps: vec![row([
-            ("table", "capture_gaps".to_string()),
-            ("missing_truth", "proc_macro_execution".to_string()),
-            (
-                "reason",
-                "CDB034 fixture captures build logs; proc-macro execution remains represented as a gap unless fixture includes proc macros"
-                    .to_string(),
-            ),
-            ("required_task", "CDB045".to_string()),
-        ])],
+        capture_gaps: vec![
+            row([
+                ("table", "capture_gaps".to_string()),
+                ("missing_truth", "proc_macro_execution".to_string()),
+                (
+                    "reason",
+                    "CDB034 fixture captures build logs; proc-macro execution remains represented as a gap unless fixture includes proc macros"
+                        .to_string(),
+                ),
+                ("required_task", "CDB045".to_string()),
+            ]),
+            out_dir_artifact_gap(&request),
+        ],
         raw_log_paths: vec![raw_log_row(&request, "written")],
     })
 }
@@ -299,6 +302,30 @@ fn raw_log_row(request: &BuildCaptureRequest, status: &str) -> Row {
             "path recorded for future dynamic capture; CDB033 does not write raw execution logs"
                 .to_string(),
         ),
+    ])
+}
+
+fn out_dir_artifact_gap(request: &BuildCaptureRequest) -> Row {
+    row([
+        ("table", "capture_gaps".to_string()),
+        ("missing_truth", "out_dir_artifacts".to_string()),
+        (
+            "reason",
+            "approved dynamic capture does not yet emit a checksum-bound generated OUT_DIR artifact manifest"
+                .to_string(),
+        ),
+        ("required_task", "CDB080".to_string()),
+        (
+            "required_environment",
+            "cargo OUT_DIR path, target triple, rustc version, and filesystem metadata allowlist"
+                .to_string(),
+        ),
+        (
+            "required_provenance",
+            "unsafe approval row, raw log path, build script run row, artifact relative path, and sha256"
+                .to_string(),
+        ),
+        ("repo_path", request.repo_path.display().to_string()),
     ])
 }
 
@@ -554,6 +581,75 @@ edition = "2024"
         );
         let raw_log = fs::read_to_string(&raw_log_path).expect("read raw log");
         assert!(raw_log.contains("build-script-provenance"));
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: default
+    // Defends: CDB080 generated OUT_DIR artifacts are explicit GAP rows until checksum manifests exist.
+    #[test]
+    fn out_dir_artifact_reproduction_records_required_gap() {
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("repo root");
+        let fixture = temp_dir("codedb_out_dir_generator_fixture");
+        fs::create_dir_all(fixture.join("src")).expect("create fixture src");
+        fs::copy(
+            repo_root.join("fixtures/out_dir_generator/Cargo.toml"),
+            fixture.join("Cargo.toml"),
+        )
+        .expect("copy fixture manifest");
+        fs::copy(
+            repo_root.join("fixtures/out_dir_generator/build.rs"),
+            fixture.join("build.rs"),
+        )
+        .expect("copy fixture build script");
+        fs::copy(
+            repo_root.join("fixtures/out_dir_generator/src/lib.rs"),
+            fixture.join("src/lib.rs"),
+        )
+        .expect("copy fixture lib");
+        let raw_log_path = fixture.join("logs/raw-build.log");
+        let outcome = capture_approved_fixture_build(BuildCaptureRequest {
+            repo_path: fixture.clone(),
+            store_path: Some(repo_root.join("target/codedb-out-dir-gap.redb")),
+            raw_log_path: raw_log_path.clone(),
+            unsafe_execute_build: true,
+            approver: Some("out-dir-test".to_string()),
+        })
+        .expect("approved out-dir fixture capture should run");
+
+        assert_eq!(outcome.status, BuildCaptureStatus::Captured);
+        let gap = outcome
+            .capture_gaps
+            .iter()
+            .find(|gap| gap.get("missing_truth").map(String::as_str) == Some("out_dir_artifacts"))
+            .expect("out-dir artifacts gap");
+        assert_eq!(gap.get("required_task").map(String::as_str), Some("CDB080"));
+        assert_eq!(
+            gap.get("required_environment").map(String::as_str),
+            Some(
+                "cargo OUT_DIR path, target triple, rustc version, and filesystem metadata allowlist"
+            )
+        );
+        assert_eq!(
+            gap.get("required_provenance").map(String::as_str),
+            Some(
+                "unsafe approval row, raw log path, build script run row, artifact relative path, and sha256"
+            )
+        );
+        let expected_repo_path = fixture.display().to_string();
+        assert_eq!(
+            gap.get("repo_path").map(String::as_str),
+            Some(expected_repo_path.as_str())
+        );
+
+        let raw_log = fs::read_to_string(&raw_log_path).expect("read raw log");
+        assert!(
+            raw_log.contains("generated.rs")
+                || raw_log.contains("codedb_fixture_out_dir_generator")
+        );
 
         let _ = fs::remove_dir_all(fixture);
     }

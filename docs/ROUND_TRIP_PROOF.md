@@ -41,8 +41,9 @@ mode bits so executable source artifacts keep their executable state when
 restored into an isolated output path. Raw blob capture records an explicit
 permission-capture gap because it has no source filesystem metadata.
 
-Symlink and platform-specific materialization limits remain active in CDB081.
-Generated `OUT_DIR` reproduction remains active in CDB080.
+Generated `OUT_DIR` reproduction is represented by a CDB080 gap until dynamic
+capture emits checksum-bound generated artifact manifests. Symlink and
+platform-specific materialization limits remain active in CDB081.
 
 ## CDB074 Isolated Patch Proof
 

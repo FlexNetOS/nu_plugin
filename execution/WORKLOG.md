@@ -209,3 +209,13 @@ Default dynamic capture records `build_script_execution` as gated by
 build-script run rows, raw log rows, and observed Cargo warning output.
 
 Validation evidence is in `logs/CDB079-build-script-gate.log`.
+
+## 2026-07-02T19:26:53Z — CDB080 — Generated OUT_DIR artifact reproduction
+
+Added an approved dynamic capture `out_dir_artifacts` gap row in
+`codedb_build_capture`. The row records the required environment and provenance
+needed before CodeDB can claim checksum-bound generated artifact reproduction.
+The focused `out_dir_generator` fixture test proves raw logs alone remain a
+GAP, not a FACT.
+
+Validation evidence is in `logs/CDB080-out-dir-reproduction.log`.

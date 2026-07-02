@@ -9,7 +9,7 @@ CDB076,Phase 6,Bidirectional sync semantics,tasks/cdb076-bidirectional-phase-6-s
 CDB077,Gap Closure,Macro expansion beyond static inventory,tasks/cdb077-bidirectional-macro-expansion-gap,CDB071,docs/GAP_CLOSURE_PLAN.md,macro expansion fixture or GAP rows,complete
 CDB078,Gap Closure,Proc-macro execution gate,tasks/cdb078-bidirectional-proc-macro-gate,CDB071,docs/GAP_CLOSURE_PLAN.md,default refusal plus unsafe approval proof,complete
 CDB079,Gap Closure,Build-script execution gate,tasks/cdb079-bidirectional-build-script-gate,CDB071,docs/GAP_CLOSURE_PLAN.md,default refusal plus unsafe approval proof,complete
-CDB080,Gap Closure,Generated OUT_DIR artifact reproduction,tasks/cdb080-bidirectional-out-dir-reproduction,CDB079,docs/GAP_CLOSURE_PLAN.md,generated artifact checksum proof or GAP,active
+CDB080,Gap Closure,Generated OUT_DIR artifact reproduction,tasks/cdb080-bidirectional-out-dir-reproduction,CDB079,docs/GAP_CLOSURE_PLAN.md,generated artifact checksum proof or GAP,complete
 CDB081,Gap Closure,Symlink and platform materialization limits,tasks/cdb081-bidirectional-symlink-platform-materialization,CDB072,docs/GAP_CLOSURE_PLAN.md,platform materialization matrix tests,active
 CDB082,Gap Closure,Native and linker dynamic facts,tasks/cdb082-bidirectional-native-linker-facts,CDB079,docs/GAP_CLOSURE_PLAN.md,dynamic build fact proof or GAP,active
 CDB083,Gap Closure,MCP raw source and blob reads blocked,tasks/cdb083-bidirectional-mcp-raw-source-block,CDB071,docs/MUTATION_POLICY.md,MCP no-leak denial tests,active
