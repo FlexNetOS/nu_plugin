@@ -13,7 +13,7 @@ use redb::{
 };
 use sha2::{Digest, Sha256};
 
-pub const STATUS: &str = "planned";
+pub const STATUS: &str = "source_blob_store_available";
 pub const STORE_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(1, 0, 0);
 
 const SCHEMA_VERSION_TABLE: TableDefinition<&str, &str> = TableDefinition::new("schema_versions");
@@ -21,6 +21,8 @@ const STORE_METADATA_TABLE: TableDefinition<&str, &str> = TableDefinition::new("
 const TOOLCHAIN_METADATA_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("toolchain_metadata");
 const VALIDATION_ROWS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("validation_rows");
+const SOURCE_BLOBS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("source_blobs");
+const SOURCE_FILES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("source_files");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreInitContext<'a> {
@@ -58,6 +60,22 @@ pub struct StoreRestoreReport {
     pub restored_path: PathBuf,
     pub restored_sha256: String,
     pub restored_store: StoreInitReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceBlobRow {
+    pub relative_path: String,
+    pub blob_ref: String,
+    pub sha256: String,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileMaterializationReport {
+    pub path: PathBuf,
+    pub blob_ref: String,
+    pub sha256: String,
+    pub bytes: u64,
 }
 
 #[derive(Debug)]
@@ -169,6 +187,10 @@ pub fn initialize_store(
             )?;
             validation_rows.insert("plugin_lifecycle_gc", "drop_releases_write_lock")?;
         }
+        {
+            write_txn.open_table(SOURCE_BLOBS_TABLE)?;
+            write_txn.open_table(SOURCE_FILES_TABLE)?;
+        }
         write_txn.commit()?;
     }
 
@@ -202,6 +224,7 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
         ("store_metadata", STORE_METADATA_TABLE),
         ("toolchain_metadata", TOOLCHAIN_METADATA_TABLE),
         ("validation_rows", VALIDATION_ROWS_TABLE),
+        ("source_files", SOURCE_FILES_TABLE),
     ] {
         let table = read_txn.open_table(definition)?;
         for result in table.iter()? {
@@ -221,6 +244,131 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
     })
 }
 
+pub fn persist_source_file(
+    store_path: impl AsRef<Path>,
+    relative_path: impl AsRef<str>,
+    source_path: impl AsRef<Path>,
+) -> Result<SourceBlobRow, StoreError> {
+    let relative_path = relative_path.as_ref().to_string();
+    let bytes = fs::read(source_path)?;
+    persist_source_blob(store_path, relative_path, &bytes)
+}
+
+pub fn persist_source_blob(
+    store_path: impl AsRef<Path>,
+    relative_path: impl Into<String>,
+    bytes: &[u8],
+) -> Result<SourceBlobRow, StoreError> {
+    let relative_path = relative_path.into();
+    let sha256 = sha256_bytes(bytes);
+    let blob_ref = format!("sha256:{sha256}");
+    let db = Database::open(store_path)?;
+    {
+        let write_txn = db.begin_write()?;
+        {
+            let mut blobs = write_txn.open_table(SOURCE_BLOBS_TABLE)?;
+            blobs.insert(sha256.as_str(), bytes)?;
+        }
+        {
+            let mut files = write_txn.open_table(SOURCE_FILES_TABLE)?;
+            files.insert(relative_path.as_str(), blob_ref.as_str())?;
+        }
+        write_txn.commit()?;
+    }
+
+    Ok(SourceBlobRow {
+        relative_path,
+        blob_ref,
+        sha256,
+        bytes: bytes.len() as u64,
+    })
+}
+
+pub fn read_source_file_blob(
+    store_path: impl AsRef<Path>,
+    relative_path: impl AsRef<str>,
+) -> Result<SourceBlobRow, StoreError> {
+    let relative_path = relative_path.as_ref().to_string();
+    let db = Database::open(store_path)?;
+    let read_txn = db.begin_read()?;
+    let blob_ref = {
+        let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+        files
+            .get(relative_path.as_str())?
+            .ok_or(StoreError::MissingValue {
+                table: "source_files",
+                key: "relative_path",
+            })?
+            .value()
+            .to_string()
+    };
+    let sha256 = blob_ref.trim_start_matches("sha256:").to_string();
+    let bytes = {
+        let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
+        blobs
+            .get(sha256.as_str())?
+            .ok_or(StoreError::MissingValue {
+                table: "source_blobs",
+                key: "sha256",
+            })?
+            .value()
+            .len() as u64
+    };
+
+    Ok(SourceBlobRow {
+        relative_path,
+        blob_ref,
+        sha256,
+        bytes,
+    })
+}
+
+pub fn materialize_source_file(
+    store_path: impl AsRef<Path>,
+    relative_path: impl AsRef<str>,
+    output_path: impl AsRef<Path>,
+) -> Result<FileMaterializationReport, StoreError> {
+    let relative_path = relative_path.as_ref();
+    let output_path = output_path.as_ref().to_path_buf();
+    let db = Database::open(store_path)?;
+    let read_txn = db.begin_read()?;
+    let blob_ref = {
+        let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+        files
+            .get(relative_path)?
+            .ok_or(StoreError::MissingValue {
+                table: "source_files",
+                key: "relative_path",
+            })?
+            .value()
+            .to_string()
+    };
+    let sha256 = blob_ref.trim_start_matches("sha256:").to_string();
+    let bytes = {
+        let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
+        blobs
+            .get(sha256.as_str())?
+            .ok_or(StoreError::MissingValue {
+                table: "source_blobs",
+                key: "sha256",
+            })?
+            .value()
+            .to_vec()
+    };
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&output_path, &bytes)?;
+    let materialized_sha256 = checksum_file_sha256(&output_path)?;
+
+    Ok(FileMaterializationReport {
+        path: output_path,
+        blob_ref,
+        sha256: materialized_sha256,
+        bytes: bytes.len() as u64,
+    })
+}
+
 pub fn store_metadata_rows(report: &StoreInitReport) -> Vec<StoreMetadataRow> {
     report.rows.clone()
 }
@@ -237,6 +385,10 @@ pub fn checksum_file_sha256(path: impl AsRef<Path>) -> Result<String, StoreError
         hasher.update(&buffer[..read]);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 pub fn backup_store(
@@ -453,5 +605,42 @@ mod tests {
         fs::remove_file(&path).ok();
         fs::remove_file(&backup_path).ok();
         fs::remove_file(&restored_path).ok();
+    }
+
+    // Test lane: default
+    // Defends: source blob bytes are owned by the redb store and can be materialized after restore.
+    #[test]
+    fn source_blob_persists_and_materializes_after_restore() {
+        let path = temp_store_path();
+        let backup_path = path.with_extension("backup.redb");
+        let restored_path = path.with_extension("restored.redb");
+        let output_path = path.with_extension("materialized.rs");
+        let context = StoreInitContext {
+            codedb_version: "0.1.0",
+            toolchain: "stable-x86_64-unknown-linux-gnu",
+            rustc_version: "rustc 1.92.0",
+            cargo_version: "cargo 1.96.0",
+        };
+        let source = b"pub fn codedb_blob_roundtrip() -> bool { true }\n";
+
+        initialize_store(&path, &context).expect("store init");
+        let persisted =
+            persist_source_blob(&path, "src/lib.rs", source).expect("persist source blob");
+        assert_eq!(persisted.bytes, source.len() as u64);
+        assert!(persisted.blob_ref.starts_with("sha256:"));
+        let reread = read_source_file_blob(&path, "src/lib.rs").expect("read source blob row");
+        assert_eq!(reread, persisted);
+
+        backup_store(&path, &backup_path).expect("backup");
+        restore_store_from_backup(&backup_path, &restored_path).expect("restore");
+        let materialized = materialize_source_file(&restored_path, "src/lib.rs", &output_path)
+            .expect("materialize");
+        assert_eq!(materialized.sha256, persisted.sha256);
+        assert_eq!(fs::read(&output_path).expect("materialized bytes"), source);
+
+        fs::remove_file(&path).ok();
+        fs::remove_file(&backup_path).ok();
+        fs::remove_file(&restored_path).ok();
+        fs::remove_file(&output_path).ok();
     }
 }

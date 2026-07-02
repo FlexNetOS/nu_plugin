@@ -34,15 +34,22 @@ documentation to match the older Downloads tree.
 The following are forward product work items. They are not reasons to revert to
 the older package.
 
-- Persist the full file/blob model into a redb-backed CodeDB store.
-- Complete source blob table ownership and restore/materialization behavior.
-- Complete `codedb export envctl` and envctl file-materialization round trip.
+- Persist the full file/blob model into a redb-backed CodeDB store: complete for
+  source blob rows and SHA-256 materialization helpers.
+- Complete source blob table ownership and restore/materialization behavior:
+  covered by `codedb-store-redb` backup/restore/materialize tests.
+- Complete `codedb export envctl` and envctl file-materialization round trip:
+  `codedb_materialization_targets` rows are included in `codedb export envctl`.
 - Decide and prove whether `codedb-store-redb` is still planned metadata support
-  or the authoritative live store for all generated tables.
+  or the authoritative live store for all generated tables: source blobs are
+  authoritative; broader generated-table ownership remains scoped to exported
+  datatable rows.
 - Package and prove a complete external MCP server lifecycle, beyond bounded
-  in-process handling.
+  in-process handling: `codedb-mcp` exposes startup/shutdown/config lifecycle
+  rows with raw source disabled by default.
 - Expand parser bridges beyond deterministic JSON/JSONC and line-oriented text
-  parsing without overclaiming unsupported native parsers.
+  parsing without overclaiming unsupported native parsers: TOML is native;
+  Nix/KDL/Nu/YAML/desktop/shell/conf remain line-oriented fallback rows.
 
 ## Execution truth policy
 

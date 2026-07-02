@@ -17,6 +17,7 @@ derive CodeDB's Rust/crate facts itself.
 Minimum exported surfaces:
 
 - blob/file datatable identities;
+- materialization target rows with checksum-bound write policy;
 - runtime/tool facts;
 - scan run IDs;
 - table checksums;
@@ -41,8 +42,17 @@ Required rows describe:
 
 Every runtime integration row must keep `redb_access = forbidden`. envctl may
 consume `codedb_table_checksums`, `codedb_export_manifests`, runtime tool rows,
-and bridge artifact declarations, but it must not read the CodeDB redb store or
-derive Rust/crate facts independently.
+`codedb_materialization_targets`, and bridge artifact declarations, but it must
+not read the CodeDB redb store or derive Rust/crate facts independently.
+
+## Materialization round trip
+
+`codedb export envctl` includes `codedb_materialization_targets` rows. These rows
+bind the downstream materialization request to the exported `filesystem_entries`
+checksum and declare the write policy. envctl remains the materializer for
+requested files; CodeDB remains the source of blob refs, source-file rows, and
+checksums. The redb store owns source blob restore by SHA-256 before envctl
+consumes any file materialization rows.
 
 ## Formats
 

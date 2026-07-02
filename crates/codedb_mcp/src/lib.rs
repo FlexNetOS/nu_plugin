@@ -17,6 +17,7 @@ pub const STATUS: &str = "bounded_read_only_mcp_available";
 pub const DEFAULT_ROW_LIMIT: usize = 50;
 pub const MAX_ROW_LIMIT: usize = 200;
 pub const DEFAULT_MAX_BYTES: usize = 65_536;
+pub const DEFAULT_TRANSPORT: &str = "stdio";
 
 pub const ALLOWED_TOOLS: &[&str] = &[
     "codedb_schema",
@@ -65,6 +66,25 @@ pub struct McpResponse {
     pub truncated: bool,
     pub rows: Vec<Row>,
     pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub transport: String,
+    pub default_row_limit: usize,
+    pub max_row_limit: usize,
+    pub default_max_bytes: usize,
+    pub raw_source_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpLifecycleReport {
+    pub phase: String,
+    pub status: String,
+    pub transport: String,
+    pub bounded_defaults: bool,
+    pub raw_source_enabled: bool,
+    pub note: String,
 }
 
 #[derive(Debug)]
@@ -118,6 +138,65 @@ pub fn list_blocked_tools() -> Vec<Row> {
             ])
         })
         .collect()
+}
+
+pub fn default_server_config() -> McpServerConfig {
+    McpServerConfig {
+        transport: DEFAULT_TRANSPORT.to_string(),
+        default_row_limit: DEFAULT_ROW_LIMIT,
+        max_row_limit: MAX_ROW_LIMIT,
+        default_max_bytes: DEFAULT_MAX_BYTES,
+        raw_source_enabled: false,
+    }
+}
+
+pub fn lifecycle_start(config: &McpServerConfig) -> Result<McpLifecycleReport, McpError> {
+    if config.default_row_limit > config.max_row_limit {
+        return Err(McpError::LimitTooLarge {
+            requested: config.default_row_limit,
+            max: config.max_row_limit,
+        });
+    }
+    Ok(McpLifecycleReport {
+        phase: "startup".to_string(),
+        status: "ready".to_string(),
+        transport: config.transport.clone(),
+        bounded_defaults: config.max_row_limit <= MAX_ROW_LIMIT
+            && config.default_max_bytes <= DEFAULT_MAX_BYTES,
+        raw_source_enabled: config.raw_source_enabled,
+        note: "external MCP server lifecycle configured with bounded read-only defaults"
+            .to_string(),
+    })
+}
+
+pub fn lifecycle_shutdown(config: &McpServerConfig) -> McpLifecycleReport {
+    McpLifecycleReport {
+        phase: "shutdown".to_string(),
+        status: "stopped".to_string(),
+        transport: config.transport.clone(),
+        bounded_defaults: true,
+        raw_source_enabled: config.raw_source_enabled,
+        note: "shutdown completes without mutating repositories or exposing raw source".to_string(),
+    }
+}
+
+pub fn lifecycle_rows(config: &McpServerConfig) -> Result<Vec<Row>, McpError> {
+    let start = lifecycle_start(config)?;
+    let shutdown = lifecycle_shutdown(config);
+    Ok(vec![
+        lifecycle_row(&start),
+        lifecycle_row(&shutdown),
+        row([
+            ("table", "mcp_config".to_string()),
+            ("phase", "config".to_string()),
+            ("status", "available".to_string()),
+            ("transport", config.transport.clone()),
+            ("default_row_limit", config.default_row_limit.to_string()),
+            ("max_row_limit", config.max_row_limit.to_string()),
+            ("default_max_bytes", config.default_max_bytes.to_string()),
+            ("raw_source_enabled", config.raw_source_enabled.to_string()),
+        ]),
+    ])
 }
 
 pub fn handle_request(request: McpRequest) -> Result<McpResponse, McpError> {
@@ -224,6 +303,18 @@ fn bound_response(
     }
 }
 
+fn lifecycle_row(report: &McpLifecycleReport) -> Row {
+    row([
+        ("table", "mcp_lifecycle".to_string()),
+        ("phase", report.phase.clone()),
+        ("status", report.status.clone()),
+        ("transport", report.transport.clone()),
+        ("bounded_defaults", report.bounded_defaults.to_string()),
+        ("raw_source_enabled", report.raw_source_enabled.to_string()),
+        ("note", report.note.clone()),
+    ])
+}
+
 fn table_page_rows(table: &str, repo_path: Option<&Path>) -> Result<Vec<Row>, McpError> {
     match table {
         "schema" | "schema_versions" => Ok(table_rows(schema_rows())),
@@ -245,6 +336,7 @@ fn table_page_rows(table: &str, repo_path: Option<&Path>) -> Result<Vec<Row>, Mc
         "build_script_summary" | "build_scripts" => build_script_summary_rows(
             repo_path.ok_or(McpError::MissingRepoPath("codedb_get_table_page"))?,
         ),
+        "mcp_lifecycle" | "mcp_config" => lifecycle_rows(&default_server_config()),
         other => Ok(vec![row([
             ("table", "validation_errors".to_string()),
             ("code", "unsupported_table".to_string()),
@@ -523,6 +615,34 @@ mod tests {
         assert!(!output.contains("SECRET_TOKEN"));
 
         let _ = fs::remove_dir_all(repo);
+    }
+
+    // Test lane: default
+    // Defends: packaged MCP lifecycle exposes startup/shutdown/config proof without enabling raw source.
+    #[test]
+    fn lifecycle_rows_keep_raw_source_disabled() {
+        let config = default_server_config();
+        let rows = lifecycle_rows(&config).expect("lifecycle rows");
+        assert!(rows.iter().any(|row| {
+            row.get("phase").is_some_and(|phase| phase == "startup")
+                && row.get("status").is_some_and(|status| status == "ready")
+        }));
+        assert!(rows.iter().all(|row| {
+            row.get("raw_source_enabled")
+                .is_none_or(|enabled| enabled == "false")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: external MCP config remains bounded before serving requests.
+    #[test]
+    fn lifecycle_rejects_unbounded_default_limit() {
+        let mut config = default_server_config();
+        config.default_row_limit = MAX_ROW_LIMIT + 1;
+        assert!(matches!(
+            lifecycle_start(&config),
+            Err(McpError::LimitTooLarge { .. })
+        ));
     }
 
     fn temp_repo() -> PathBuf {

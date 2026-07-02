@@ -17,3 +17,4 @@ nu-plugin.workspace = true
 nu-protocol.workspace = true
 serde_json = "1"
 sha2 = "0.10"
+toml = "0.8"

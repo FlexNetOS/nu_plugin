@@ -21,6 +21,7 @@ use nu_plugin::{
 use nu_protocol::{LabeledError, Signature, Span, SyntaxShape, Type, Value, record};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
+use toml::Value as TomlValue;
 
 struct CodeDbPlugin;
 
@@ -691,8 +692,9 @@ fn structured_file_rows(parser_hint: &str, bytes: &[u8], span: Span) -> Option<V
         "json" | "jsonc" => {
             json_table_rows(text, span).or_else(|| text_table_rows(parser_hint, text, span))
         }
-        "toml" | "nix" | "kdl" | "nu" | "lua" | "yaml" | "yml" | "markdown" | "desktop"
-        | "service" | "shell" | "conf" | "terminal_conf" | "plain_config" => {
+        "toml" => toml_table_rows(text, span).or_else(|| text_table_rows(parser_hint, text, span)),
+        "nix" | "kdl" | "nu" | "lua" | "yaml" | "yml" | "markdown" | "desktop" | "service"
+        | "shell" | "conf" | "terminal_conf" | "plain_config" => {
             text_table_rows(parser_hint, text, span)
         }
         _ => None,
@@ -713,6 +715,30 @@ fn json_table_rows(text: &str, span: Span) -> Option<Vec<Value>> {
                         "row_index" => Value::int(idx as i64, span),
                         "row_kind" => string("json_value", span),
                         "format" => string("json", span),
+                        "key" => string(key, span),
+                        "value" => string(value, span),
+                    },
+                    span,
+                )
+            })
+            .collect(),
+    )
+}
+
+fn toml_table_rows(text: &str, span: Span) -> Option<Vec<Value>> {
+    let value: TomlValue = toml::from_str(text).ok()?;
+    let mut flattened = Vec::new();
+    flatten_toml(None, &value, &mut flattened);
+    Some(
+        flattened
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (key, value))| {
+                Value::record(
+                    record! {
+                        "row_index" => Value::int(idx as i64, span),
+                        "row_kind" => string("toml_value", span),
+                        "format" => string("toml", span),
                         "key" => string(key, span),
                         "value" => string(value, span),
                     },
@@ -761,6 +787,44 @@ fn text_line_parts(line: &str) -> (&'static str, String, String) {
         }
     }
     ("line", String::new(), line.to_string())
+}
+
+fn flatten_toml(prefix: Option<String>, value: &TomlValue, out: &mut Vec<(String, String)>) {
+    match value {
+        TomlValue::Table(map) => {
+            for (key, child) in map {
+                let next = prefix
+                    .as_ref()
+                    .map(|prefix| format!("{prefix}.{key}"))
+                    .unwrap_or_else(|| key.clone());
+                flatten_toml(Some(next), child, out);
+            }
+        }
+        TomlValue::Array(items) => {
+            for (idx, child) in items.iter().enumerate() {
+                let next = prefix
+                    .as_ref()
+                    .map(|prefix| format!("{prefix}[{idx}]"))
+                    .unwrap_or_else(|| format!("[{idx}]"));
+                flatten_toml(Some(next), child, out);
+            }
+        }
+        _ => out.push((
+            prefix.unwrap_or_else(|| "value".to_string()),
+            toml_value_string(value),
+        )),
+    }
+}
+
+fn toml_value_string(value: &TomlValue) -> String {
+    match value {
+        TomlValue::String(value) => value.clone(),
+        TomlValue::Integer(value) => value.to_string(),
+        TomlValue::Float(value) => value.to_string(),
+        TomlValue::Boolean(value) => value.to_string(),
+        TomlValue::Datetime(value) => value.to_string(),
+        _ => value.to_string(),
+    }
 }
 
 fn flatten_json(prefix: Option<String>, value: &JsonValue, out: &mut Vec<(String, String)>) {
@@ -1415,6 +1479,67 @@ mod tests {
         assert!(metadata.iter().any(|(key, value)| {
             *key == "structured_row_count" && matches!(value, Value::Int { val, .. } if *val == 0)
         }));
+    }
+
+    // Defends: TOML has a native parser bridge and is not overclaimed as line fallback.
+    #[test]
+    fn envctl_inventory_import_rows_include_native_toml_payload() {
+        let root = temp_path("inventory-toml");
+        fs::create_dir_all(&root).unwrap();
+        let content_path = root.join("settings.toml");
+        fs::write(
+            &content_path,
+            r#"
+theme = "zed"
+
+[editor]
+tab_width = 2
+"#,
+        )
+        .unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            format!(
+                r#"[{{
+                    "target_id":"settings_toml",
+                    "absolute_path":"{}",
+                    "normalized_logical_path":"repo_source:settings.toml",
+                    "owner":"yazelix",
+                    "source_of_truth_class":"repo_source",
+                    "file_kind":"regular_file",
+                    "parser_hint":"toml",
+                    "safety_policy":"source_content_import_allowed",
+                    "reproduction_policy":"git_checkout",
+                    "import_mode":"content_blob"
+                }}]"#,
+                content_path.display(),
+            ),
+        )
+        .unwrap();
+
+        let rows = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap();
+        let structured_rows = rows[0]
+            .iter()
+            .find_map(|(key, value)| (*key == "structured_rows").then_some(value))
+            .expect("structured_rows field");
+        match structured_rows {
+            Value::List { vals, .. } => {
+                assert!(vals.iter().any(|value| {
+                    let Value::Record { val, .. } = value else {
+                        return false;
+                    };
+                    val.get("row_kind").is_some_and(
+                        |value| matches!(value, Value::String { val, .. } if val == "toml_value"),
+                    ) && val.get("key").is_some_and(
+                        |value| matches!(value, Value::String { val, .. } if val == "editor.tab_width"),
+                    ) && val.get("value").is_some_and(
+                        |value| matches!(value, Value::String { val, .. } if val == "2"),
+                    )
+                }));
+            }
+            other => panic!("structured_rows should be a list, got {other:?}"),
+        }
     }
 
     // Defends: inventory import is read-only for source, real-home-like, and metadata-only targets.
