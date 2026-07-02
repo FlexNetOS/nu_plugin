@@ -72,3 +72,10 @@ does not add a direct source overwrite command.
 `evaluate_bidirectional_sync` emits `plan_conflicts` for source drift,
 `sync_verifications` when the final re-scan matches the expected snapshot, and
 `recovery_rows` when the re-scan differs from the expected post-sync state.
+
+## CDB084 Identity Rows
+
+Named syntax identities are stable keys. Anonymous syntax, such as impl blocks
+without an explicit name, receives deterministic scan-order identity for repeat
+captures but is marked `unstable_anonymous`; source drift around those nodes
+must be treated as conflict-prone until a new plan is generated.

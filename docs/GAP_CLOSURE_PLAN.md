@@ -84,3 +84,11 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   `raw_blob_table_blocked` validation rows instead of raw bytes.
 - Tests prove raw source summaries and blocked table responses do not leak
   source secret sentinels.
+
+## Closed By CDB084
+
+- Rust item rows now include identity classification and notes.
+- Named syntax rows are marked `stable_named`.
+- Anonymous impl rows receive deterministic scan-order IDs and are marked
+  `unstable_anonymous` so source-drift-sensitive identity cannot be treated as
+  a permanent semantic key.

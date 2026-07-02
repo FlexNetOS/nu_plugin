@@ -248,3 +248,13 @@ responses do not leak source secret sentinels while normal summaries remain
 metadata-only.
 
 Validation evidence is in `logs/CDB083-mcp-raw-source-block.log`.
+
+## 2026-07-02T19:38:23Z — CDB084 — Anonymous syntax identity
+
+Added identity classification to Rust static item rows. Named items are marked
+`stable_named`; anonymous impl blocks receive deterministic scan-order names
+such as `impl#1` and are marked `unstable_anonymous` with source-drift-sensitive
+notes. Tests prove repeated scans are stable while multiple anonymous impl rows
+remain distinct.
+
+Validation evidence is in `logs/CDB084-anonymous-identity.log`.

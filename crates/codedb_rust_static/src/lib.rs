@@ -19,6 +19,8 @@ pub struct RustItemRow {
     pub module_path: String,
     pub item_kind: RustItemKind,
     pub name: String,
+    pub identity_kind: RustIdentityKind,
+    pub identity_note: String,
     pub visibility: RustVisibility,
     pub confidence: StaticCaptureConfidence,
 }
@@ -395,6 +397,21 @@ pub enum RustItemKind {
     Use,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RustIdentityKind {
+    StableNamed,
+    UnstableAnonymous,
+}
+
+impl RustIdentityKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::StableNamed => "stable_named",
+            Self::UnstableAnonymous => "unstable_anonymous",
+        }
+    }
+}
+
 impl RustItemKind {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -757,6 +774,7 @@ fn collect_items(
     module_path: &str,
     rows: &mut Vec<RustItemRow>,
 ) {
+    let mut anonymous_impl_index = 0usize;
     for item in items {
         match item {
             Item::Mod(item_mod) => {
@@ -844,15 +862,23 @@ fn collect_items(
                 &item_static.ident.to_string(),
                 classify_visibility(&item_static.vis),
             ),
-            Item::Impl(_) => push_row(
-                rows,
-                context_id,
-                relative_path,
-                module_path,
-                RustItemKind::Impl,
-                "impl",
-                RustVisibility::Private,
-            ),
+            Item::Impl(_) => {
+                anonymous_impl_index += 1;
+                let name = format!("impl#{anonymous_impl_index}");
+                push_row_with_identity(
+                    rows,
+                    RustItemInput {
+                        context_id,
+                        relative_path,
+                        module_path,
+                        item_kind: RustItemKind::Impl,
+                        name: &name,
+                        visibility: RustVisibility::Private,
+                        identity_kind: RustIdentityKind::UnstableAnonymous,
+                        identity_note: "anonymous impl identity is scan-order stable but source-drift sensitive",
+                    },
+                );
+            }
             Item::Use(item_use) => push_row(
                 rows,
                 context_id,
@@ -1861,14 +1887,49 @@ fn push_row(
     name: &str,
     visibility: RustVisibility,
 ) {
+    push_row_with_identity(
+        rows,
+        RustItemInput {
+            context_id,
+            relative_path,
+            module_path,
+            item_kind,
+            name,
+            visibility,
+            identity_kind: RustIdentityKind::StableNamed,
+            identity_note: "named syntax identity is stable across repeated scans",
+        },
+    );
+}
+
+struct RustItemInput<'a> {
+    context_id: &'a str,
+    relative_path: &'a str,
+    module_path: &'a str,
+    item_kind: RustItemKind,
+    name: &'a str,
+    visibility: RustVisibility,
+    identity_kind: RustIdentityKind,
+    identity_note: &'a str,
+}
+
+fn push_row_with_identity(rows: &mut Vec<RustItemRow>, input: RustItemInput<'_>) {
     rows.push(RustItemRow {
-        stable_id: stable_item_id(context_id, relative_path, module_path, item_kind, name),
-        context_id: context_id.to_string(),
-        relative_path: relative_path.to_string(),
-        module_path: module_path.to_string(),
-        item_kind,
-        name: name.to_string(),
-        visibility,
+        stable_id: stable_item_id(
+            input.context_id,
+            input.relative_path,
+            input.module_path,
+            input.item_kind,
+            input.name,
+        ),
+        context_id: input.context_id.to_string(),
+        relative_path: input.relative_path.to_string(),
+        module_path: input.module_path.to_string(),
+        item_kind: input.item_kind,
+        name: input.name.to_string(),
+        identity_kind: input.identity_kind,
+        identity_note: input.identity_note.to_string(),
+        visibility: input.visibility,
         confidence: StaticCaptureConfidence::SyntaxOnly,
     });
 }
@@ -2064,10 +2125,53 @@ impl Thing {}
                 .iter()
                 .any(|row| row.item_kind == RustItemKind::TypeAlias && row.name == "Alias")
         );
+        assert!(first.iter().any(|row| row.item_kind == RustItemKind::Impl
+            && row.name == "impl#1"
+            && row.identity_kind == RustIdentityKind::UnstableAnonymous));
+    }
+
+    // Defends: CDB084 anonymous syntax nodes receive deterministic IDs but remain marked unstable.
+    #[test]
+    fn anonymous_impl_identity_is_distinct_and_marked_unstable() {
+        let fixture = FixtureWorkspace::new();
+        fixture.write(
+            "src/lib.rs",
+            r#"
+struct One;
+struct Two;
+
+impl One {}
+impl Two {}
+"#,
+        );
+
+        let first =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+        let second =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+
+        assert_eq!(first, second);
+        let impl_rows = first
+            .iter()
+            .filter(|row| row.item_kind == RustItemKind::Impl)
+            .collect::<Vec<_>>();
+        assert_eq!(impl_rows.len(), 2);
+        assert_ne!(impl_rows[0].stable_id, impl_rows[1].stable_id);
+        assert_eq!(impl_rows[0].name, "impl#1");
+        assert_eq!(impl_rows[1].name, "impl#2");
+        assert!(impl_rows.iter().all(|row| {
+            row.identity_kind == RustIdentityKind::UnstableAnonymous
+                && row.identity_note.contains("source-drift sensitive")
+        }));
+
+        let named_rows = first
+            .iter()
+            .filter(|row| row.item_kind == RustItemKind::Struct)
+            .collect::<Vec<_>>();
         assert!(
-            first
+            named_rows
                 .iter()
-                .any(|row| row.item_kind == RustItemKind::Impl && row.name == "impl")
+                .all(|row| row.identity_kind == RustIdentityKind::StableNamed)
         );
     }
 
