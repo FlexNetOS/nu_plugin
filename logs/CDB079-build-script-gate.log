@@ -1,0 +1,17 @@
+timestamp_utc: 2026-07-02T18:18:26Z
+task: CDB079 add build-script execution gate
+repo: FlexNetOS/nu_plugin
+worktree: /home/flexnetos/FlexNetOS/src/nu_plugin-next-worktree
+
+implementation:
+- default dynamic capture records build_script_execution as a capture gap;
+- build_script_execution gap requires --unsafe-execute-build;
+- approved fixture capture records unsafe approval provenance;
+- approved fixture capture writes raw logs and build_script_runs rows;
+- build-script provenance detection recognizes Cargo warning output.
+
+tests:
+- nix develop .#ci -c cargo test -p codedb-build-capture build_script_execution_gate_refuses_default_and_captures_approved_logs
+
+truth policy:
+- build-script execution is refused by default and only observed behind explicit unsafe approval.

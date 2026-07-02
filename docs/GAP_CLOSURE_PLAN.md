@@ -43,3 +43,10 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   `proc_macro_execution` gap with required flag `--unsafe-execute-build`.
 - Approved dynamic capture scaffold records unsafe approval provenance with
   status, flag, and approver.
+
+## Closed By CDB079
+
+- Dynamic capture default refusal records `build_script_execution` with
+  required flag `--unsafe-execute-build`.
+- Approved fixture capture records approval provenance, build-script run rows,
+  raw log rows, and observed Cargo warning output.

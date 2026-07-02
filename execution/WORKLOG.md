@@ -200,3 +200,12 @@ required flag `--unsafe-execute-build`; approved scaffold paths record unsafe
 approval provenance with status, flag, and approver.
 
 Validation evidence is in `logs/CDB078-proc-macro-gate.log`.
+
+## 2026-07-02T18:18:26Z — CDB079 — Build-script execution gate
+
+Added a build-script-specific unsafe gate assertion in `codedb_build_capture`.
+Default dynamic capture records `build_script_execution` as gated by
+`--unsafe-execute-build`; approved fixture capture records unsafe approval,
+build-script run rows, raw log rows, and observed Cargo warning output.
+
+Validation evidence is in `logs/CDB079-build-script-gate.log`.

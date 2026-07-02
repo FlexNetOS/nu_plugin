@@ -122,8 +122,12 @@ pub fn capture_approved_fixture_build(
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let observed_warning =
-        stdout.contains("build-script-probe") || stderr.contains("build-script-probe");
+    let observed_warning = stdout.contains("cargo:warning=")
+        || stderr.contains("cargo:warning=")
+        || stdout.contains("warning: codedb-")
+        || stderr.contains("warning: codedb-")
+        || stdout.contains("build-script-")
+        || stderr.contains("build-script-");
 
     Ok(BuildCaptureOutcome {
         status,
@@ -487,6 +491,71 @@ edition = "2024"
                 .map(String::as_str),
             Some("test")
         );
+    }
+
+    // Test lane: default
+    // Defends: CDB079 build-script execution is refused by default and approved runs capture provenance/logs.
+    #[test]
+    fn build_script_execution_gate_refuses_default_and_captures_approved_logs() {
+        let refused = capture_build(request(false));
+        assert!(refused.capture_gaps.iter().any(|gap| {
+            gap.get("missing_truth").map(String::as_str) == Some("build_script_execution")
+                && gap.get("required_flag").map(String::as_str) == Some(UNSAFE_FLAG)
+        }));
+        assert!(refused.build_script_runs.is_empty());
+
+        let fixture = temp_dir("codedb_build_script_gate_fixture");
+        fs::create_dir_all(fixture.join("src")).expect("create fixture src");
+        fs::write(
+            fixture.join("Cargo.toml"),
+            r#"[package]
+name = "codedb-build-script-gate-fixture"
+version = "0.1.0"
+edition = "2024"
+"#,
+        )
+        .expect("write manifest");
+        fs::write(fixture.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write lib");
+        fs::write(
+            fixture.join("build.rs"),
+            r#"fn main() {
+    println!("cargo:warning=build-script-provenance");
+}
+"#,
+        )
+        .expect("write build script");
+
+        let raw_log_path = fixture.join("logs/raw-build.log");
+        let approved = capture_approved_fixture_build(BuildCaptureRequest {
+            repo_path: fixture.clone(),
+            store_path: Some(fixture.join("codedb.redb")),
+            raw_log_path: raw_log_path.clone(),
+            unsafe_execute_build: true,
+            approver: Some("build-script-test".to_string()),
+        })
+        .expect("approved fixture capture should run");
+
+        assert_eq!(approved.status, BuildCaptureStatus::Captured);
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("approver")
+                .map(String::as_str),
+            Some("build-script-test")
+        );
+        assert_eq!(
+            approved.build_script_runs[0]
+                .get("observed_warning")
+                .map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            approved.raw_log_paths[0].get("status").map(String::as_str),
+            Some("written")
+        );
+        let raw_log = fs::read_to_string(&raw_log_path).expect("read raw log");
+        assert!(raw_log.contains("build-script-provenance"));
+
+        let _ = fs::remove_dir_all(fixture);
     }
 
     fn request(unsafe_execute_build: bool) -> BuildCaptureRequest {
