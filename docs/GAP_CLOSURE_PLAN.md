@@ -67,3 +67,12 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   preserve link targets without materializing links as regular files.
 - Unix fixture coverage proves scans capture symlink targets with
   `symlink_metadata` and emit supported materialization rows.
+
+## Closed By CDB082
+
+- Approved dynamic build capture now parses Cargo JSON
+  `build-script-executed` messages for native `linked_libs` and `linked_paths`.
+- Native/linker facts are emitted as `native_link_facts` rows only when the
+  explicit unsafe build gate ran.
+- Default/refused capture records `native_linker_dynamic_facts` as a GAP with
+  required flag `--unsafe-execute-build`.

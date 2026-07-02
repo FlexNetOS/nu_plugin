@@ -229,3 +229,13 @@ materialization. Unix tests prove the filesystem scanner records symlink target
 metadata without following the link.
 
 Validation evidence is in `logs/CDB081-symlink-platform-materialization.log`.
+
+## 2026-07-02T19:33:35Z — CDB082 — Native/linker dynamic facts
+
+Added structured Cargo JSON parsing to approved dynamic build capture.
+`build-script-executed` messages now emit `native_link_facts` rows for
+`linked_libs` and `linked_paths` only after the unsafe build gate runs. Default
+capture records `native_linker_dynamic_facts` as a GAP requiring
+`--unsafe-execute-build`.
+
+Validation evidence is in `logs/CDB082-native-linker-facts.log`.
