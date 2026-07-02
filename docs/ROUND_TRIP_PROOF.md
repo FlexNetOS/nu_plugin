@@ -42,8 +42,11 @@ restored into an isolated output path. Raw blob capture records an explicit
 permission-capture gap because it has no source filesystem metadata.
 
 Generated `OUT_DIR` reproduction is represented by a CDB080 gap until dynamic
-capture emits checksum-bound generated artifact manifests. Symlink and
-platform-specific materialization limits remain active in CDB081.
+capture emits checksum-bound generated artifact manifests.
+
+CDB081 models symlink materialization as platform-dependent capability rows.
+When link creation is unavailable, CodeDB preserves link metadata and target
+paths as a `metadata_only_fallback` instead of writing a regular file.
 
 ## CDB074 Isolated Patch Proof
 

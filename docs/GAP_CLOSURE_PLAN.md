@@ -58,3 +58,12 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   Cargo `OUT_DIR` provenance, target/rustc environment, and filesystem metadata.
 - The focused `out_dir_generator` fixture proves CodeDB does not silently claim
   generated artifact reproduction when only raw build logs are available.
+
+## Closed By CDB081
+
+- Core rows now model `platform_materialization_capabilities` for symlink
+  materialization.
+- Platforms that cannot create symlinks emit `metadata_only_fallback` rows that
+  preserve link targets without materializing links as regular files.
+- Unix fixture coverage proves scans capture symlink targets with
+  `symlink_metadata` and emit supported materialization rows.

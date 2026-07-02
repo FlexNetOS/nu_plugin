@@ -219,3 +219,13 @@ The focused `out_dir_generator` fixture test proves raw logs alone remain a
 GAP, not a FACT.
 
 Validation evidence is in `logs/CDB080-out-dir-reproduction.log`.
+
+## 2026-07-02T19:30:40Z — CDB081 — Symlink platform materialization
+
+Added platform materialization capability rows in `codedb_core`. Symlink entries
+now project to either `supported` or `metadata_only_fallback` rows; fallback
+rows preserve the link target and explicitly refuse regular-file
+materialization. Unix tests prove the filesystem scanner records symlink target
+metadata without following the link.
+
+Validation evidence is in `logs/CDB081-symlink-platform-materialization.log`.

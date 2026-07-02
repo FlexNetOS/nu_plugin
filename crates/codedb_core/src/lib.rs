@@ -133,6 +133,31 @@ impl FilesystemEntryKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymlinkMaterializationStatus {
+    Supported,
+    MetadataOnlyFallback,
+}
+
+impl SymlinkMaterializationStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Supported => "supported",
+            Self::MetadataOnlyFallback => "metadata_only_fallback",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformMaterializationRow {
+    pub table: &'static str,
+    pub status: &'static str,
+    pub rows: u64,
+    pub relative_path: String,
+    pub platform: &'static str,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileClassification {
     RustSource,
     CargoManifest,
@@ -808,6 +833,13 @@ pub fn schema_tables() -> Vec<TableSpec> {
             row_count: 0,
             note: "failed sync/apply recovery rows are modeled after CDB076",
         },
+        TableSpec {
+            name: "platform_materialization_capabilities",
+            domain: "bidirectional/materialization",
+            state: RowState::Available,
+            row_count: 0,
+            note: "symlink/platform materialization limits are explicit after CDB081",
+        },
     ]
 }
 
@@ -926,6 +958,41 @@ pub fn source_policy_row(metadata: &SourceBlobMetadata) -> SourcePolicyRow {
         raw_export_allowed: metadata.export_raw_by_default,
         reason: metadata.policy_reason.clone(),
     }
+}
+
+pub fn symlink_materialization_rows(
+    entries: &[FilesystemEntry],
+    symlink_creation_supported: bool,
+) -> Vec<PlatformMaterializationRow> {
+    let status = if symlink_creation_supported {
+        SymlinkMaterializationStatus::Supported
+    } else {
+        SymlinkMaterializationStatus::MetadataOnlyFallback
+    };
+    entries
+        .iter()
+        .filter(|entry| entry.kind == FilesystemEntryKind::Symlink || entry.is_symlink)
+        .map(|entry| {
+            let target = entry.symlink_target.as_deref().unwrap_or("unknown-target");
+            let note = if symlink_creation_supported {
+                format!(
+                    "symlink can be materialized as link to {target}; target existence still validated separately"
+                )
+            } else {
+                format!(
+                    "safe fallback: preserve symlink metadata for {target}; do not materialize as regular file"
+                )
+            };
+            PlatformMaterializationRow {
+                table: "platform_materialization_capabilities",
+                status: status.as_str(),
+                rows: 1,
+                relative_path: entry.relative_path.clone(),
+                platform: std::env::consts::OS,
+                note,
+            }
+        })
+        .collect()
 }
 
 pub fn change_plan_table_rows(graph: &ChangePlanGraph) -> Vec<ChangePlanTableRow> {
@@ -1558,6 +1625,67 @@ mod tests {
             entry.relative_path == "README.md"
                 && entry.classification == FileClassification::NonRustAsset
         }));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB081 platforms without symlink creation support preserve link metadata as a safe fallback.
+    #[test]
+    fn symlink_materialization_records_metadata_only_fallback() {
+        let entries = vec![FilesystemEntry {
+            relative_path: "link.txt".to_string(),
+            kind: FilesystemEntryKind::Symlink,
+            size_bytes: 0,
+            readonly: false,
+            is_symlink: true,
+            symlink_target: Some("target.txt".to_string()),
+            classification: FileClassification::Other,
+        }];
+
+        let rows = symlink_materialization_rows(&entries, false);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].table, "platform_materialization_capabilities");
+        assert_eq!(
+            rows[0].status,
+            SymlinkMaterializationStatus::MetadataOnlyFallback.as_str()
+        );
+        assert_eq!(rows[0].relative_path, "link.txt");
+        assert!(rows[0].note.contains("safe fallback"));
+        assert!(rows[0].note.contains("target.txt"));
+        assert!(rows[0].note.contains("do not materialize as regular file"));
+    }
+
+    // Test lane: default
+    // Defends: CDB081 Unix symlink scans capture the link target without following it.
+    #[cfg(unix)]
+    #[test]
+    fn symlink_scan_records_target_and_supported_materialization_row() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_fixture_root();
+        fs::create_dir_all(&root).expect("create root");
+        fs::write(root.join("target.txt"), "symlink target\n").expect("write target");
+        symlink("target.txt", root.join("link.txt")).expect("create symlink");
+
+        let entries = scan_filesystem(&root).expect("scan symlink fixture");
+        let link = entries
+            .iter()
+            .find(|entry| entry.relative_path == "link.txt")
+            .expect("link entry");
+        assert_eq!(link.kind, FilesystemEntryKind::Symlink);
+        assert!(link.is_symlink);
+        assert_eq!(link.symlink_target.as_deref(), Some("target.txt"));
+
+        let rows = symlink_materialization_rows(&entries, true);
+        let row = rows
+            .iter()
+            .find(|row| row.relative_path == "link.txt")
+            .expect("symlink materialization row");
+        assert_eq!(row.status, SymlinkMaterializationStatus::Supported.as_str());
+        assert_eq!(row.platform, std::env::consts::OS);
+        assert!(row.note.contains("target.txt"));
 
         fs::remove_dir_all(&root).ok();
     }
