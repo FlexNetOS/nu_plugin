@@ -28,6 +28,7 @@ pub struct MacroInventory {
     pub definitions: Vec<MacroDefinitionRow>,
     pub invocations: Vec<MacroInvocationRow>,
     pub gaps: Vec<MacroCaptureGap>,
+    pub expansion_gates: Vec<MacroExpansionGateRow>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -339,6 +340,32 @@ pub struct MacroCaptureGap {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroExpansionGateRow {
+    pub context_id: String,
+    pub relative_path: String,
+    pub module_path: String,
+    pub macro_name: String,
+    pub gate_status: MacroExpansionGateStatus,
+    pub evidence_kind: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MacroExpansionGateStatus {
+    Gap,
+    CompilerObserved,
+}
+
+impl MacroExpansionGateStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Gap => "gap",
+            Self::CompilerObserved => "compiler_observed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MacroMissingTruth {
     Expansion,
@@ -498,6 +525,7 @@ pub fn capture_rust_macros(
         definitions: Vec::new(),
         invocations: Vec::new(),
         gaps: Vec::new(),
+        expansion_gates: Vec::new(),
     };
     collect_macros(
         &syntax.items,
@@ -523,6 +551,12 @@ pub fn capture_rust_macros(
             .cmp(&right.module_path)
             .then_with(|| left.macro_name.cmp(&right.macro_name))
             .then_with(|| left.missing_truth.cmp(&right.missing_truth))
+    });
+    inventory.expansion_gates.sort_by(|left, right| {
+        left.module_path
+            .cmp(&right.module_path)
+            .then_with(|| left.macro_name.cmp(&right.macro_name))
+            .then_with(|| left.gate_status.cmp(&right.gate_status))
     });
     Ok(inventory)
 }
@@ -1639,6 +1673,7 @@ fn push_macro_definition(
         name,
         MacroMissingTruth::Expansion,
     );
+    push_macro_expansion_gate(inventory, context_id, relative_path, module_path, name);
     push_macro_gap(
         inventory,
         context_id,
@@ -1675,6 +1710,13 @@ fn push_macro_invocation(
         token_summary: summarize_tokens(tokens),
         confidence: StaticCaptureConfidence::SyntaxOnly,
     });
+    push_macro_expansion_gate(
+        inventory,
+        context_id,
+        relative_path,
+        module_path,
+        macro_path,
+    );
 }
 
 fn push_macro_gap(
@@ -1692,6 +1734,35 @@ fn push_macro_gap(
         macro_name: macro_name.to_string(),
         missing_truth,
         reason: "static macro capture does not prove compiler expansion or hygiene".to_string(),
+    });
+}
+
+fn push_macro_expansion_gate(
+    inventory: &mut MacroInventory,
+    context_id: &str,
+    relative_path: &str,
+    module_path: &str,
+    macro_name: &str,
+) {
+    let already_recorded = inventory.expansion_gates.iter().any(|gate| {
+        gate.context_id == context_id
+            && gate.relative_path == relative_path
+            && gate.module_path == module_path
+            && gate.macro_name == macro_name
+            && gate.gate_status == MacroExpansionGateStatus::Gap
+    });
+    if already_recorded {
+        return;
+    }
+    inventory.expansion_gates.push(MacroExpansionGateRow {
+        context_id: context_id.to_string(),
+        relative_path: relative_path.to_string(),
+        module_path: module_path.to_string(),
+        macro_name: macro_name.to_string(),
+        gate_status: MacroExpansionGateStatus::Gap,
+        evidence_kind: "compiler_observed_expansion".to_string(),
+        reason: "compiler-observed macro expansion was not executed; static capture records a GAP"
+            .to_string(),
     });
 }
 
@@ -2076,6 +2147,35 @@ pub fn run() {
         }));
         assert!(first.gaps.iter().any(|gap| {
             gap.macro_name == "hello" && gap.missing_truth == MacroMissingTruth::Hygiene
+        }));
+    }
+
+    // Defends: CDB077 gates dynamic/compiler-observed macro expansion as GAP, not FACT.
+    #[test]
+    fn macro_expansion_gate_records_question_not_fact() {
+        let fixture = FixtureWorkspace::new();
+        fixture.write(
+            "src/lib.rs",
+            r#"
+macro_rules! make_item {
+    () => { pub fn generated() {} };
+}
+
+make_item!();
+"#,
+        );
+
+        let inventory =
+            capture_rust_macros(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+
+        assert!(inventory.expansion_gates.iter().any(|gate| {
+            gate.macro_name == "make_item"
+                && gate.gate_status == MacroExpansionGateStatus::Gap
+                && gate.evidence_kind == "compiler_observed_expansion"
+                && gate.reason.contains("not executed")
+        }));
+        assert!(inventory.gaps.iter().any(|gap| {
+            gap.macro_name == "make_item" && gap.missing_truth == MacroMissingTruth::Expansion
         }));
     }
 

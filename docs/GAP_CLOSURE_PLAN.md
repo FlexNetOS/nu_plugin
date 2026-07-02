@@ -29,3 +29,10 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   materialization reapplies mode bits.
 - Raw blob capture records permission metadata as an explicit gap because no
   filesystem source exists for that API surface.
+
+## Closed By CDB077
+
+- Static macro capture now emits explicit `compiler_observed_expansion` gate
+  rows with `gap` status for macro definitions and invocations.
+- The focused fixture proves CodeDB does not claim dynamic expansion or hygiene
+  facts from syntax-only capture.

@@ -1,0 +1,15 @@
+timestamp_utc: 2026-07-02T18:13:55Z
+task: CDB077 close macro expansion gap
+repo: FlexNetOS/nu_plugin
+worktree: /home/flexnetos/FlexNetOS/src/nu_plugin-next-worktree
+
+implementation:
+- added MacroExpansionGateRow and MacroExpansionGateStatus;
+- static macro capture emits compiler_observed_expansion gate rows;
+- dynamic/compiler-observed expansion remains a GAP unless a compiler-backed rail proves it.
+
+tests:
+- nix develop .#ci -c cargo test -p codedb-rust-static macro_expansion_gate_records_question_not_fact
+
+truth policy:
+- macro expansion and hygiene are not claimed as FACT from syntax-only capture.

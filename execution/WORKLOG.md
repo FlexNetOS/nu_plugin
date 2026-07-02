@@ -182,3 +182,12 @@ Added `evaluate_bidirectional_sync` in `codedb_core`. Source drift now emits
 re-scan mismatches emit `recovery_rows` with the configured recovery reference.
 
 Validation evidence is in `logs/CDB076-sync-semantics.log`.
+
+## 2026-07-02T18:13:55Z — CDB077 — Macro expansion gap gate
+
+Added macro expansion gate rows to the static Rust capture layer. Dynamic
+compiler-observed macro expansion is now represented as
+`compiler_observed_expansion` with `gap` status instead of being implied by
+syntax-only macro inventory.
+
+Validation evidence is in `logs/CDB077-macro-expansion-gate.log`.
