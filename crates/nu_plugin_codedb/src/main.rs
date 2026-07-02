@@ -3,6 +3,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use codedb_cargo::{CargoContextInput, build_context_rows, capture_cargo_metadata};
 use codedb_core::{
@@ -123,6 +124,10 @@ fn int(value: impl TryInto<i64>, span: Span) -> Result<Value, LabeledError> {
 
 fn bool_value(value: bool, span: Span) -> Value {
     Value::bool(value, span)
+}
+
+fn list_value(values: Vec<Value>, span: Span) -> Value {
+    Value::list(values, span)
 }
 
 fn command_signature(name: &str) -> Signature {
@@ -577,7 +582,9 @@ fn envctl_inventory_import_row(
         .filter(|metadata| metadata.is_file())
         .map(|metadata| metadata.len())
         .unwrap_or(0);
-    let (content_hash, blob_ref, import_status, skip_reason) = if import_mode == "content_blob"
+    let observed = format!("unix:{}", unix_timestamp_seconds());
+    let (content_hash, blob_ref, import_status, skip_reason, bytes) = if import_mode
+        == "content_blob"
         && metadata.as_ref().is_some_and(|metadata| metadata.is_file())
     {
         let bytes = fs::read(&path).map_err(|source| {
@@ -590,6 +597,7 @@ fn envctl_inventory_import_row(
             format!("sha256:{hash}"),
             "blob_metadata_ready".to_string(),
             String::new(),
+            Some(bytes),
         )
     } else if import_mode == "content_blob" {
         (
@@ -597,6 +605,7 @@ fn envctl_inventory_import_row(
             String::new(),
             "metadata_only".to_string(),
             "content_blob target is not a regular file".to_string(),
+            None,
         )
     } else {
         (
@@ -604,7 +613,18 @@ fn envctl_inventory_import_row(
             String::new(),
             "metadata_only".to_string(),
             safety_policy.clone(),
+            None,
         )
+    };
+    let structured = bytes
+        .as_deref()
+        .and_then(|bytes| structured_file_rows(&json_string(row, "parser_hint"), bytes, span));
+    let structured_status = if structured.is_some() {
+        "structured_rows_ready"
+    } else if import_mode == "metadata_only" {
+        "metadata_only"
+    } else {
+        "unstructured_blob"
     };
 
     Ok(vec![
@@ -641,11 +661,236 @@ fn envctl_inventory_import_row(
         ("import_status", string(import_status, span)),
         ("skip_reason", string(skip_reason, span)),
         (
-            "last_observed",
-            string("inventory_artifact_current_run", span),
+            "structured_table",
+            string("envctl_yazelix_file_structured_rows", span),
         ),
+        ("structured_status", string(structured_status, span)),
+        (
+            "structured_row_count",
+            int(structured.as_ref().map_or(0usize, Vec::len), span)?,
+        ),
+        (
+            "structured_rows",
+            list_value(structured.unwrap_or_default(), span),
+        ),
+        ("last_observed", string(observed, span)),
         ("provenance", string("yazelix_file_target_inventory", span)),
     ])
+}
+
+fn unix_timestamp_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn structured_file_rows(parser_hint: &str, bytes: &[u8], span: Span) -> Option<Vec<Value>> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    match parser_hint {
+        "json" | "jsonc" => {
+            json_table_rows(text, span).or_else(|| text_table_rows(parser_hint, text, span))
+        }
+        "toml" | "nix" | "kdl" | "nu" | "lua" | "yaml" | "yml" | "markdown" | "desktop"
+        | "service" | "shell" | "conf" | "terminal_conf" | "plain_config" => {
+            text_table_rows(parser_hint, text, span)
+        }
+        _ => None,
+    }
+}
+
+fn json_table_rows(text: &str, span: Span) -> Option<Vec<Value>> {
+    let value: JsonValue = serde_json::from_str(&jsonc_to_json(text)).ok()?;
+    let mut flattened = Vec::new();
+    flatten_json(None, &value, &mut flattened);
+    Some(
+        flattened
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (key, value))| {
+                Value::record(
+                    record! {
+                        "row_index" => Value::int(idx as i64, span),
+                        "row_kind" => string("json_value", span),
+                        "format" => string("json", span),
+                        "key" => string(key, span),
+                        "value" => string(value, span),
+                    },
+                    span,
+                )
+            })
+            .collect(),
+    )
+}
+
+fn text_table_rows(parser_hint: &str, text: &str, span: Span) -> Option<Vec<Value>> {
+    let rows = text
+        .lines()
+        .enumerate()
+        .filter_map(|(idx, line)| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let (row_kind, key, value) = text_line_parts(trimmed);
+            Some(Value::record(
+                record! {
+                    "row_index" => Value::int(idx as i64, span),
+                    "row_kind" => string(row_kind, span),
+                    "format" => string(parser_hint, span),
+                    "key" => string(key, span),
+                    "value" => string(value, span),
+                },
+                span,
+            ))
+        })
+        .collect::<Vec<_>>();
+    (!rows.is_empty()).then_some(rows)
+}
+
+fn text_line_parts(line: &str) -> (&'static str, String, String) {
+    if line.starts_with('#') || line.starts_with("//") || line.starts_with("--") {
+        return ("comment", String::new(), line.to_string());
+    }
+    for delimiter in ["=", ":", " "] {
+        if let Some((key, value)) = line.split_once(delimiter) {
+            let key = key.trim().to_string();
+            if !key.is_empty() {
+                return ("entry", key, value.trim().to_string());
+            }
+        }
+    }
+    ("line", String::new(), line.to_string())
+}
+
+fn flatten_json(prefix: Option<String>, value: &JsonValue, out: &mut Vec<(String, String)>) {
+    match value {
+        JsonValue::Object(map) => {
+            for (key, child) in map {
+                let next = prefix
+                    .as_ref()
+                    .map(|prefix| format!("{prefix}.{key}"))
+                    .unwrap_or_else(|| key.clone());
+                flatten_json(Some(next), child, out);
+            }
+        }
+        JsonValue::Array(items) => {
+            for (idx, child) in items.iter().enumerate() {
+                let next = prefix
+                    .as_ref()
+                    .map(|prefix| format!("{prefix}[{idx}]"))
+                    .unwrap_or_else(|| format!("[{idx}]"));
+                flatten_json(Some(next), child, out);
+            }
+        }
+        _ => out.push((
+            prefix.unwrap_or_else(|| "value".to_string()),
+            json_value_string(value),
+        )),
+    }
+}
+
+fn json_value_string(value: &JsonValue) -> String {
+    match value {
+        JsonValue::Null => "null".to_string(),
+        JsonValue::Bool(value) => value.to_string(),
+        JsonValue::Number(value) => value.to_string(),
+        JsonValue::String(value) => value.clone(),
+        _ => serde_json::to_string(value).unwrap_or_default(),
+    }
+}
+
+fn jsonc_to_json(input: &str) -> String {
+    let mut without_comments = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    while let Some(ch) = chars.next() {
+        if in_string {
+            without_comments.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            without_comments.push(ch);
+            continue;
+        }
+        if ch == '/' {
+            match chars.peek().copied() {
+                Some('/') => {
+                    chars.next();
+                    for next in chars.by_ref() {
+                        if next == '\n' {
+                            without_comments.push('\n');
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                Some('*') => {
+                    chars.next();
+                    let mut previous = '\0';
+                    for next in chars.by_ref() {
+                        if previous == '*' && next == '/' {
+                            break;
+                        }
+                        previous = next;
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        without_comments.push(ch);
+    }
+
+    remove_json_trailing_commas(&without_comments)
+}
+
+fn remove_json_trailing_commas(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    while let Some(ch) = chars.next() {
+        if in_string {
+            output.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            output.push(ch);
+            continue;
+        }
+        if ch == ',' {
+            let mut lookahead = chars.clone();
+            while matches!(lookahead.peek(), Some(next) if next.is_whitespace()) {
+                lookahead.next();
+            }
+            if matches!(lookahead.peek(), Some('}' | ']')) {
+                continue;
+            }
+        }
+        output.push(ch);
+    }
+
+    output
 }
 
 fn json_string(row: &JsonValue, key: &str) -> String {
@@ -988,6 +1233,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(name: &str) -> PathBuf {
@@ -996,6 +1242,23 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("codedb-{name}-{nanos}"))
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct FileSnapshot {
+        len: u64,
+        readonly: bool,
+        sha256: String,
+    }
+
+    fn file_snapshot(path: &Path) -> FileSnapshot {
+        let metadata = fs::metadata(path).unwrap();
+        let bytes = fs::read(path).unwrap();
+        FileSnapshot {
+            len: metadata.len(),
+            readonly: metadata.permissions().readonly(),
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+        }
     }
 
     // Defends: envctl inventory import rows preserve blob hashes for safe content and skip unsafe rows.
@@ -1057,6 +1320,174 @@ mod tests {
         }));
         assert!(metadata.iter().any(|(key, value)| {
             *key == "skip_reason" && matches!(value, Value::String { val, .. } if val == "runtime_state_no_content_import")
+        }));
+    }
+
+    // Defends: safe structured inventory targets expose native datatable payload rows.
+    #[test]
+    fn envctl_inventory_import_rows_include_structured_datatable_payload() {
+        let root = temp_path("inventory-structured");
+        fs::create_dir_all(&root).unwrap();
+        let content_path = root.join("settings.jsonc");
+        fs::write(
+            &content_path,
+            r#"{
+  // comment tolerated by jsonc cleaner
+  "theme": "zed",
+  "show_banner": false,
+}
+"#,
+        )
+        .unwrap();
+        let log_path = root.join("welcome.log");
+        fs::write(&log_path, "runtime log\n").unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            format!(
+                r#"[{{
+                    "target_id":"settings",
+                    "absolute_path":"{}",
+                    "normalized_logical_path":"repo_source:settings.jsonc",
+                    "owner":"yazelix",
+                    "source_of_truth_class":"repo_source",
+                    "file_kind":"regular_file",
+                    "parser_hint":"jsonc",
+                    "safety_policy":"source_content_import_allowed",
+                    "reproduction_policy":"git_checkout",
+                    "import_mode":"content_blob"
+                }},{{
+                    "target_id":"welcome_log",
+                    "absolute_path":"{}",
+                    "normalized_logical_path":"real_home_local:logs/welcome.log",
+                    "owner":"yazelix",
+                    "source_of_truth_class":"real_home_runtime_state",
+                    "file_kind":"regular_file",
+                    "parser_hint":"log",
+                    "safety_policy":"runtime_state_no_content_import",
+                    "reproduction_policy":"observed_runtime_state_only",
+                    "import_mode":"metadata_only"
+                }}]"#,
+                content_path.display(),
+                log_path.display(),
+            ),
+        )
+        .unwrap();
+
+        let rows = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap();
+        let content = &rows[0];
+        assert!(content.iter().any(|(key, value)| {
+            *key == "last_observed"
+                && matches!(value, Value::String { val, .. } if val.starts_with("unix:"))
+        }));
+        assert!(content.iter().any(|(key, value)| {
+            *key == "structured_status"
+                && matches!(value, Value::String { val, .. } if val == "structured_rows_ready")
+        }));
+        assert!(content.iter().any(|(key, value)| {
+            *key == "structured_row_count" && matches!(value, Value::Int { val, .. } if *val >= 2)
+        }));
+        let structured_rows = content
+            .iter()
+            .find_map(|(key, value)| (*key == "structured_rows").then_some(value))
+            .expect("structured_rows field");
+        match structured_rows {
+            Value::List { vals, .. } => {
+                assert!(vals.iter().any(|value| {
+                    let Value::Record { val, .. } = value else {
+                        return false;
+                    };
+                    val.get("key").is_some_and(
+                        |value| matches!(value, Value::String { val, .. } if val == "theme"),
+                    ) && val.get("value").is_some_and(
+                        |value| matches!(value, Value::String { val, .. } if val == "zed"),
+                    )
+                }));
+            }
+            other => panic!("structured_rows should be a list, got {other:?}"),
+        }
+
+        let metadata = &rows[1];
+        assert!(metadata.iter().any(|(key, value)| {
+            *key == "structured_status"
+                && matches!(value, Value::String { val, .. } if val == "metadata_only")
+        }));
+        assert!(metadata.iter().any(|(key, value)| {
+            *key == "structured_row_count" && matches!(value, Value::Int { val, .. } if *val == 0)
+        }));
+    }
+
+    // Defends: inventory import is read-only for source, real-home-like, and metadata-only targets.
+    #[test]
+    fn envctl_inventory_import_rows_do_not_mutate_targets() {
+        let root = temp_path("inventory-no-mutation");
+        let repo_dir = root.join("repo");
+        let local_dir = root.join("home/.local/share/yazelix/sessions/session-1");
+        fs::create_dir_all(&repo_dir).unwrap();
+        fs::create_dir_all(&local_dir).unwrap();
+        let source_path = repo_dir.join("settings.jsonc");
+        let runtime_path = local_dir.join("status_bar_cache.json");
+        fs::write(&source_path, "{ \"theme\": \"zed\" }\n").unwrap();
+        fs::write(&runtime_path, "{ \"status\": \"cached\" }\n").unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            format!(
+                r#"[{{
+                    "target_id":"settings",
+                    "absolute_path":"{}",
+                    "normalized_logical_path":"repo_source:settings.jsonc",
+                    "owner":"yazelix",
+                    "source_of_truth_class":"repo_source",
+                    "file_kind":"regular_file",
+                    "parser_hint":"jsonc",
+                    "safety_policy":"source_content_import_allowed",
+                    "reproduction_policy":"git_checkout",
+                    "import_mode":"content_blob"
+                }},{{
+                    "target_id":"status_cache",
+                    "absolute_path":"{}",
+                    "normalized_logical_path":"real_home_runtime_state:.local/share/yazelix/sessions/session-1/status_bar_cache.json",
+                    "owner":"yazelix",
+                    "source_of_truth_class":"real_home_runtime_state",
+                    "file_kind":"regular_file",
+                    "parser_hint":"json",
+                    "safety_policy":"runtime_state_no_content_import",
+                    "reproduction_policy":"observed_runtime_state_only",
+                    "import_mode":"metadata_only"
+                }},{{
+                    "target_id":"nix_store_runtime",
+                    "absolute_path":"/nix/store/example-yazelix-runtime",
+                    "normalized_logical_path":"nix_store:/nix/store/example-yazelix-runtime",
+                    "owner":"nix",
+                    "source_of_truth_class":"nix_store_package_output",
+                    "file_kind":"package_output",
+                    "parser_hint":"nix_store_path",
+                    "safety_policy":"nix_store_metadata_only",
+                    "reproduction_policy":"nix_realise",
+                    "import_mode":"metadata_only"
+                }}]"#,
+                source_path.display(),
+                runtime_path.display(),
+            ),
+        )
+        .unwrap();
+        let source_before = file_snapshot(&source_path);
+        let runtime_before = file_snapshot(&runtime_path);
+
+        let rows = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap();
+
+        assert_eq!(source_before, file_snapshot(&source_path));
+        assert_eq!(runtime_before, file_snapshot(&runtime_path));
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().any(|row| {
+            row.iter().any(|(key, value)| {
+                *key == "target_id"
+                    && matches!(value, Value::String { val, .. } if val == "nix_store_runtime")
+            }) && row.iter().any(|(key, value)| {
+                *key == "import_status"
+                    && matches!(value, Value::String { val, .. } if val == "metadata_only")
+            })
         }));
     }
 }
