@@ -1,5 +1,7 @@
 # GOAL
 
-Deliver `nu_plugin_codedb` V1.1: a Rust-native Nushell plugin plus `codedb` CLI/MCP surface that captures the full compiler-observable Rust crate envelope into redb-backed tables/blobs/proof rows.
+Deliver `nu_plugin_codedb` V1.1 as the first integrated CodeDB surface: a Rust-native Nushell plugin plus `codedb` CLI/MCP surface that turns files into reproducible database-shaped tables, with the Rust/crate envelope captured into redb-backed tables/blobs/proof rows as a primary specialization.
 
-Nushell is the table cockpit. redb is the first embedded Rust store. Git/source files remain authoritative input for V1.1. Generated crates/files are artifacts. Cargo/rustc/runner prove correctness. Missing observations become `capture_gaps` or `validation_errors`; silent omission is failure.
+The plugin is general-purpose infrastructure, not an envctl-only tool. envctl is a downstream consumer and materialization target for CodeDB exports. CodeDB owns file-to-datatable conversion, blob semantics, table checksums, and reproducibility metadata; envctl consumes those rows when it needs to recreate files.
+
+Nushell is the table cockpit. redb is the first embedded Rust store, with room for additional database backends. Git/source files remain authoritative input for V1.1. Generated crates/files are artifacts. Cargo/rustc/runner prove correctness. Missing observations become `capture_gaps` or `validation_errors`; silent omission is failure.

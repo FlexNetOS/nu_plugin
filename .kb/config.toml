@@ -1,0 +1,53 @@
+[identity]
+
+[sync.remotes]
+
+[repos]
+strategy = "meta"
+
+[apps]
+enabled = []
+install_dirs = []
+
+[code]
+index_threads = 0
+
+[code.repo_default_branch_map]
+loop_lib = "main"
+meta-plugins = "main"
+meta_rust_cli = "main"
+"." = "master"
+nu_plugin = "master"
+meta_mcp = "main"
+loop_cli = "main"
+meta_cli = "main"
+codex-plugins = "main"
+meta_project_cli = "main"
+agent = "main"
+meta_core = "main"
+meta_git_cli = "main"
+meta_git_lib = "main"
+meta_plugin_protocol = "main"
+claude-plugins = "main"
+
+[embeddings]
+enabled = true
+backend = "candle"
+batch_size = 16
+queue_size = 64
+batch_delay_ms = 50
+
+[embeddings.index]
+path = ".kb/.cache/index"
+
+[auth]
+mode = "optional"
+
+[auth.api_keys]
+
+[hooks]
+context_injection = true
+auto_commit_link = true
+auto_worktree_bind = true
+auto_progress = false
+prompt_context = false

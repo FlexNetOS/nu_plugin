@@ -36,6 +36,24 @@
         let
           pkgs = import nixpkgs { inherit system; };
           runtimeTools = self.packages.${system}.codedb_runtime_tools;
+          source = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter =
+              path: type:
+              let
+                rel = pkgs.lib.removePrefix ((toString ./.) + "/") (toString path);
+              in
+              !(
+                type == "directory"
+                && builtins.elem rel [
+                  "target"
+                  ".git"
+                  ".kb/.cache"
+                  ".kb/store"
+                  ".kb/workspaces"
+                ]
+              );
+          };
         in
         {
           codedb_runtime_tool_smoke = pkgs.runCommand "codedb-runtime-tool-smoke" { } ''
@@ -48,6 +66,36 @@
             mkdir -p "$out"
             cp codedb-version.txt plugin-path.txt "$out"/
           '';
+
+          repo_truth_surface = pkgs.runCommand "codedb-repo-truth-surface" { } ''
+            set -eu
+            cp -R ${source} source
+            chmod -R u+w source
+            cd source
+            ${pkgs.coreutils}/bin/sha256sum -c manifests/CHECKSUMS.sha256
+            mkdir -p "$out"
+            printf '%s\n' "repo truth surface ok" > "$out/result.txt"
+          '';
+
+          envctl_inventory_smoke = pkgs.rustPlatform.buildRustPackage {
+            pname = "codedb-envctl-inventory-smoke";
+            version = "0.1.0";
+            src = source;
+            cargoLock.lockFile = ./Cargo.lock;
+            cargoBuildFlags = [
+              "-p"
+              "nu_plugin_codedb"
+            ];
+            cargoTestFlags = [
+              "-p"
+              "nu_plugin_codedb"
+              "envctl_inventory_import_rows"
+            ];
+            installPhase = ''
+              mkdir -p "$out"
+              printf '%s\n' "envctl inventory smoke ok" > "$out/result.txt"
+            '';
+          };
         }
       );
 
