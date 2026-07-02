@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "9ddbeb1e152e652df37541005e35801ff8d816cba4013aa59f37eeb489b3143a",
+  "checksum_scope_files_sha256": "4771c6a3aea5cd9e5ad14782d3cda8573413fbd84afd9a32427e09044ea57104",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 252,
+  "file_count_in_checksum_scope": 254,
   "files": [
     {
       "bytes": 1015,
@@ -184,6 +184,16 @@
       "bytes": 227,
       "path": ".kb/skills/kb-tasks/agents/openai.yaml",
       "sha256": "7be8cdfc3c57118240c896899bbbddaebbd87ffa3991ca52ea6b7d1ed54da853"
+    },
+    {
+      "bytes": 5978,
+      "path": ".kb/skills/nu-plugin-export/SKILL.md",
+      "sha256": "ebfd5107f6aab6ec0bd38842d0e14b26996a9c609cf2d724f83b8d018fa7c36e"
+    },
+    {
+      "bytes": 340,
+      "path": ".kb/skills/nu-plugin-export/agents/openai.yaml",
+      "sha256": "d037f5fb9d08b192d9f8faf1ba7a7175a08bd9be3587fd79f5d84dadaae0ca4e"
     },
     {
       "bytes": 5387,
@@ -1271,7 +1281,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T20:28:49+00:00",
+  "generated_at_utc": "2026-07-02T21:20:27+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
