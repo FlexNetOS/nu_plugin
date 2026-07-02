@@ -75,6 +75,18 @@ does not add a direct source overwrite command.
 `sync_verifications` when the final re-scan matches the expected snapshot, and
 `recovery_rows` when the re-scan differs from the expected post-sync state.
 
+## CDB088 Failed Attempt Recovery
+
+`record_failed_apply_recovery` records failed materialization/apply attempts as
+bounded evidence rows. Recovery includes:
+
+- an `apply_attempts` row with `failed` status and failure evidence;
+- a `recovery_rows` row with `recovered` status, the observed partial snapshot,
+  the restored source/worktree snapshot, and the quarantine reference.
+
+Recovery is refused with `SourceNotRestored` unless the restored snapshot
+matches the plan's stored source snapshot.
+
 ## CDB084 Identity Rows
 
 Named syntax identities are stable keys. Anonymous syntax, such as impl blocks

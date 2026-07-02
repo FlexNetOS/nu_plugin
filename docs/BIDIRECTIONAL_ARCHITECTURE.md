@@ -83,6 +83,13 @@ plan is refused with `SourceDrift` when its stored source snapshot no longer
 matches the current source snapshot. Operator approval, stop-condition proof,
 and recovery references cannot override that stale-plan conflict.
 
+CDB088 models failed materialization/apply recovery as auditable rows. A failed
+attempt writes an `apply_attempts` row with failure evidence and a
+`recovery_rows` row only after the restored worktree/source snapshot matches
+the plan's stored source snapshot. Partial outputs are referenced through a
+quarantine ref; recovery is not complete while the restored snapshot still
+differs from the plan snapshot.
+
 ## Non-Goals For This Planning PR
 
 - direct source overwrite;

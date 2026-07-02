@@ -479,6 +479,7 @@ pub enum BidirectionalSyncStatus {
     Verified,
     Conflict,
     RecoveryRequired,
+    Recovered,
 }
 
 impl BidirectionalSyncStatus {
@@ -487,6 +488,7 @@ impl BidirectionalSyncStatus {
             Self::Verified => "verified",
             Self::Conflict => "conflict",
             Self::RecoveryRequired => "recovery_required",
+            Self::Recovered => "recovered",
         }
     }
 }
@@ -497,6 +499,39 @@ pub struct BidirectionalSyncReport {
     pub direction: BidirectionalSyncDirection,
     pub status: BidirectionalSyncStatus,
     pub rows: Vec<ChangePlanTableRow>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailedApplyKind {
+    Materialization,
+    Apply,
+}
+
+impl FailedApplyKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Materialization => "materialization",
+            Self::Apply => "apply",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailedApplyRecoveryInput {
+    pub attempt_id: &'static str,
+    pub plan_id: &'static str,
+    pub kind: FailedApplyKind,
+    pub failure_ref: &'static str,
+    pub observed_snapshot_id: &'static str,
+    pub restored_snapshot_id: &'static str,
+    pub quarantine_ref: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FailedApplyRecoveryError {
+    AttemptPlanMismatch,
+    MissingAuditRef,
+    SourceNotRestored,
 }
 
 #[derive(Debug)]
@@ -1174,6 +1209,56 @@ pub fn validate_apply_gate(
                 note: format!(
                     "{}:{}:{}",
                     graph.plan.plan_id, stop_condition.proof_id, recovery_ref
+                ),
+            },
+        ],
+    })
+}
+
+pub fn record_failed_apply_recovery(
+    graph: &ChangePlanGraph,
+    input: &FailedApplyRecoveryInput,
+) -> Result<BidirectionalSyncReport, FailedApplyRecoveryError> {
+    if input.plan_id != graph.plan.plan_id {
+        return Err(FailedApplyRecoveryError::AttemptPlanMismatch);
+    }
+    if input.attempt_id.trim().is_empty()
+        || input.failure_ref.trim().is_empty()
+        || input.quarantine_ref.trim().is_empty()
+    {
+        return Err(FailedApplyRecoveryError::MissingAuditRef);
+    }
+    if input.restored_snapshot_id != graph.plan.source_snapshot_id {
+        return Err(FailedApplyRecoveryError::SourceNotRestored);
+    }
+
+    Ok(BidirectionalSyncReport {
+        plan_id: graph.plan.plan_id,
+        direction: BidirectionalSyncDirection::StoreToSource,
+        status: BidirectionalSyncStatus::Recovered,
+        rows: vec![
+            ChangePlanTableRow {
+                table: "apply_attempts",
+                status: "failed",
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}:{}",
+                    input.attempt_id,
+                    graph.plan.plan_id,
+                    input.kind.as_str(),
+                    input.failure_ref
+                ),
+            },
+            ChangePlanTableRow {
+                table: "recovery_rows",
+                status: BidirectionalSyncStatus::Recovered.as_str(),
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}:{}",
+                    graph.plan.plan_id,
+                    input.observed_snapshot_id,
+                    input.restored_snapshot_id,
+                    input.quarantine_ref
                 ),
             },
         ],
@@ -2085,6 +2170,87 @@ mod tests {
         assert!(recovery.rows.iter().any(|row| {
             row.table == "recovery_rows" && row.note.contains("snapshot:sha256:unexpected")
         }));
+    }
+
+    // Test lane: default
+    // Defends: CDB088 failed materialization records audit rows after source restore.
+    #[test]
+    fn failed_materialization_recovery_records_audit_and_restored_snapshot() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb088:materialization",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:30:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let report = record_failed_apply_recovery(
+            &graph,
+            &FailedApplyRecoveryInput {
+                attempt_id: "attempt:cdb088:materialization",
+                plan_id: "plan:cdb088:materialization",
+                kind: FailedApplyKind::Materialization,
+                failure_ref: "logs/CDB088-failed-apply-recovery.log",
+                observed_snapshot_id: "snapshot:sha256:partial",
+                restored_snapshot_id: "snapshot:sha256:before",
+                quarantine_ref: "quarantine:cdb088:partial-output",
+            },
+        )
+        .expect("restored source snapshot records recovery");
+
+        assert_eq!(report.status, BidirectionalSyncStatus::Recovered);
+        assert!(report.rows.iter().any(|row| {
+            row.table == "apply_attempts"
+                && row.status == "failed"
+                && row.note.contains("materialization")
+                && row.note.contains("logs/CDB088-failed-apply-recovery.log")
+        }));
+        assert!(report.rows.iter().any(|row| {
+            row.table == "recovery_rows"
+                && row.status == "recovered"
+                && row.note.contains("snapshot:sha256:partial")
+                && row.note.contains("snapshot:sha256:before")
+                && row.note.contains("quarantine:cdb088:partial-output")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: CDB088 recovery cannot complete while source/worktree snapshot is still changed.
+    #[test]
+    fn failed_apply_recovery_requires_restored_source_snapshot() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb088:apply",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:30:00Z",
+            },
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        };
+
+        let err = record_failed_apply_recovery(
+            &graph,
+            &FailedApplyRecoveryInput {
+                attempt_id: "attempt:cdb088:apply",
+                plan_id: "plan:cdb088:apply",
+                kind: FailedApplyKind::Apply,
+                failure_ref: "logs/CDB088-failed-apply-recovery.log",
+                observed_snapshot_id: "snapshot:sha256:partial",
+                restored_snapshot_id: "snapshot:sha256:still-partial",
+                quarantine_ref: "quarantine:cdb088:partial-output",
+            },
+        )
+        .expect_err("recovery must prove source/worktree restore");
+
+        assert_eq!(err, FailedApplyRecoveryError::SourceNotRestored);
     }
 
     // Test lane: default

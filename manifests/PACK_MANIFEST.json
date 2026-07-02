@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "52c86cec64931e864bd18d63417c9e6d827a57e8b13425d6d69501aaf6360fca",
+  "checksum_scope_files_sha256": "e510184890aac00e1d73f994f3df37321ec16280d2fab138f7b018d893e5fffe",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 279,
+  "file_count_in_checksum_scope": 280,
   "files": [
     {
       "bytes": 1473,
@@ -326,9 +326,9 @@
       "sha256": "b3bdfe7cbb2a094ffb9a022a32d369e622324e80fcbc2146ed343dfd2d3557c6"
     },
     {
-      "bytes": 68794,
+      "bytes": 74727,
       "path": "crates/codedb_core/src/lib.rs",
-      "sha256": "32a03c86db4691052f8d7f5142f6ee97143af8a191ccf82d0334543d5208037c"
+      "sha256": "c3fe949317f984150ac31a88bdf1dcd8c9f462b1451b4edc265f38a1e6dfc2d2"
     },
     {
       "bytes": 167,
@@ -391,9 +391,9 @@
       "sha256": "86978a04db2744af3aa5b153073a27d5d0cf40231cfb6f8fdbdfaab9af0898bc"
     },
     {
-      "bytes": 3567,
+      "bytes": 3975,
       "path": "docs/BIDIRECTIONAL_ARCHITECTURE.md",
-      "sha256": "820c0e9278f9544ff7ad715b4217146e0d0fc226cb547e90aeddb3c8be3c5ded"
+      "sha256": "9748d3e741ff357827072d71ddcddbee817eef44ba969fa8b74f7c71930490fc"
     },
     {
       "bytes": 2138,
@@ -401,9 +401,9 @@
       "sha256": "64d3d7502daf76e76943e485647090567b423e452853d0e93b631dc2bddac0d8"
     },
     {
-      "bytes": 4388,
+      "bytes": 4885,
       "path": "docs/CHANGE_PLAN_SCHEMA.md",
-      "sha256": "d6a73b5ece6f425b2ec8d5f334d7aa081e60643b5c411ce73920cbab6932486d"
+      "sha256": "6eb9b9e1a6ed4aed1022f2a0e7b1c000139c3bead32f4b0a3ba4e2e6fdc054cf"
     },
     {
       "bytes": 1063,
@@ -1246,6 +1246,11 @@
       "sha256": "93060ce7983479839b0761490e6beaa1f0e80540e5d0bce3c51eb37f2aedcfd7"
     },
     {
+      "bytes": 857,
+      "path": "logs/CDB088-failed-apply-recovery.log",
+      "sha256": "977cc9a9ba6245745be036161198588228fbd38f4baeab59ddf67624def5ab58"
+    },
+    {
       "bytes": 69372,
       "path": "manifests/CHECKLIST_COMPLETION.json",
       "sha256": "4df0e381d4f7cef9d0537731bc55f9913425c9d5d2b6c6b2ce8c5d843a3a4c6a"
@@ -1406,7 +1411,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T19:49:47+00:00",
+  "generated_at_utc": "2026-07-02T19:52:02+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
