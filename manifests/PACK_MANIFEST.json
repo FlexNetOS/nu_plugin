@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "88f33226538e16ea00d7259ef2420d783e30ab94595f02bdbf20c3b41968686f",
+  "checksum_scope_files_sha256": "4b088bb2c14d66a0ca8c9d96b760b196ba69777f61efa660211534e6f855fbb0",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 270,
+  "file_count_in_checksum_scope": 271,
   "files": [
     {
       "bytes": 1473,
@@ -1201,6 +1201,11 @@
       "sha256": "08d26fe3cf1065eef59886d94b8bef5a47fd79406287388805d5a958acc5a1a0"
     },
     {
+      "bytes": 777,
+      "path": "logs/CDB079-build-script-gate.log",
+      "sha256": "9a29e2df83a1595b738f13249a55975adcceb3acce1f19b5aa7da0eac0492ef8"
+    },
+    {
       "bytes": 69372,
       "path": "manifests/CHECKLIST_COMPLETION.json",
       "sha256": "4df0e381d4f7cef9d0537731bc55f9913425c9d5d2b6c6b2ce8c5d843a3a4c6a"
@@ -1271,9 +1276,9 @@
       "sha256": "ff6d87e64836aa7983a1ae604f050fe63b425462b1cced331bfc5130602888ed"
     },
     {
-      "bytes": 9343,
+      "bytes": 9519,
       "path": "scripts/truth_surface.py",
-      "sha256": "df07dec0339114aa95b600bb0cbb1d9e26b762078a899fc1100596a25d487ba6"
+      "sha256": "14c8df5a7090abe8fcb78d8be409263381796f0456591cfebbdefbdaa3ee0c58"
     },
     {
       "bytes": 3393,
@@ -1361,7 +1366,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T18:19:01+00:00",
+  "generated_at_utc": "2026-07-02T19:24:04+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

@@ -23,9 +23,12 @@ GENERATED_PATHS = {
 }
 
 
-def git_ls_files(repo: Path) -> list[str]:
+def git_ls_files(repo: Path, include_untracked: bool = False) -> list[str]:
+    command = ["git", "ls-files"]
+    if include_untracked:
+        command.extend(["--cached", "--others", "--exclude-standard"])
     result = subprocess.run(
-        ["git", "ls-files"],
+        command,
         cwd=repo,
         text=True,
         check=True,
@@ -49,7 +52,7 @@ def sha256_text(text: str) -> str:
 def included_files(repo: Path) -> list[str]:
     return [
         path
-        for path in git_ls_files(repo)
+        for path in git_ls_files(repo, include_untracked=True)
         if path not in GENERATED_PATHS and not path.startswith("target/")
     ]
 
