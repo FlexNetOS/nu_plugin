@@ -49,5 +49,14 @@ Use this file map. Follow links and task IDs, not random browsing.
 | 42 | [manifests/PACKAGE_VALIDATION.json](manifests/PACKAGE_VALIDATION.json) | Package validation results. |
 | 43 | [manifests/CSV_DOC_LINK_AUDIT_INPUT.md](manifests/CSV_DOC_LINK_AUDIT_INPUT.md) | Input audit used for the CSV source-of-truth repair. |
 | 44 | [manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json](manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json) | Machine-readable repair evidence for strict task/file linkage. |
+| 45 | [docs/BIDIRECTIONAL_ROADMAP.md](docs/BIDIRECTIONAL_ROADMAP.md) | Issue 212 bidirectional roadmap and phase plan. |
+| 46 | [docs/BIDIRECTIONAL_ARCHITECTURE.md](docs/BIDIRECTIONAL_ARCHITECTURE.md) | Source-to-plan-to-apply architecture and ownership boundaries. |
+| 47 | [docs/ROUND_TRIP_PROOF.md](docs/ROUND_TRIP_PROOF.md) | Round-trip artifact and re-scan proof chain. |
+| 48 | [docs/CHANGE_PLAN_SCHEMA.md](docs/CHANGE_PLAN_SCHEMA.md) | Change-plan, patch-plan, conflict, decision, and apply row schema. |
+| 49 | [docs/MUTATION_POLICY.md](docs/MUTATION_POLICY.md) | Bidirectional mutation gates and stop rules. |
+| 50 | [docs/GAP_CLOSURE_PLAN.md](docs/GAP_CLOSURE_PLAN.md) | Issue 212 V1.1 gap closure rail. |
+| 51 | [execution/BIDIRECTIONAL_TASK_GRAPH.csv](execution/BIDIRECTIONAL_TASK_GRAPH.csv) | CDB070-CDB090 bidirectional task graph. |
+| 52 | [execution/BIDIRECTIONAL_TASK_FILE_MAP.csv](execution/BIDIRECTIONAL_TASK_FILE_MAP.csv) | CDB070-CDB090 task-to-file map. |
+| 53 | [scripts/validate_bidirectional_package.py](scripts/validate_bidirectional_package.py) | Bidirectional package validation gate. |
 
 Rule: `execution/TASK_GRAPH.csv` is the source of truth. Every execution step must cite a task ID, PRD section, target surface, exact allowed file paths, validation gate, evidence path, and raw log path from the CSV row.

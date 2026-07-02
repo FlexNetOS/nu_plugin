@@ -229,6 +229,51 @@
       "order": 44,
       "path": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json",
       "purpose": "Machine-readable strict task/file linkage repair evidence."
+    },
+    {
+      "order": 45,
+      "path": "docs/BIDIRECTIONAL_ROADMAP.md",
+      "purpose": "Issue 212 bidirectional roadmap and phase plan."
+    },
+    {
+      "order": 46,
+      "path": "docs/BIDIRECTIONAL_ARCHITECTURE.md",
+      "purpose": "Source-to-plan-to-apply architecture and ownership boundaries."
+    },
+    {
+      "order": 47,
+      "path": "docs/ROUND_TRIP_PROOF.md",
+      "purpose": "Round-trip artifact and re-scan proof chain."
+    },
+    {
+      "order": 48,
+      "path": "docs/CHANGE_PLAN_SCHEMA.md",
+      "purpose": "Change-plan, patch-plan, conflict, decision, and apply row schema."
+    },
+    {
+      "order": 49,
+      "path": "docs/MUTATION_POLICY.md",
+      "purpose": "Bidirectional mutation gates and stop rules."
+    },
+    {
+      "order": 50,
+      "path": "docs/GAP_CLOSURE_PLAN.md",
+      "purpose": "Issue 212 V1.1 gap closure rail."
+    },
+    {
+      "order": 51,
+      "path": "execution/BIDIRECTIONAL_TASK_GRAPH.csv",
+      "purpose": "CDB070-CDB090 bidirectional task graph."
+    },
+    {
+      "order": 52,
+      "path": "execution/BIDIRECTIONAL_TASK_FILE_MAP.csv",
+      "purpose": "CDB070-CDB090 task-to-file map."
+    },
+    {
+      "order": 53,
+      "path": "scripts/validate_bidirectional_package.py",
+      "purpose": "Bidirectional package validation gate."
     }
   ],
   "docs": [

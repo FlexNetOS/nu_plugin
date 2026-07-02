@@ -15,14 +15,22 @@ Read order:
 11. `execution/TASK_GRAPH.md`
 12. `execution/TASK_FILE_MAP.csv`
 13. `docs/AUDIT_UPGRADE_COMPLETION.md` for post-audit upgrade and authority work
-14. selected target docs/task files
-15. optional: `research/nushell_yazelix_cross_reference_report.md` only for Yazelix/Nushell bridge tasks
-16. `execution/COMMAND_LEDGER.csv`
-17. `execution/WORKLOG.md`
-18. `manifests/PACKAGE_VALIDATION.json`
+14. `docs/BIDIRECTIONAL_ROADMAP.md` for issue 212 phase ownership
+15. `docs/BIDIRECTIONAL_ARCHITECTURE.md`
+16. `docs/ROUND_TRIP_PROOF.md`
+17. `docs/CHANGE_PLAN_SCHEMA.md`
+18. `docs/MUTATION_POLICY.md`
+19. `docs/GAP_CLOSURE_PLAN.md`
+20. `execution/BIDIRECTIONAL_TASK_GRAPH.csv`
+21. `execution/BIDIRECTIONAL_TASK_FILE_MAP.csv`
+22. selected target docs/task files
+23. optional: `research/nushell_yazelix_cross_reference_report.md` only for Yazelix/Nushell bridge tasks
+24. `execution/COMMAND_LEDGER.csv`
+25. `execution/WORKLOG.md`
+26. `manifests/PACKAGE_VALIDATION.json`
 
 Dependency rule:
 
 ```text
-start -> readiness -> navigation -> goal/subgoals -> PRD -> checklist completion -> task graph -> task file map -> execution -> ledger/worklog -> manifest
+start -> readiness -> navigation -> goal/subgoals -> PRD -> checklist completion -> task graph -> task file map -> bidirectional graph when issue 212 work is selected -> execution -> ledger/worklog -> manifest
 ```

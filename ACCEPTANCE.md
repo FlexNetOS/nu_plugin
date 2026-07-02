@@ -20,3 +20,11 @@ The implementation is acceptable only when:
 - generated Yazelix init/extern bridge is state-only;
 - envctl consumes exports/checksums, not redb internals;
 - runner proof logs and manifests exist.
+
+The bidirectional roadmap package is acceptable only when:
+
+- CDB070-CDB090 exist in GitKB and in `execution/BIDIRECTIONAL_TASK_GRAPH.csv`;
+- all seven phases from issue 212 are represented;
+- V1.1 gap closure coverage is explicit in `docs/GAP_CLOSURE_PLAN.md`;
+- `docs/MUTATION_POLICY.md` preserves read-only defaults, bounded MCP, no hidden Git mutation, and no source overwrite before controlled apply gates;
+- `scripts/validate_bidirectional_package.py` passes.

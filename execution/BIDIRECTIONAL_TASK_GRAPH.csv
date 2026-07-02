@@ -1,0 +1,22 @@
+task_id,phase,title,gitkb_slug,depends_on,primary_artifact,validation_gate,status
+CDB070,Phase 0,Evidence audit and drift repair,tasks/cdb070-bidirectional-phase-0-evidence-audit,CDB069,docs/BIDIRECTIONAL_ROADMAP.md,scripts/validate_bidirectional_package.py,active
+CDB071,Phase 1,Read-only foundation hardening,tasks/cdb071-bidirectional-phase-1-read-only-foundation,CDB070,docs/MUTATION_POLICY.md,read-only CLI/Nu/MCP tests,active
+CDB072,Phase 2,Lossless round-trip artifact generation,tasks/cdb072-bidirectional-phase-2-lossless-artifacts,CDB071,docs/ROUND_TRIP_PROOF.md,round-trip fixture tests,active
+CDB073,Phase 3,Change-plan graph without apply,tasks/cdb073-bidirectional-phase-3-change-plan-graph,CDB072,docs/CHANGE_PLAN_SCHEMA.md,change-plan schema tests,active
+CDB074,Phase 4,Patch generation into isolated worktrees,tasks/cdb074-bidirectional-phase-4-isolated-worktree-patches,CDB073,docs/ROUND_TRIP_PROOF.md,isolated worktree patch tests,active
+CDB075,Phase 5,Operator-approved apply gate,tasks/cdb075-bidirectional-phase-5-operator-approved-apply,CDB074,docs/MUTATION_POLICY.md,apply gate refusal and approval tests,active
+CDB076,Phase 6,Bidirectional sync semantics,tasks/cdb076-bidirectional-phase-6-sync-semantics,CDB075,docs/BIDIRECTIONAL_ARCHITECTURE.md,sync conflict and re-scan tests,active
+CDB077,Gap Closure,Macro expansion beyond static inventory,tasks/cdb077-bidirectional-macro-expansion-gap,CDB071,docs/GAP_CLOSURE_PLAN.md,macro expansion fixture or GAP rows,active
+CDB078,Gap Closure,Proc-macro execution gate,tasks/cdb078-bidirectional-proc-macro-gate,CDB071,docs/GAP_CLOSURE_PLAN.md,default refusal plus unsafe approval proof,active
+CDB079,Gap Closure,Build-script execution gate,tasks/cdb079-bidirectional-build-script-gate,CDB071,docs/GAP_CLOSURE_PLAN.md,default refusal plus unsafe approval proof,active
+CDB080,Gap Closure,Generated OUT_DIR artifact reproduction,tasks/cdb080-bidirectional-out-dir-reproduction,CDB079,docs/GAP_CLOSURE_PLAN.md,generated artifact checksum proof or GAP,active
+CDB081,Gap Closure,Symlink and platform materialization limits,tasks/cdb081-bidirectional-symlink-platform-materialization,CDB072,docs/GAP_CLOSURE_PLAN.md,platform materialization matrix tests,active
+CDB082,Gap Closure,Native and linker dynamic facts,tasks/cdb082-bidirectional-native-linker-facts,CDB079,docs/GAP_CLOSURE_PLAN.md,dynamic build fact proof or GAP,active
+CDB083,Gap Closure,MCP raw source and blob reads blocked,tasks/cdb083-bidirectional-mcp-raw-source-block,CDB071,docs/MUTATION_POLICY.md,MCP no-leak denial tests,active
+CDB084,Gap Closure,Stable anonymous and unstable syntax identity,tasks/cdb084-bidirectional-stable-anonymous-identity,CDB072,docs/CHANGE_PLAN_SCHEMA.md,repeat scan identity tests,active
+CDB085,Gap Closure,Semantic and public API hashing,tasks/cdb085-bidirectional-semantic-api-hashing,CDB084,docs/CHANGE_PLAN_SCHEMA.md,semantic/API hash fixtures,active
+CDB086,Gap Closure,Store migrations and schema evolution,tasks/cdb086-bidirectional-store-migrations,CDB072,docs/BIDIRECTIONAL_ARCHITECTURE.md,migration/refusal tests,active
+CDB087,Gap Closure,Source drift versus stored plans,tasks/cdb087-bidirectional-source-drift-conflicts,CDB073,docs/CHANGE_PLAN_SCHEMA.md,stale plan conflict tests,active
+CDB088,Gap Closure,Failed materialization and apply recovery,tasks/cdb088-bidirectional-failed-apply-recovery,CDB075,docs/ROUND_TRIP_PROOF.md,failed apply recovery tests,active
+CDB089,Gap Closure,Operator approval and manual decision provenance,tasks/cdb089-bidirectional-approval-provenance,CDB075,docs/CHANGE_PLAN_SCHEMA.md,apply gate decision provenance tests,active
+CDB090,Release Gate,Final bidirectional release gate and manifest reseal,tasks/cdb090-bidirectional-release-gate,CDB070;CDB071;CDB072;CDB073;CDB074;CDB075;CDB076;CDB077;CDB078;CDB079;CDB080;CDB081;CDB082;CDB083;CDB084;CDB085;CDB086;CDB087;CDB088;CDB089,manifests/PACKAGE_VALIDATION.json,nix flake check and full bidirectional validation,active

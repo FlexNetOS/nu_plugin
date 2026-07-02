@@ -94,3 +94,23 @@ Upgrade-only repair performed:
 - updated navigation surfaces.
 
 Validation evidence is in `logs/CDB069-audit-upgrade-completion.log`.
+
+## 2026-07-02T17:50:43Z — CDB070 — Bidirectional roadmap package
+
+Input issue: `https://github.com/FlexNetOS/flexnetos_runner/issues/212`.
+
+Roadmap package created:
+
+- added `docs/BIDIRECTIONAL_ROADMAP.md`;
+- added `docs/BIDIRECTIONAL_ARCHITECTURE.md`;
+- added `docs/ROUND_TRIP_PROOF.md`;
+- added `docs/CHANGE_PLAN_SCHEMA.md`;
+- added `docs/MUTATION_POLICY.md`;
+- added `docs/GAP_CLOSURE_PLAN.md`;
+- added `execution/BIDIRECTIONAL_TASK_GRAPH.csv`;
+- added `execution/BIDIRECTIONAL_TASK_FILE_MAP.csv`;
+- added `scripts/validate_bidirectional_package.py`;
+- loaded active GitKB tasks CDB070-CDB090 from issue 212.
+
+CDB070 is the planning and evidence-audit entry point. Implementation remains
+bounded by later CDB tasks and read-only defaults.

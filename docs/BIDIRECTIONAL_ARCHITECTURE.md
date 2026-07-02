@@ -1,0 +1,58 @@
+# Bidirectional Architecture
+
+## Current One-Way Authority
+
+Current CodeDB authority flows from repository inputs into table and blob rows:
+
+```text
+Rust repo/files -> CodeDB tables/blobs/proof rows -> Nu/CLI/MCP/envctl exports
+```
+
+This remains the foundation. Bidirectional work must not weaken the existing
+read-only capture, bounded MCP output, envctl downstream boundary, or unsafe
+execution gates.
+
+## Target Loop
+
+The bidirectional loop adds reviewable object and plan layers:
+
+```text
+source
+  -> capture tables and source blobs
+  -> object/provenance graph
+  -> change-plan graph
+  -> patch plan
+  -> isolated worktree materialization
+  -> proof gates
+  -> operator-approved apply
+  -> re-scan and drift verification
+```
+
+## Surfaces
+
+| Surface | Responsibility | Default Mutation |
+|---|---|---:|
+| CLI | export, doctor, plan validation, isolated proof commands | none |
+| Nu plugin | table cockpit and structured import/export rows | none |
+| MCP | bounded read-only summaries and plan status | none |
+| redb store | source/blob identity, plan rows, provenance rows | internal store writes only |
+| isolated worktree | patch generation and proof sandbox | allowed after task gate |
+| source checkout | operator-approved apply only | forbidden until Phase 5 |
+
+## Required Object Layers
+
+- source snapshot rows with stable blob refs;
+- object identity rows for files, spans, items, generated artifacts, and
+  anonymous/unstable nodes;
+- provenance rows for capture, plan generation, proof, approval, apply, and
+  manual decision events;
+- conflict rows for source drift versus stored plans;
+- recovery rows for failed materialization and apply attempts.
+
+## Non-Goals For This Planning PR
+
+- direct source overwrite;
+- unbounded MCP reads;
+- raw source/blob dump tools;
+- build-script or proc-macro execution without explicit unsafe approval;
+- declaring compiler-observed facts complete when evidence is missing.
