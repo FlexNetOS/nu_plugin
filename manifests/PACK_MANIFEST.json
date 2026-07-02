@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "f5f5293b15515828fe643f81a20e9e1c4cc7938e384c7cca31179494d7d6284b",
+  "checksum_scope_files_sha256": "0bffe3d2a2bfb218b83286a398902134908026094c77ed4b9aa0e464179e0e4f",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 248,
+  "file_count_in_checksum_scope": 249,
   "files": [
     {
       "bytes": 1015,
@@ -464,6 +464,11 @@
       "bytes": 4636,
       "path": "docs/YAZELIX_PLACEMENT.md",
       "sha256": "c25f0208a3bf051c4d408e548d80e5c5b0bee156bffaba71c2de0556fdd1679c"
+    },
+    {
+      "bytes": 7150,
+      "path": "docs/original_package_cross_reference.md",
+      "sha256": "a243403ff166887cd0b20fd251a2f037ef74759a53a89780d017e92b7a64e0e6"
     },
     {
       "bytes": 965,
@@ -1251,7 +1256,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T14:52:32+00:00",
+  "generated_at_utc": "2026-07-02T15:01:12+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
