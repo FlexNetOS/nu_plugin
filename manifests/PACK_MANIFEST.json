@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "8764b8dbb150d0153ecfce0c86e0f6bc1167bc0c689def84543f7effd6f624bb",
+  "checksum_scope_files_sha256": "ee5f597389bd5c323afe20e895e60c9b195b046c8f71c9d01aeb815e5f2e37f5",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 263,
   "files": [
@@ -536,14 +536,14 @@
       "sha256": "2601389d7e0662a811d804256c2c431d9e0ff559ac7b57888b8f557897ae5003"
     },
     {
-      "bytes": 3972,
+      "bytes": 3974,
       "path": "execution/BIDIRECTIONAL_TASK_GRAPH.csv",
-      "sha256": "08513e2d4f7d5791c910a481acac030ff63ad115615f2a56f4f566dd105896dc"
+      "sha256": "a1042cedf5206a792f6f79f8c410fa2f9767e87a781334d1eb2ead411a083429"
     },
     {
-      "bytes": 6976,
+      "bytes": 7423,
       "path": "execution/COMMAND_LEDGER.csv",
-      "sha256": "d62c339cc59a03b5e091ed1a7c03a522522788acca364417ece0ec12e238bcae"
+      "sha256": "0125e9672871d1b186bcabb82a9943886be5df99006053b7d03c03114eb6ca38"
     },
     {
       "bytes": 106315,
@@ -561,9 +561,9 @@
       "sha256": "79deb5fa7aaf3e489b8ae3228720ea26b1c8a6aa85321c594a0c184ff30d3983"
     },
     {
-      "bytes": 5812,
+      "bytes": 6135,
       "path": "execution/WORKLOG.md",
-      "sha256": "743db3b20c21e97e337ba29566db7d821274247c28bca5f8f32b3ce551f0adaf"
+      "sha256": "0ac00000d4902788391e9a07327c4ec5c4b0d8cc6896c86060e9f2dd116ac565"
     },
     {
       "bytes": 2076,
@@ -1326,7 +1326,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T17:54:26+00:00",
+  "generated_at_utc": "2026-07-02T17:57:13+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
