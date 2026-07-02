@@ -1,0 +1,21 @@
+timestamp_utc: 2026-07-02T18:09:07Z
+task: CDB075 Phase 5 operator-approved apply gate
+repo: FlexNetOS/nu_plugin
+worktree: /home/flexnetos/FlexNetOS/src/nu_plugin-next-worktree
+
+implementation:
+- added OperatorDecision, StopConditionProof, ApplyGateReport, and ApplyGateError in codedb_core;
+- added validate_apply_gate;
+- refused apply intent unless the plan is approved for apply;
+- refused source drift between the plan snapshot and current source snapshot;
+- required an approved matching operator decision;
+- required actor, evidence, and manual-decision refs;
+- required passing stop-condition proof;
+- required a recovery ref.
+
+tests:
+- nix develop .#ci -c cargo test -p codedb-core apply_gate
+
+mutation policy:
+- no direct source overwrite command was added;
+- successful validation emits operator_decisions and apply_attempts rows only.

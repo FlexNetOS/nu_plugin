@@ -381,6 +381,59 @@ pub struct IsolatedPatchArtifact {
     pub proof_gate: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyDecision {
+    Approved,
+    Denied,
+}
+
+impl ApplyDecision {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Approved => "approved",
+            Self::Denied => "denied",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperatorDecision {
+    pub decision_id: &'static str,
+    pub plan_id: &'static str,
+    pub actor: &'static str,
+    pub decision: ApplyDecision,
+    pub evidence_ref: &'static str,
+    pub manual_decision_ref: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StopConditionProof {
+    pub proof_id: &'static str,
+    pub passed: bool,
+    pub evidence_ref: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyGateReport {
+    pub plan_id: &'static str,
+    pub decision_id: &'static str,
+    pub status: &'static str,
+    pub recovery_ref: String,
+    pub rows: Vec<ChangePlanTableRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApplyGateError {
+    PlanNotApprovedForApply,
+    MissingOperatorDecision,
+    OperatorDecisionPlanMismatch,
+    OperatorDenied,
+    MissingDecisionEvidence,
+    StopConditionFailed,
+    MissingRecoveryRef,
+    SourceDrift,
+}
+
 #[derive(Debug)]
 pub enum PatchPlanError {
     TargetInsideSource {
@@ -687,6 +740,20 @@ pub fn schema_tables() -> Vec<TableSpec> {
             row_count: 0,
             note: "source drift conflicts are modeled before apply after CDB073",
         },
+        TableSpec {
+            name: "operator_decisions",
+            domain: "bidirectional/apply",
+            state: RowState::Available,
+            row_count: 0,
+            note: "operator approval provenance is modeled after CDB075",
+        },
+        TableSpec {
+            name: "apply_attempts",
+            domain: "bidirectional/apply",
+            state: RowState::Available,
+            row_count: 0,
+            note: "apply attempts require approval, stop proof, and recovery refs after CDB075",
+        },
     ]
 }
 
@@ -923,6 +990,72 @@ pub fn generate_isolated_patch_artifact(
         bytes: patch_bytes.len() as u64,
         sha256: format!("{:x}", Sha256::digest(patch_bytes)),
         proof_gate: proof_gate.to_string(),
+    })
+}
+
+pub fn validate_apply_gate(
+    graph: &ChangePlanGraph,
+    decision: Option<&OperatorDecision>,
+    stop_condition: &StopConditionProof,
+    recovery_ref: impl AsRef<str>,
+    current_source_snapshot_id: &'static str,
+) -> Result<ApplyGateReport, ApplyGateError> {
+    if !matches!(graph.plan.status, ChangePlanStatus::ApprovedForApply) {
+        return Err(ApplyGateError::PlanNotApprovedForApply);
+    }
+    if graph.plan.source_snapshot_id != current_source_snapshot_id {
+        return Err(ApplyGateError::SourceDrift);
+    }
+    let decision = decision.ok_or(ApplyGateError::MissingOperatorDecision)?;
+    if decision.plan_id != graph.plan.plan_id {
+        return Err(ApplyGateError::OperatorDecisionPlanMismatch);
+    }
+    if !matches!(decision.decision, ApplyDecision::Approved) {
+        return Err(ApplyGateError::OperatorDenied);
+    }
+    if decision.actor.trim().is_empty()
+        || decision.evidence_ref.trim().is_empty()
+        || decision.manual_decision_ref.trim().is_empty()
+    {
+        return Err(ApplyGateError::MissingDecisionEvidence);
+    }
+    if !stop_condition.passed || stop_condition.evidence_ref.trim().is_empty() {
+        return Err(ApplyGateError::StopConditionFailed);
+    }
+    let recovery_ref = recovery_ref.as_ref();
+    if recovery_ref.trim().is_empty() {
+        return Err(ApplyGateError::MissingRecoveryRef);
+    }
+
+    Ok(ApplyGateReport {
+        plan_id: graph.plan.plan_id,
+        decision_id: decision.decision_id,
+        status: ChangePlanStatus::ApprovedForApply.as_str(),
+        recovery_ref: recovery_ref.to_string(),
+        rows: vec![
+            ChangePlanTableRow {
+                table: "operator_decisions",
+                status: decision.decision.as_str(),
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}:{}:{}",
+                    decision.decision_id,
+                    decision.plan_id,
+                    decision.actor,
+                    decision.evidence_ref,
+                    decision.manual_decision_ref
+                ),
+            },
+            ChangePlanTableRow {
+                table: "apply_attempts",
+                status: "ready_for_apply",
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}",
+                    graph.plan.plan_id, stop_condition.proof_id, recovery_ref
+                ),
+            },
+        ],
     })
 }
 
@@ -1482,6 +1615,96 @@ mod tests {
 
         fs::remove_dir_all(&source_root).ok();
         fs::remove_dir_all(&isolated_root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB075 refuses source apply when approval provenance is incomplete.
+    #[test]
+    fn apply_gate_refuses_missing_operator_approval() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb075:missing-approval",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:10:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let err = validate_apply_gate(
+            &graph,
+            None,
+            &StopConditionProof {
+                proof_id: "stop:cdb075:clean",
+                passed: true,
+                evidence_ref: "logs/CDB075-apply-gate.log",
+            },
+            "recovery:quarantine-ready",
+            "snapshot:sha256:before",
+        )
+        .expect_err("missing approval must refuse apply");
+
+        assert_eq!(err, ApplyGateError::MissingOperatorDecision);
+    }
+
+    // Test lane: default
+    // Defends: CDB075 allows apply intent only with approval, stop proof, recovery, and no drift.
+    #[test]
+    fn apply_gate_allows_only_complete_operator_provenance() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb075:approved",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:10:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+        let decision = OperatorDecision {
+            decision_id: "decision:cdb075:approve",
+            plan_id: "plan:cdb075:approved",
+            actor: "operator:flexnetos",
+            decision: ApplyDecision::Approved,
+            evidence_ref: "logs/CDB075-apply-gate.log",
+            manual_decision_ref: "manual:cdb075:reviewed",
+        };
+
+        let report = validate_apply_gate(
+            &graph,
+            Some(&decision),
+            &StopConditionProof {
+                proof_id: "stop:cdb075:clean",
+                passed: true,
+                evidence_ref: "logs/CDB075-apply-gate.log",
+            },
+            "recovery:quarantine-ready",
+            "snapshot:sha256:before",
+        )
+        .expect("complete provenance allows apply intent");
+
+        assert_eq!(report.plan_id, "plan:cdb075:approved");
+        assert_eq!(report.decision_id, "decision:cdb075:approve");
+        assert_eq!(report.status, "approved_for_apply");
+        assert_eq!(report.recovery_ref, "recovery:quarantine-ready");
+        assert_eq!(report.rows.len(), 2);
+        assert!(report.rows.iter().any(|row| {
+            row.table == "operator_decisions"
+                && row.note.contains("manual:cdb075:reviewed")
+                && row.note.contains("operator:flexnetos")
+        }));
+        assert!(report.rows.iter().any(|row| {
+            row.table == "apply_attempts" && row.note.contains("recovery:quarantine-ready")
+        }));
     }
 
     // Test lane: default

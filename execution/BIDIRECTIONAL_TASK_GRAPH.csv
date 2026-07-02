@@ -4,7 +4,7 @@ CDB071,Phase 1,Read-only foundation hardening,tasks/cdb071-bidirectional-phase-1
 CDB072,Phase 2,Lossless round-trip artifact generation,tasks/cdb072-bidirectional-phase-2-lossless-artifacts,CDB071,docs/ROUND_TRIP_PROOF.md,round-trip fixture tests,complete
 CDB073,Phase 3,Change-plan graph without apply,tasks/cdb073-bidirectional-phase-3-change-plan-graph,CDB072,docs/CHANGE_PLAN_SCHEMA.md,change-plan schema tests,complete
 CDB074,Phase 4,Patch generation into isolated worktrees,tasks/cdb074-bidirectional-phase-4-isolated-worktree-patches,CDB073,docs/ROUND_TRIP_PROOF.md,isolated worktree patch tests,complete
-CDB075,Phase 5,Operator-approved apply gate,tasks/cdb075-bidirectional-phase-5-operator-approved-apply,CDB074,docs/MUTATION_POLICY.md,apply gate refusal and approval tests,active
+CDB075,Phase 5,Operator-approved apply gate,tasks/cdb075-bidirectional-phase-5-operator-approved-apply,CDB074,docs/MUTATION_POLICY.md,apply gate refusal and approval tests,complete
 CDB076,Phase 6,Bidirectional sync semantics,tasks/cdb076-bidirectional-phase-6-sync-semantics,CDB075,docs/BIDIRECTIONAL_ARCHITECTURE.md,sync conflict and re-scan tests,active
 CDB077,Gap Closure,Macro expansion beyond static inventory,tasks/cdb077-bidirectional-macro-expansion-gap,CDB071,docs/GAP_CLOSURE_PLAN.md,macro expansion fixture or GAP rows,active
 CDB078,Gap Closure,Proc-macro execution gate,tasks/cdb078-bidirectional-proc-macro-gate,CDB071,docs/GAP_CLOSURE_PLAN.md,default refusal plus unsafe approval proof,active

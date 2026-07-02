@@ -163,3 +163,14 @@ proof gate, and writes patch bytes only beneath the isolated target. Focused
 tests prove source sentinel files remain unchanged.
 
 Validation evidence is in `logs/CDB074-isolated-worktree-patches.log`.
+
+## 2026-07-02T18:09:07Z — CDB075 — Operator-approved apply gate
+
+Added `validate_apply_gate` in `codedb_core`. Apply intent now requires an
+`approved_for_apply` plan, matching source snapshot, approved matching operator
+decision, actor/evidence/manual-decision references, passing stop-condition
+proof, and a recovery reference. The successful path emits
+`operator_decisions` and `apply_attempts` rows without adding a source overwrite
+command.
+
+Validation evidence is in `logs/CDB075-apply-gate.log`.

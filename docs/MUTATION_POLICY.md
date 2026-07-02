@@ -30,6 +30,13 @@ the source checkout are refused, patch artifact paths must be relative, and a
 proof gate is required before writing the patch artifact. This keeps source
 checkout mutation unavailable until the operator-approved CDB075 apply gate.
 
+## CDB075 Operator Apply Gate
+
+Apply intent is refused unless approval provenance, stop-condition proof,
+manual-decision evidence, source-snapshot stability, and recovery references are
+all present. The CDB075 implementation records apply readiness rows only; it
+does not add a default CLI, Nu, or MCP source overwrite command.
+
 ## Stop Rules
 
 Stop if an operation would:

@@ -48,3 +48,19 @@ stored source snapshot ID to the current source snapshot ID and emits
 
 Apply remains unavailable until CDB075. `approved_for_apply` is represented as
 a status value only; it does not expose a source mutation command.
+
+## CDB075 Apply Gate Rows
+
+`codedb_core` now models operator decisions, stop-condition proof, and apply
+gate reports. `validate_apply_gate` refuses apply intent unless all of the
+following are true:
+
+- the plan status is `approved_for_apply`;
+- the current source snapshot matches the plan snapshot;
+- an approved operator decision matches the plan;
+- actor, evidence, and manual-decision references are present;
+- stop-condition proof passes;
+- a recovery reference is present.
+
+The successful gate emits `operator_decisions` and `apply_attempts` rows. It
+does not add a direct source overwrite command.
