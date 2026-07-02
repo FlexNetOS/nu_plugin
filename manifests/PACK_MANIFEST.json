@@ -6,15 +6,10 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "dc4049d319a143712a99b14fef4cdbffcc4b2844ecd4a10d0427058c58c46873",
+  "checksum_scope_files_sha256": "7b8fe931c8bf1e5529f517209003988c1f6fbf65fec2c6d39867923e3696c95a",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 272,
   "files": [
-    {
-      "bytes": 771,
-      "path": "logs/CDB080-out-dir-reproduction.log",
-      "sha256": "9177c111e6f53beffbb6f049f0317a8d60f8fe83b8f80fadac817958cfdff5f4"
-    },
     {
       "bytes": 1473,
       "path": ".github/workflows/ci.yml",
@@ -1211,6 +1206,11 @@
       "sha256": "9a29e2df83a1595b738f13249a55975adcceb3acce1f19b5aa7da0eac0492ef8"
     },
     {
+      "bytes": 771,
+      "path": "logs/CDB080-out-dir-reproduction.log",
+      "sha256": "9177c111e6f53beffbb6f049f0317a8d60f8fe83b8f80fadac817958cfdff5f4"
+    },
+    {
       "bytes": 69372,
       "path": "manifests/CHECKLIST_COMPLETION.json",
       "sha256": "4df0e381d4f7cef9d0537731bc55f9913425c9d5d2b6c6b2ce8c5d843a3a4c6a"
@@ -1281,9 +1281,9 @@
       "sha256": "ff6d87e64836aa7983a1ae604f050fe63b425462b1cced331bfc5130602888ed"
     },
     {
-      "bytes": 9519,
+      "bytes": 9527,
       "path": "scripts/truth_surface.py",
-      "sha256": "14c8df5a7090abe8fcb78d8be409263381796f0456591cfebbdefbdaa3ee0c58"
+      "sha256": "2a854aba6d7bbf7bdcdfcd1d17351c435f5ff13e4073f1da7f7a0e3c2182373e"
     },
     {
       "bytes": 3393,
@@ -1371,7 +1371,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T19:27:13+00:00",
+  "generated_at_utc": "2026-07-02T19:29:05+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

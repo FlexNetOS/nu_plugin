@@ -34,7 +34,7 @@ def git_ls_files(repo: Path, include_untracked: bool = False) -> list[str]:
         check=True,
         stdout=subprocess.PIPE,
     )
-    return [line for line in result.stdout.splitlines() if line]
+    return sorted({line for line in result.stdout.splitlines() if line})
 
 
 def sha256_file(path: Path) -> str:
