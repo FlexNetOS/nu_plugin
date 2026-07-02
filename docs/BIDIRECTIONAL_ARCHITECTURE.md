@@ -78,6 +78,11 @@ snapshot is stable, the final re-scan snapshot is compared with the expected
 post-sync snapshot. A match emits `sync_verifications`; a mismatch emits
 `recovery_rows` with the configured recovery reference.
 
+CDB087 hardens the same rule at the apply gate: even an `approved_for_apply`
+plan is refused with `SourceDrift` when its stored source snapshot no longer
+matches the current source snapshot. Operator approval, stop-condition proof,
+and recovery references cannot override that stale-plan conflict.
+
 ## Non-Goals For This Planning PR
 
 - direct source overwrite;

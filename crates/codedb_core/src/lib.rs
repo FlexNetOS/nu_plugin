@@ -1955,6 +1955,55 @@ mod tests {
     }
 
     // Test lane: default
+    // Defends: CDB087 stale approved plans cannot apply after source drift.
+    #[test]
+    fn stale_approved_plan_cannot_apply_silently() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb087:stale",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:25:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+        let decision = OperatorDecision {
+            decision_id: "decision:cdb087:approve",
+            plan_id: "plan:cdb087:stale",
+            actor: "operator:flexnetos",
+            decision: ApplyDecision::Approved,
+            evidence_ref: "logs/CDB087-source-drift.log",
+            manual_decision_ref: "manual:cdb087:reviewed-before-drift",
+        };
+
+        let conflicts = detect_plan_conflicts(&graph, "snapshot:sha256:after");
+        let err = validate_apply_gate(
+            &graph,
+            Some(&decision),
+            &StopConditionProof {
+                proof_id: "stop:cdb087:clean",
+                passed: true,
+                evidence_ref: "logs/CDB087-source-drift.log",
+            },
+            "recovery:quarantine-ready",
+            "snapshot:sha256:after",
+        )
+        .expect_err("source drift must invalidate stale approved plans");
+
+        assert_eq!(err, ApplyGateError::SourceDrift);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].plan_id, "plan:cdb087:stale");
+        assert_eq!(conflicts[0].source_snapshot_id, "snapshot:sha256:before");
+        assert_eq!(conflicts[0].conflict_kind, PlanConflictKind::SourceDrift);
+        assert!(conflicts[0].message.contains("snapshot:sha256:after"));
+    }
+
+    // Test lane: default
     // Defends: CDB076 source drift becomes a sync conflict before store-to-source apply.
     #[test]
     fn bidirectional_sync_reports_source_drift_conflict() {

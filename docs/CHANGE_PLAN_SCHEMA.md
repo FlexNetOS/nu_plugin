@@ -39,6 +39,8 @@ operator-approved apply gate exists.
 - Reviewed plans and isolated patch approval do not allow source checkout
   mutation.
 - Source snapshot drift emits `plan_conflicts` before apply.
+- Approved plans with source snapshot drift fail the apply gate with
+  `SourceDrift`; a fresh plan must be generated from the current snapshot.
 
 ## CDB073 Implemented Core Rows
 
