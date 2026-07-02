@@ -145,3 +145,12 @@ round-trip through source-file capture. Symlink/platform materialization remains
 active as CDB081, and generated `OUT_DIR` reproduction remains CDB080.
 
 Validation evidence is in `logs/CDB072-round-trip-artifacts.log`.
+
+## 2026-07-02T18:02:33Z — CDB073 — Change-plan graph without apply
+
+Added `codedb_core` change-plan graph rows for plan roots, nodes, edges,
+statuses, and conflicts. Focused tests prove reviewed plans project to
+reviewable rows without source apply and source snapshot drift emits a
+`source_drift` conflict before apply.
+
+Validation evidence is in `logs/CDB073-change-plan-graph.log`.

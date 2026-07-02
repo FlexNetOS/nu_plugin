@@ -262,6 +262,117 @@ pub struct NoMutationProof {
     pub degradation_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangePlanStatus {
+    Draft,
+    Reviewed,
+    Blocked,
+    ApprovedForIsolatedPatch,
+    ApprovedForApply,
+    Applied,
+    Recovered,
+}
+
+impl ChangePlanStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Reviewed => "reviewed",
+            Self::Blocked => "blocked",
+            Self::ApprovedForIsolatedPatch => "approved_for_isolated_patch",
+            Self::ApprovedForApply => "approved_for_apply",
+            Self::Applied => "applied",
+            Self::Recovered => "recovered",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeKind {
+    Create,
+    Update,
+    Delete,
+}
+
+impl ChangeKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Create => "create",
+            Self::Update => "update",
+            Self::Delete => "delete",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanRoot {
+    pub plan_id: &'static str,
+    pub source_snapshot_id: &'static str,
+    pub status: ChangePlanStatus,
+    pub created_at: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanNode {
+    pub node_id: &'static str,
+    pub object_id: &'static str,
+    pub change_kind: ChangeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanEdge {
+    pub from_node_id: &'static str,
+    pub to_node_id: &'static str,
+    pub edge_kind: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanGraph {
+    pub plan: ChangePlanRoot,
+    pub nodes: Vec<ChangePlanNode>,
+    pub edges: Vec<ChangePlanEdge>,
+}
+
+impl ChangePlanGraph {
+    pub const fn status_allows_source_apply(&self) -> bool {
+        matches!(
+            self.plan.status,
+            ChangePlanStatus::ApprovedForApply | ChangePlanStatus::Applied
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanTableRow {
+    pub table: &'static str,
+    pub status: &'static str,
+    pub rows: u64,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanConflictKind {
+    SourceDrift,
+    MissingEvidence,
+}
+
+impl PlanConflictKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SourceDrift => "source_drift",
+            Self::MissingEvidence => "missing_evidence",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanConflict {
+    pub plan_id: &'static str,
+    pub source_snapshot_id: &'static str,
+    pub conflict_kind: PlanConflictKind,
+    pub message: String,
+}
+
 impl FileClassification {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -491,6 +602,34 @@ pub fn schema_tables() -> Vec<TableSpec> {
             row_count: 0,
             note: "raw source export is disabled by default after CDB018",
         },
+        TableSpec {
+            name: "change_plans",
+            domain: "bidirectional/plan",
+            state: RowState::Available,
+            row_count: 0,
+            note: "reviewable change-plan roots are modeled after CDB073",
+        },
+        TableSpec {
+            name: "change_plan_nodes",
+            domain: "bidirectional/plan",
+            state: RowState::Available,
+            row_count: 0,
+            note: "object-level plan nodes are modeled after CDB073",
+        },
+        TableSpec {
+            name: "change_plan_edges",
+            domain: "bidirectional/plan",
+            state: RowState::Available,
+            row_count: 0,
+            note: "plan dependency edges are modeled after CDB073",
+        },
+        TableSpec {
+            name: "plan_conflicts",
+            domain: "bidirectional/plan",
+            state: RowState::Available,
+            row_count: 0,
+            note: "source drift conflicts are modeled before apply after CDB073",
+        },
     ]
 }
 
@@ -609,6 +748,74 @@ pub fn source_policy_row(metadata: &SourceBlobMetadata) -> SourcePolicyRow {
         raw_export_allowed: metadata.export_raw_by_default,
         reason: metadata.policy_reason.clone(),
     }
+}
+
+pub fn change_plan_table_rows(graph: &ChangePlanGraph) -> Vec<ChangePlanTableRow> {
+    let first_node = graph
+        .nodes
+        .first()
+        .map(|node| {
+            format!(
+                "{}:{}:{}",
+                node.node_id,
+                node.object_id,
+                node.change_kind.as_str()
+            )
+        })
+        .unwrap_or_else(|| "no_nodes".to_string());
+    let first_edge = graph
+        .edges
+        .first()
+        .map(|edge| {
+            format!(
+                "{}->{}:{}",
+                edge.from_node_id, edge.to_node_id, edge.edge_kind
+            )
+        })
+        .unwrap_or_else(|| "no_edges".to_string());
+
+    vec![
+        ChangePlanTableRow {
+            table: "change_plans",
+            status: graph.plan.status.as_str(),
+            rows: 1,
+            note: format!(
+                "{}:{}:{}",
+                graph.plan.plan_id, graph.plan.source_snapshot_id, graph.plan.created_at
+            ),
+        },
+        ChangePlanTableRow {
+            table: "change_plan_nodes",
+            status: RowState::Available.as_str(),
+            rows: graph.nodes.len() as u64,
+            note: first_node,
+        },
+        ChangePlanTableRow {
+            table: "change_plan_edges",
+            status: RowState::Available.as_str(),
+            rows: graph.edges.len() as u64,
+            note: first_edge,
+        },
+    ]
+}
+
+pub fn detect_plan_conflicts(
+    graph: &ChangePlanGraph,
+    current_source_snapshot_id: &'static str,
+) -> Vec<PlanConflict> {
+    if graph.plan.source_snapshot_id == current_source_snapshot_id {
+        return Vec::new();
+    }
+
+    vec![PlanConflict {
+        plan_id: graph.plan.plan_id,
+        source_snapshot_id: graph.plan.source_snapshot_id,
+        conflict_kind: PlanConflictKind::SourceDrift,
+        message: format!(
+            "plan snapshot {} differs from current snapshot {}",
+            graph.plan.source_snapshot_id, current_source_snapshot_id
+        ),
+    }]
 }
 
 fn source_relative_path(root: &Path, path: &Path) -> Result<String, SourceCaptureError> {
@@ -1037,6 +1244,77 @@ mod tests {
         assert!(!policy.reason.contains("sk-test-value"));
 
         fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB073 change plans are reviewable graph rows, not source mutations.
+    #[test]
+    fn change_plan_graph_is_reviewable_without_apply() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb073:review",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::Reviewed,
+                created_at: "2026-07-02T18:00:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:docs-round-trip",
+                object_id: "object:docs/ROUND_TRIP_PROOF.md",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: vec![ChangePlanEdge {
+                from_node_id: "node:docs-round-trip",
+                to_node_id: "node:proof-gate",
+                edge_kind: "requires_validation",
+            }],
+        };
+
+        let rows = change_plan_table_rows(&graph);
+
+        assert!(!graph.status_allows_source_apply());
+        assert!(rows.iter().any(|row| {
+            row.table == "change_plans"
+                && row.status == "reviewed"
+                && row.note.contains("plan:cdb073:review")
+        }));
+        assert!(rows.iter().any(|row| {
+            row.table == "change_plan_nodes"
+                && row.rows == 1
+                && row.note.contains("object:docs/ROUND_TRIP_PROOF.md")
+        }));
+        assert!(rows.iter().any(|row| {
+            row.table == "change_plan_edges"
+                && row.rows == 1
+                && row.note.contains("requires_validation")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: CDB073 detects source drift before any apply gate can mutate source.
+    #[test]
+    fn source_snapshot_drift_blocks_change_plan_before_apply() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb073:drift",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForIsolatedPatch,
+                created_at: "2026-07-02T18:00:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let conflicts = detect_plan_conflicts(&graph, "snapshot:sha256:after");
+
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].plan_id, "plan:cdb073:drift");
+        assert_eq!(conflicts[0].conflict_kind, PlanConflictKind::SourceDrift);
+        assert!(conflicts[0].message.contains("snapshot:sha256:before"));
+        assert!(conflicts[0].message.contains("snapshot:sha256:after"));
     }
 
     // Test lane: default

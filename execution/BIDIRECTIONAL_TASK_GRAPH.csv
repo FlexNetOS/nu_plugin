@@ -2,7 +2,7 @@ task_id,phase,title,gitkb_slug,depends_on,primary_artifact,validation_gate,statu
 CDB070,Phase 0,Evidence audit and drift repair,tasks/cdb070-bidirectional-phase-0-evidence-audit,CDB069,docs/BIDIRECTIONAL_ROADMAP.md,scripts/validate_bidirectional_package.py,complete
 CDB071,Phase 1,Read-only foundation hardening,tasks/cdb071-bidirectional-phase-1-read-only-foundation,CDB070,docs/MUTATION_POLICY.md,read-only CLI/Nu/MCP tests,complete
 CDB072,Phase 2,Lossless round-trip artifact generation,tasks/cdb072-bidirectional-phase-2-lossless-artifacts,CDB071,docs/ROUND_TRIP_PROOF.md,round-trip fixture tests,complete
-CDB073,Phase 3,Change-plan graph without apply,tasks/cdb073-bidirectional-phase-3-change-plan-graph,CDB072,docs/CHANGE_PLAN_SCHEMA.md,change-plan schema tests,active
+CDB073,Phase 3,Change-plan graph without apply,tasks/cdb073-bidirectional-phase-3-change-plan-graph,CDB072,docs/CHANGE_PLAN_SCHEMA.md,change-plan schema tests,complete
 CDB074,Phase 4,Patch generation into isolated worktrees,tasks/cdb074-bidirectional-phase-4-isolated-worktree-patches,CDB073,docs/ROUND_TRIP_PROOF.md,isolated worktree patch tests,active
 CDB075,Phase 5,Operator-approved apply gate,tasks/cdb075-bidirectional-phase-5-operator-approved-apply,CDB074,docs/MUTATION_POLICY.md,apply gate refusal and approval tests,active
 CDB076,Phase 6,Bidirectional sync semantics,tasks/cdb076-bidirectional-phase-6-sync-semantics,CDB075,docs/BIDIRECTIONAL_ARCHITECTURE.md,sync conflict and re-scan tests,active

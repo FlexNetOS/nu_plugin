@@ -34,3 +34,17 @@ operator-approved apply gate exists.
 - Plans do not contain raw secrets.
 - Plans may reference blob refs; default MCP output may not dump raw blob bytes.
 - Any missing compiler/runtime evidence is `QUESTION` or `GAP`.
+- Reviewed plans and isolated patch approval do not allow source checkout
+  mutation.
+- Source snapshot drift emits `plan_conflicts` before apply.
+
+## CDB073 Implemented Core Rows
+
+`codedb_core` now models reviewable plan roots, object-level plan nodes, plan
+edges, and conflict rows. `change_plan_table_rows` projects a graph into
+table-shaped evidence without applying it. `detect_plan_conflicts` compares the
+stored source snapshot ID to the current source snapshot ID and emits
+`source_drift` when they differ.
+
+Apply remains unavailable until CDB075. `approved_for_apply` is represented as
+a status value only; it does not expose a source mutation command.

@@ -1,0 +1,16 @@
+timestamp_utc: 2026-07-02T18:02:33Z
+task: CDB073 Phase 3 change-plan graph without apply
+repo: FlexNetOS/nu_plugin
+worktree: /home/flexnetos/FlexNetOS/src/nu_plugin-next-worktree
+
+implementation:
+- added change-plan status values, change kinds, plan roots, nodes, edges, and conflict rows in codedb_core;
+- added table-row projection for reviewable change plans without source apply;
+- added source snapshot drift detection that emits a plan_conflicts row before apply.
+
+tests:
+- nix develop .#ci -c cargo test -p codedb-core change_plan
+
+mutation policy:
+- no source checkout mutation command was added;
+- apply remains gated by later CDB075 work.
