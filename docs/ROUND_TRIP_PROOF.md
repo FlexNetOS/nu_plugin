@@ -44,6 +44,14 @@ permission-capture gap because it has no source filesystem metadata.
 Symlink and platform-specific materialization limits remain active in CDB081.
 Generated `OUT_DIR` reproduction remains active in CDB080.
 
+## CDB074 Isolated Patch Proof
+
+Patch artifacts are generated only into isolated targets. The core helper
+refuses targets that are equal to or nested under the source checkout, rejects
+absolute or escaping patch paths, and requires a proof-gate label before writing
+any patch artifact. Focused tests prove the source checkout remains unchanged
+while the patch file is written under the isolated worktree.
+
 ## Acceptance Gate
 
 A round-trip is accepted only when all referenced blobs, checksums, object IDs,

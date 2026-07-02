@@ -154,3 +154,12 @@ reviewable rows without source apply and source snapshot drift emits a
 `source_drift` conflict before apply.
 
 Validation evidence is in `logs/CDB073-change-plan-graph.log`.
+
+## 2026-07-02T18:05:03Z — CDB074 — Isolated worktree patch artifacts
+
+Added `generate_isolated_patch_artifact` in `codedb_core`. The helper refuses
+source-checkout targets, rejects absolute or escaping patch paths, requires a
+proof gate, and writes patch bytes only beneath the isolated target. Focused
+tests prove source sentinel files remain unchanged.
+
+Validation evidence is in `logs/CDB074-isolated-worktree-patches.log`.

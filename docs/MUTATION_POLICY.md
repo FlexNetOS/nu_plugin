@@ -23,6 +23,13 @@
 | Phase 5 | operator-approved only | yes | apply/provenance rows | yes |
 | Phase 6 | operator-approved only | yes | sync/conflict rows | yes |
 
+## CDB074 Isolated Patch Guard
+
+Patch generation may write only under an isolated target path. Targets inside
+the source checkout are refused, patch artifact paths must be relative, and a
+proof gate is required before writing the patch artifact. This keeps source
+checkout mutation unavailable until the operator-approved CDB075 apply gate.
+
 ## Stop Rules
 
 Stop if an operation would:

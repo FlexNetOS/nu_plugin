@@ -373,6 +373,63 @@ pub struct PlanConflict {
     pub message: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IsolatedPatchArtifact {
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub sha256: String,
+    pub proof_gate: String,
+}
+
+#[derive(Debug)]
+pub enum PatchPlanError {
+    TargetInsideSource {
+        source_checkout: PathBuf,
+        target_worktree: PathBuf,
+    },
+    UnsafePatchPath {
+        relative_patch_path: PathBuf,
+    },
+    MissingProofGate,
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
+}
+
+impl Display for PatchPlanError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TargetInsideSource {
+                source_checkout,
+                target_worktree,
+            } => write!(
+                f,
+                "patch target {} is inside source checkout {}",
+                target_worktree.display(),
+                source_checkout.display()
+            ),
+            Self::UnsafePatchPath {
+                relative_patch_path,
+            } => write!(
+                f,
+                "patch path must be relative and cannot escape target: {}",
+                relative_patch_path.display()
+            ),
+            Self::MissingProofGate => write!(f, "isolated patch plan requires a proof gate"),
+            Self::Io { path, source } => {
+                write!(
+                    f,
+                    "failed to write patch artifact {}: {source}",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
+impl StdError for PatchPlanError {}
+
 impl FileClassification {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -816,6 +873,57 @@ pub fn detect_plan_conflicts(
             graph.plan.source_snapshot_id, current_source_snapshot_id
         ),
     }]
+}
+
+pub fn generate_isolated_patch_artifact(
+    source_checkout: impl AsRef<Path>,
+    target_worktree: impl AsRef<Path>,
+    relative_patch_path: impl AsRef<Path>,
+    patch_bytes: &[u8],
+    proof_gate: impl AsRef<str>,
+) -> Result<IsolatedPatchArtifact, PatchPlanError> {
+    let source_checkout = source_checkout.as_ref().to_path_buf();
+    let target_worktree = target_worktree.as_ref().to_path_buf();
+    let relative_patch_path = relative_patch_path.as_ref();
+    let proof_gate = proof_gate.as_ref();
+
+    if proof_gate.trim().is_empty() {
+        return Err(PatchPlanError::MissingProofGate);
+    }
+    if relative_patch_path.is_absolute()
+        || relative_patch_path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(PatchPlanError::UnsafePatchPath {
+            relative_patch_path: relative_patch_path.to_path_buf(),
+        });
+    }
+    if target_worktree == source_checkout || target_worktree.starts_with(&source_checkout) {
+        return Err(PatchPlanError::TargetInsideSource {
+            source_checkout,
+            target_worktree,
+        });
+    }
+
+    let output_path = target_worktree.join(relative_patch_path);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).map_err(|source| PatchPlanError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    fs::write(&output_path, patch_bytes).map_err(|source| PatchPlanError::Io {
+        path: output_path.clone(),
+        source,
+    })?;
+
+    Ok(IsolatedPatchArtifact {
+        path: output_path,
+        bytes: patch_bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(patch_bytes)),
+        proof_gate: proof_gate.to_string(),
+    })
 }
 
 fn source_relative_path(root: &Path, path: &Path) -> Result<String, SourceCaptureError> {
@@ -1315,6 +1423,65 @@ mod tests {
         assert_eq!(conflicts[0].conflict_kind, PlanConflictKind::SourceDrift);
         assert!(conflicts[0].message.contains("snapshot:sha256:before"));
         assert!(conflicts[0].message.contains("snapshot:sha256:after"));
+    }
+
+    // Test lane: default
+    // Defends: CDB074 patch artifacts are generated only outside the source checkout.
+    #[test]
+    fn isolated_patch_artifact_refuses_source_checkout_target() {
+        let source_root = temp_fixture_root();
+        fs::create_dir_all(&source_root).expect("create source");
+        let err = generate_isolated_patch_artifact(
+            &source_root,
+            source_root.join("patches"),
+            "codedb.patch",
+            b"diff --git a/src/lib.rs b/src/lib.rs\n",
+            "rescan:required",
+        )
+        .expect_err("source target must be rejected");
+
+        assert!(matches!(err, PatchPlanError::TargetInsideSource { .. }));
+        assert!(!source_root.join("patches/codedb.patch").exists());
+
+        fs::remove_dir_all(&source_root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB074 writes patch bytes into an isolated worktree with a required proof gate.
+    #[test]
+    fn isolated_patch_artifact_writes_outside_source_checkout() {
+        let source_root = temp_fixture_root();
+        let isolated_root = source_root.with_file_name(format!(
+            "{}_isolated",
+            source_root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("codedb_core_fs_fixture")
+        ));
+        fs::create_dir_all(&source_root).expect("create source");
+        fs::write(source_root.join("sentinel.txt"), "unchanged\n").expect("source sentinel");
+
+        let patch_bytes = b"diff --git a/src/lib.rs b/src/lib.rs\n";
+        let artifact = generate_isolated_patch_artifact(
+            &source_root,
+            &isolated_root,
+            "patches/codedb.patch",
+            patch_bytes,
+            "rescan:isolated-worktree",
+        )
+        .expect("isolated patch artifact");
+
+        assert_eq!(artifact.bytes, patch_bytes.len() as u64);
+        assert_eq!(artifact.proof_gate, "rescan:isolated-worktree");
+        assert!(artifact.path.starts_with(&isolated_root));
+        assert_eq!(
+            fs::read_to_string(source_root.join("sentinel.txt")).expect("source sentinel"),
+            "unchanged\n"
+        );
+        assert!(isolated_root.join("patches/codedb.patch").exists());
+
+        fs::remove_dir_all(&source_root).ok();
+        fs::remove_dir_all(&isolated_root).ok();
     }
 
     // Test lane: default
