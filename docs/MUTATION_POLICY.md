@@ -37,6 +37,12 @@ manual-decision evidence, source-snapshot stability, and recovery references are
 all present. The CDB075 implementation records apply readiness rows only; it
 does not add a default CLI, Nu, or MCP source overwrite command.
 
+## MCP Raw Data Policy
+
+MCP exposes bounded summaries only. Raw source/blob tools and raw blob/source
+table aliases are blocked by default; requests receive validation rows rather
+than file bytes or blob payloads.
+
 ## Stop Rules
 
 Stop if an operation would:

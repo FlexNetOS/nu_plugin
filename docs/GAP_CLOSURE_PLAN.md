@@ -76,3 +76,11 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   explicit unsafe build gate ran.
 - Default/refused capture records `native_linker_dynamic_facts` as a GAP with
   required flag `--unsafe-execute-build`.
+
+## Closed By CDB083
+
+- MCP raw source/blob tool aliases are explicitly blocked by default.
+- MCP table-page requests for raw blob/source tables return bounded
+  `raw_blob_table_blocked` validation rows instead of raw bytes.
+- Tests prove raw source summaries and blocked table responses do not leak
+  source secret sentinels.

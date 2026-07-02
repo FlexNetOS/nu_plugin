@@ -239,3 +239,12 @@ capture records `native_linker_dynamic_facts` as a GAP requiring
 `--unsafe-execute-build`.
 
 Validation evidence is in `logs/CDB082-native-linker-facts.log`.
+
+## 2026-07-02T19:35:45Z — CDB083 — MCP raw source/blob block
+
+Expanded the MCP blocked tool aliases for raw source/blob reads and added
+bounded denial rows for raw source/blob table-page aliases. Tests prove blocked
+responses do not leak source secret sentinels while normal summaries remain
+metadata-only.
+
+Validation evidence is in `logs/CDB083-mcp-raw-source-block.log`.

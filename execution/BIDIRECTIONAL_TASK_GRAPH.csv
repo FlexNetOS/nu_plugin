@@ -12,7 +12,7 @@ CDB079,Gap Closure,Build-script execution gate,tasks/cdb079-bidirectional-build-
 CDB080,Gap Closure,Generated OUT_DIR artifact reproduction,tasks/cdb080-bidirectional-out-dir-reproduction,CDB079,docs/GAP_CLOSURE_PLAN.md,generated artifact checksum proof or GAP,complete
 CDB081,Gap Closure,Symlink and platform materialization limits,tasks/cdb081-bidirectional-symlink-platform-materialization,CDB072,docs/GAP_CLOSURE_PLAN.md,platform materialization matrix tests,complete
 CDB082,Gap Closure,Native and linker dynamic facts,tasks/cdb082-bidirectional-native-linker-facts,CDB079,docs/GAP_CLOSURE_PLAN.md,dynamic build fact proof or GAP,complete
-CDB083,Gap Closure,MCP raw source and blob reads blocked,tasks/cdb083-bidirectional-mcp-raw-source-block,CDB071,docs/MUTATION_POLICY.md,MCP no-leak denial tests,active
+CDB083,Gap Closure,MCP raw source and blob reads blocked,tasks/cdb083-bidirectional-mcp-raw-source-block,CDB071,docs/MUTATION_POLICY.md,MCP no-leak denial tests,complete
 CDB084,Gap Closure,Stable anonymous and unstable syntax identity,tasks/cdb084-bidirectional-stable-anonymous-identity,CDB072,docs/CHANGE_PLAN_SCHEMA.md,repeat scan identity tests,active
 CDB085,Gap Closure,Semantic and public API hashing,tasks/cdb085-bidirectional-semantic-api-hashing,CDB084,docs/CHANGE_PLAN_SCHEMA.md,semantic/API hash fixtures,active
 CDB086,Gap Closure,Store migrations and schema evolution,tasks/cdb086-bidirectional-store-migrations,CDB072,docs/BIDIRECTIONAL_ARCHITECTURE.md,migration/refusal tests,active

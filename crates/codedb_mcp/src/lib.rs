@@ -35,6 +35,10 @@ pub const ALLOWED_TOOLS: &[&str] = &[
 
 pub const BLOCKED_TOOLS: &[&str] = &[
     "raw_source_blob_read",
+    "raw_source_read",
+    "raw_blob_read",
+    "source_blob_read",
+    "artifact_blob_read",
     "full_file_dump",
     "unsafe_build_capture",
     "source_overwrite",
@@ -337,6 +341,16 @@ fn table_page_rows(table: &str, repo_path: Option<&Path>) -> Result<Vec<Row>, Mc
             repo_path.ok_or(McpError::MissingRepoPath("codedb_get_table_page"))?,
         ),
         "mcp_lifecycle" | "mcp_config" => lifecycle_rows(&default_server_config()),
+        "source_blobs" | "artifact_blobs" | "blob_refs" | "raw_source" | "raw_blobs" => {
+            Ok(vec![row([
+                ("table", "validation_errors".to_string()),
+                ("code", "raw_blob_table_blocked".to_string()),
+                (
+                    "message",
+                    format!("raw source/blob table is blocked by MCP: {table}"),
+                ),
+            ])])
+        }
         other => Ok(vec![row([
             ("table", "validation_errors".to_string()),
             ("code", "unsupported_table".to_string()),
@@ -523,6 +537,10 @@ mod tests {
         assert!(ensure_tool_allowed("codedb_schema").is_ok());
         for tool in [
             "raw_source_blob_read",
+            "raw_source_read",
+            "raw_blob_read",
+            "source_blob_read",
+            "artifact_blob_read",
             "full_file_dump",
             "source_overwrite",
             "patch_apply",
@@ -538,6 +556,39 @@ mod tests {
             ensure_tool_allowed("codedb_dump_everything"),
             Err(McpError::UnknownTool(_))
         ));
+    }
+
+    // Test lane: default
+    // Defends: CDB083 raw source/blob table aliases are denied without leaking bytes.
+    #[test]
+    fn raw_source_and_blob_table_pages_return_denial_rows() {
+        for table in [
+            "source_blobs",
+            "artifact_blobs",
+            "blob_refs",
+            "raw_source",
+            "raw_blobs",
+        ] {
+            let response = handle_request(McpRequest {
+                tool: "codedb_get_table_page".to_string(),
+                repo_path: None,
+                table: Some(table.to_string()),
+                cursor: None,
+                limit: Some(DEFAULT_ROW_LIMIT),
+                max_bytes: Some(DEFAULT_MAX_BYTES),
+            })
+            .expect("blocked table returns validation row");
+            let output = serde_json::to_string(&response).expect("serialize response");
+
+            assert_eq!(response.rows.len(), 1);
+            assert_eq!(
+                response.rows[0].get("code").map(String::as_str),
+                Some("raw_blob_table_blocked")
+            );
+            assert!(output.contains(table));
+            assert!(!output.contains("should_not_escape"));
+            assert!(!output.contains("SECRET_TOKEN"));
+        }
     }
 
     // Test lane: default

@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "c839457222f19268c790f081e9edfe10f3cb95b8e9298f54267d20d35f48f7fb",
+  "checksum_scope_files_sha256": "fb7321fe3d6c7236ff1d6c2f8fd2b9c890eb966950914762c4309849a2dbd0ba",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 274,
+  "file_count_in_checksum_scope": 275,
   "files": [
     {
       "bytes": 1473,
@@ -346,9 +346,9 @@
       "sha256": "a6df6a4a2975c78a15d9637d372d04fcfd7768f74ee0b39cbda72611c1674a24"
     },
     {
-      "bytes": 21935,
+      "bytes": 23794,
       "path": "crates/codedb_mcp/src/lib.rs",
-      "sha256": "251cdbe8d1f30821600ad4c669749324673dcc72dee9e9e719902c6c182afbd8"
+      "sha256": "92fd598ea2bb7618bba9a3c54c00f4c43882a2ccb7c0b4362b7c6646cbbd70ab"
     },
     {
       "bytes": 256,
@@ -441,9 +441,9 @@
       "sha256": "9d0c9375ec41f94fad4c4120869b0ca836e34a1504cdbc09a6554e36043085fb"
     },
     {
-      "bytes": 4398,
+      "bytes": 4725,
       "path": "docs/GAP_CLOSURE_PLAN.md",
-      "sha256": "70a05b995005b597a886316cc25d5934b16293c0a914b5bba0bd8e10b84b890b"
+      "sha256": "7f20cd118d729efcc2b8d70dd12f6de37fce09451fea16f44ab0acec950b6def"
     },
     {
       "bytes": 4822,
@@ -456,9 +456,9 @@
       "sha256": "75f5cbf9c00e5e1661529c475ecce6fdc88366c3e28f2f47d9a54d59ff2ce9fc"
     },
     {
-      "bytes": 2016,
+      "bytes": 2231,
       "path": "docs/MUTATION_POLICY.md",
-      "sha256": "53f97a233cdf2ebd831be217d89c2265c1e4776a481eaa094556b022a224c82f"
+      "sha256": "a4135bc4ad2e1b5ba937c41cfd85da459988b57238565968eaebb980680ba0cd"
     },
     {
       "bytes": 1406,
@@ -536,14 +536,14 @@
       "sha256": "2601389d7e0662a811d804256c2c431d9e0ff559ac7b57888b8f557897ae5003"
     },
     {
-      "bytes": 3996,
+      "bytes": 3998,
       "path": "execution/BIDIRECTIONAL_TASK_GRAPH.csv",
-      "sha256": "5fb43e99ab69a3023c8d94d630f716c1f5a434be24d64d1b904e14dbfd18ef86"
+      "sha256": "09bb1b8c05437295e01d1059454c67e2fefbf8b7d6d82e1f67f83bee15546359"
     },
     {
-      "bytes": 12261,
+      "bytes": 12694,
       "path": "execution/COMMAND_LEDGER.csv",
-      "sha256": "75cedd370bbc665149c7351ece58e438cca7c0bd5b34fc5dcf41b22e66290985"
+      "sha256": "5f8bcab2d35b69b88bbed51dac7da6cd7941f55eb4cc0df5bd7b73a8135ec846"
     },
     {
       "bytes": 106315,
@@ -561,9 +561,9 @@
       "sha256": "79deb5fa7aaf3e489b8ae3228720ea26b1c8a6aa85321c594a0c184ff30d3983"
     },
     {
-      "bytes": 10974,
+      "bytes": 11353,
       "path": "execution/WORKLOG.md",
-      "sha256": "2bebd297b8e9448c593b945243c63f2c1ac95270111b686d846bd1bbf043fb43"
+      "sha256": "828ea9bf1c59453c53aeeea0e7fd01cd012d45ec36160f710d91d3fb888db2e9"
     },
     {
       "bytes": 2076,
@@ -1221,6 +1221,11 @@
       "sha256": "bd40d758256b0500ed8791911412c655b6ebbc049a31d03b3e1e6267aa7f5429"
     },
     {
+      "bytes": 448,
+      "path": "logs/CDB083-mcp-raw-source-block.log",
+      "sha256": "8851463c129a644c9002248ca17b241955221422925cdd5631a80ce29a9037b3"
+    },
+    {
       "bytes": 69372,
       "path": "manifests/CHECKLIST_COMPLETION.json",
       "sha256": "4df0e381d4f7cef9d0537731bc55f9913425c9d5d2b6c6b2ce8c5d843a3a4c6a"
@@ -1381,7 +1386,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T19:34:05+00:00",
+  "generated_at_utc": "2026-07-02T19:36:37+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
