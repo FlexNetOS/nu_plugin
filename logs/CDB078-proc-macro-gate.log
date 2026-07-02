@@ -1,0 +1,15 @@
+timestamp_utc: 2026-07-02T18:16:15Z
+task: CDB078 add proc-macro execution gate
+repo: FlexNetOS/nu_plugin
+worktree: /home/flexnetos/FlexNetOS/src/nu_plugin-next-worktree
+
+implementation:
+- default dynamic capture records proc_macro_execution as a capture gap;
+- proc_macro_execution gap requires --unsafe-execute-build;
+- approved scaffold paths record unsafe approval status, flag, and approver.
+
+tests:
+- nix develop .#ci -c cargo test -p codedb-build-capture proc_macro_execution_gate_refuses_default_and_records_approval
+
+truth policy:
+- proc-macro execution is refused by default and never implied by static capture.

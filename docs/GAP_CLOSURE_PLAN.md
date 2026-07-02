@@ -36,3 +36,10 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   rows with `gap` status for macro definitions and invocations.
 - The focused fixture proves CodeDB does not claim dynamic expansion or hygiene
   facts from syntax-only capture.
+
+## Closed By CDB078
+
+- Dynamic capture default refusal now records a dedicated
+  `proc_macro_execution` gap with required flag `--unsafe-execute-build`.
+- Approved dynamic capture scaffold records unsafe approval provenance with
+  status, flag, and approver.

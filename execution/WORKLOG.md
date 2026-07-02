@@ -191,3 +191,12 @@ compiler-observed macro expansion is now represented as
 syntax-only macro inventory.
 
 Validation evidence is in `logs/CDB077-macro-expansion-gate.log`.
+
+## 2026-07-02T18:16:15Z — CDB078 — Proc-macro execution gate
+
+Added a proc-macro-specific unsafe gate assertion in `codedb_build_capture`.
+Default dynamic capture now records a dedicated `proc_macro_execution` gap with
+required flag `--unsafe-execute-build`; approved scaffold paths record unsafe
+approval provenance with status, flag, and approver.
+
+Validation evidence is in `logs/CDB078-proc-macro-gate.log`.

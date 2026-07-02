@@ -209,16 +209,27 @@ fn refused_capture(request: BuildCaptureRequest) -> BuildCaptureOutcome {
             ),
             ("repo_path", request.repo_path.display().to_string()),
         ])],
-        capture_gaps: vec![row([
-            ("table", "capture_gaps".to_string()),
-            ("missing_truth", "build_script_execution".to_string()),
-            (
-                "reason",
-                "dynamic build script and proc-macro execution is gated by explicit unsafe approval"
-                    .to_string(),
-            ),
-            ("required_flag", UNSAFE_FLAG.to_string()),
-        ])],
+        capture_gaps: vec![
+            row([
+                ("table", "capture_gaps".to_string()),
+                ("missing_truth", "build_script_execution".to_string()),
+                (
+                    "reason",
+                    "dynamic build script execution is gated by explicit unsafe approval"
+                        .to_string(),
+                ),
+                ("required_flag", UNSAFE_FLAG.to_string()),
+            ]),
+            row([
+                ("table", "capture_gaps".to_string()),
+                ("missing_truth", "proc_macro_execution".to_string()),
+                (
+                    "reason",
+                    "proc-macro execution is gated by explicit unsafe approval".to_string(),
+                ),
+                ("required_flag", UNSAFE_FLAG.to_string()),
+            ]),
+        ],
         raw_log_paths: vec![raw_log_row(&request, "not_written")],
     }
 }
@@ -442,6 +453,39 @@ edition = "2024"
         assert_eq!(
             outcome.validation_errors[0].get("code").map(String::as_str),
             Some("unsafe_execution_refused")
+        );
+    }
+
+    // Test lane: default
+    // Defends: CDB078 proc-macro execution is refused by default and approved paths record provenance.
+    #[test]
+    fn proc_macro_execution_gate_refuses_default_and_records_approval() {
+        let refused = capture_build(request(false));
+        assert!(refused.capture_gaps.iter().any(|gap| {
+            gap.get("missing_truth").map(String::as_str) == Some("proc_macro_execution")
+                && gap.get("required_flag").map(String::as_str) == Some(UNSAFE_FLAG)
+        }));
+        assert!(refused.proc_macro_invocations.is_empty());
+
+        let approved = capture_build(request(true));
+        assert_eq!(approved.status, BuildCaptureStatus::ApprovedScaffold);
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("status")
+                .map(String::as_str),
+            Some("approved")
+        );
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("flag")
+                .map(String::as_str),
+            Some(UNSAFE_FLAG)
+        );
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("approver")
+                .map(String::as_str),
+            Some("test")
         );
     }
 
