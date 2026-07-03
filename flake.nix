@@ -77,8 +77,8 @@
             printf '%s\n' "repo truth surface ok" > "$out/result.txt"
           '';
 
-          envctl_inventory_smoke = pkgs.rustPlatform.buildRustPackage {
-            pname = "codedb-envctl-inventory-smoke";
+          import_rows_smoke = pkgs.rustPlatform.buildRustPackage {
+            pname = "codedb-import-rows-smoke";
             version = "0.1.0";
             src = source;
             cargoLock.lockFile = ./Cargo.lock;
@@ -89,11 +89,11 @@
             cargoTestFlags = [
               "-p"
               "nu_plugin_codedb"
-              "envctl_inventory_import_rows"
+              "import_rows"
             ];
             installPhase = ''
               mkdir -p "$out"
-              printf '%s\n' "envctl inventory smoke ok" > "$out/result.txt"
+              printf '%s\n' "import rows smoke ok" > "$out/result.txt"
             '';
           };
 

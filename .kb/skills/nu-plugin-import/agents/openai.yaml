@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nu Plugin Import"
+  short_description: "Import files into databases through Rust nu_plugin workflows"
+  default_prompt: "Use $nu-plugin-import for /nu_plugin:import: design and implement Rust-backed file imports into database tables, including failure-task and PR workflow."

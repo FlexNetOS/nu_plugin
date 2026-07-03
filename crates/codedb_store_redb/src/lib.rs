@@ -154,6 +154,7 @@ impl From<io::Error> for StoreError {
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn initialize_store(
     path: impl AsRef<Path>,
     context: &StoreInitContext<'_>,
@@ -208,6 +209,7 @@ pub fn initialize_store(
     Ok(report)
 }
 
+#[allow(clippy::result_large_err)]
 pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, StoreError> {
     let path = path.as_ref().to_path_buf();
     let db = Database::open(&path)?;
@@ -416,6 +418,7 @@ pub fn store_metadata_rows(report: &StoreInitReport) -> Vec<StoreMetadataRow> {
     report.rows.clone()
 }
 
+#[allow(clippy::result_large_err)]
 pub fn checksum_file_sha256(path: impl AsRef<Path>) -> Result<String, StoreError> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
@@ -482,6 +485,7 @@ fn persist_source_file_metadata(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 pub fn backup_store(
     source_path: impl AsRef<Path>,
     backup_path: impl AsRef<Path>,
@@ -504,6 +508,7 @@ pub fn backup_store(
     })
 }
 
+#[allow(clippy::result_large_err)]
 pub fn restore_store_from_backup(
     backup_path: impl AsRef<Path>,
     restored_path: impl AsRef<Path>,

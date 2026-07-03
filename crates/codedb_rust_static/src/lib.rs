@@ -686,9 +686,7 @@ pub fn capture_build_script_static(
             .then_with(|| left.value.cmp(&right.value))
             .then_with(|| left.raw_instruction.cmp(&right.raw_instruction))
     });
-    inventory
-        .gaps
-        .sort_by(|left, right| left.missing_truth.cmp(&right.missing_truth));
+    inventory.gaps.sort_by_key(|gap| gap.missing_truth);
     Ok(inventory)
 }
 
@@ -770,9 +768,7 @@ pub fn capture_native_link_static(
             .cmp(&right.path)
             .then_with(|| left.search_kind.cmp(&right.search_kind))
     });
-    inventory
-        .gaps
-        .sort_by(|left, right| left.missing_truth.cmp(&right.missing_truth));
+    inventory.gaps.sort_by_key(|gap| gap.missing_truth);
     Ok(inventory)
 }
 
@@ -1197,18 +1193,18 @@ fn collect_path_attribute_edges(
         }
         match &attr.meta {
             Meta::NameValue(name_value) => {
-                if let Expr::Lit(expr_lit) = &name_value.value {
-                    if let Lit::Str(lit_str) = &expr_lit.lit {
-                        push_include_edge(
-                            inventory,
-                            context_id,
-                            relative_path,
-                            module_path,
-                            StaticIncludeEdgeKind::PathAttribute,
-                            &lit_str.value(),
-                        );
-                        continue;
-                    }
+                if let Expr::Lit(expr_lit) = &name_value.value
+                    && let Lit::Str(lit_str) = &expr_lit.lit
+                {
+                    push_include_edge(
+                        inventory,
+                        context_id,
+                        relative_path,
+                        module_path,
+                        StaticIncludeEdgeKind::PathAttribute,
+                        &lit_str.value(),
+                    );
+                    continue;
                 }
                 push_include_gap(
                     inventory,

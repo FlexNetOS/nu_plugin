@@ -9,6 +9,9 @@
   "checksum_scope_files_sha256": "b7c6db8a07a69da49e2780aac1e54f6157445c799c698c852c764b239f802e09",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 282,
+  "checksum_scope_files_sha256": "fd4cc51bd025ee6e2f27521a5148c65a5d82549d8d7b55fae126a0704dd916c2",
+  "entrypoint": "CODEDB_START_HERE.md",
+  "file_count_in_checksum_scope": 254,
   "files": [
     {
       "bytes": 1473,
@@ -186,6 +189,26 @@
       "sha256": "7be8cdfc3c57118240c896899bbbddaebbd87ffa3991ca52ea6b7d1ed54da853"
     },
     {
+      "bytes": 5978,
+      "path": ".kb/skills/nu-plugin-export/SKILL.md",
+      "sha256": "ebfd5107f6aab6ec0bd38842d0e14b26996a9c609cf2d724f83b8d018fa7c36e"
+    },
+    {
+      "bytes": 340,
+      "path": ".kb/skills/nu-plugin-export/agents/openai.yaml",
+      "sha256": "d037f5fb9d08b192d9f8faf1ba7a7175a08bd9be3587fd79f5d84dadaae0ca4e"
+    },
+    {
+      "bytes": 5387,
+      "path": ".kb/skills/nu-plugin-import/SKILL.md",
+      "sha256": "345916b33e972f04574c15468aeae4296bc0eef6831f20864b407be7d929477f"
+    },
+    {
+      "bytes": 303,
+      "path": ".kb/skills/nu-plugin-import/agents/openai.yaml",
+      "sha256": "f0f3b1103a690d88ab24bdb2ddeb613920cb9e93af2bb0232b6aa0b9ee0a2956"
+    },
+    {
       "bytes": 3133,
       "path": ".kb/skills/refactor-safety/SKILL.md",
       "sha256": "3e6bbd822ed50c0737069dd15b912beae6d0f0152ce1ffcca40d75c44d60035d"
@@ -329,6 +352,9 @@
       "bytes": 76555,
       "path": "crates/codedb_core/src/lib.rs",
       "sha256": "b00ddccb4f8635ef13730c1de86de34864d6d77c65aec67c75c2dbfd1d93ddaf"
+      "bytes": 35032,
+      "path": "crates/codedb_core/src/lib.rs",
+      "sha256": "7e41debca435c6113a50d04c9c447d8325e089d0e32b08b94fc371c08a36eef0"
     },
     {
       "bytes": 167,
@@ -359,6 +385,9 @@
       "bytes": 81002,
       "path": "crates/codedb_rust_static/src/lib.rs",
       "sha256": "0cfd22dd13bb2f0c8fc7435e26b7b64e2911d419f574f5c2883d850676750a10"
+      "bytes": 70628,
+      "path": "crates/codedb_rust_static/src/lib.rs",
+      "sha256": "fb27b932096cd77ed3f34e4342fc48b0d16723c9cfa36a355855c165d7c1a566"
     },
     {
       "bytes": 243,
@@ -369,6 +398,9 @@
       "bytes": 28790,
       "path": "crates/codedb_store_redb/src/lib.rs",
       "sha256": "cdba0676b58efc453bdd1c14d44f1e41532a12f8d996c76c7be1610d489a2ae8"
+      "bytes": 15203,
+      "path": "crates/codedb_store_redb/src/lib.rs",
+      "sha256": "5fbd7e2c9868741d4d3f7fdd282cb6e314e36c6752134a6f421ac242c0a99c7f"
     },
     {
       "bytes": 442,
@@ -379,6 +411,9 @@
       "bytes": 57377,
       "path": "crates/nu_plugin_codedb/src/main.rs",
       "sha256": "42ca78784c0f2328fe55366f576a6a6e9a40fec010df88db490d5fe7029b2e48"
+      "bytes": 73644,
+      "path": "crates/nu_plugin_codedb/src/main.rs",
+      "sha256": "c8e9c04a7d2016b2b4b113af118925c4b4fd8ecfe07ea5bf1c0f8991e5cbef70"
     },
     {
       "bytes": 2517,
@@ -804,6 +839,9 @@
       "bytes": 4514,
       "path": "flake.nix",
       "sha256": "5b113540d272c2f69d436a2e1a21ee262036d43c8d0f7615b1496378a5973500"
+      "bytes": 3544,
+      "path": "flake.nix",
+      "sha256": "98cb936b92458b3a59ba6fa37e3d72a3d0786360457c2d7af7374f99af67a70b"
     },
     {
       "bytes": 1090,
@@ -1422,6 +1460,7 @@
     }
   ],
   "generated_at_utc": "2026-07-02T19:56:32+00:00",
+  "generated_at_utc": "2026-07-02T21:34:46+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

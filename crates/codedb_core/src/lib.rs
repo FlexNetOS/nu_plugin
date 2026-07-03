@@ -65,6 +65,7 @@ pub struct IdentityKey {
 }
 
 impl IdentityKey {
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         schema_version: SchemaVersion,
         workspace_id: &'static str,
@@ -875,6 +876,39 @@ pub fn schema_tables() -> Vec<TableSpec> {
             state: RowState::Available,
             row_count: 0,
             note: "symlink/platform materialization limits are explicit after CDB081",
+            name: "nix_flake_summary",
+            domain: "nix/flake",
+            state: RowState::Available,
+            row_count: 0,
+            note: "nix flake metadata import rows are produced by codedb nix flake import",
+        },
+        TableSpec {
+            name: "nix_flake_refs",
+            domain: "nix/flake",
+            state: RowState::Available,
+            row_count: 0,
+            note: "original/resolved/locked flake references imported from nix flake metadata --json",
+        },
+        TableSpec {
+            name: "nix_flake_lock_nodes",
+            domain: "nix/flake.lock",
+            state: RowState::Available,
+            row_count: 0,
+            note: "flake.lock nodes imported from metadata.locks.nodes",
+        },
+        TableSpec {
+            name: "nix_flake_lock_edges",
+            domain: "nix/flake.lock",
+            state: RowState::Available,
+            row_count: 0,
+            note: "flake input edges imported from flake.lock node inputs",
+        },
+        TableSpec {
+            name: "nix_flake_outputs",
+            domain: "nix/flake",
+            state: RowState::Available,
+            row_count: 0,
+            note: "optional flake output rows imported from nix flake show --json --all-systems",
         },
     ]
 }
@@ -1360,9 +1394,10 @@ fn detect_encoding_status(bytes: &[u8]) -> TextEncodingStatus {
 
 fn detect_newline_style(bytes: &[u8]) -> NewlineStyle {
     let has_crlf = bytes.windows(2).any(|window| window == b"\r\n");
-    let has_lf = bytes.iter().enumerate().any(|(index, byte)| {
-        *byte == b'\n' && index == 0 || *byte == b'\n' && bytes[index - 1] != b'\r'
-    });
+    let has_lf = bytes
+        .iter()
+        .enumerate()
+        .any(|(index, byte)| *byte == b'\n' && (index == 0 || bytes[index - 1] != b'\r'));
     match (has_lf, has_crlf) {
         (false, false) => NewlineStyle::None,
         (true, false) => NewlineStyle::Lf,

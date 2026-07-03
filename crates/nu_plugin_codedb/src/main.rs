@@ -46,6 +46,7 @@ impl Plugin for CodeDbPlugin {
             Box::new(BuildScripts),
             Box::new(Export),
             Box::new(EnvctlInventoryImport),
+            Box::new(NixFlakeImport),
             Box::new(Tables),
             Box::new(Gaps),
             Box::new(ValidationErrors),
@@ -67,6 +68,7 @@ struct RustCfg;
 struct BuildScripts;
 struct Export;
 struct EnvctlInventoryImport;
+struct NixFlakeImport;
 struct Tables;
 struct Gaps;
 struct ValidationErrors;
@@ -686,6 +688,441 @@ fn unix_timestamp_seconds() -> u64 {
         .unwrap_or(0)
 }
 
+fn nix_flake_import_rows(
+    metadata_path: &Path,
+    outputs_path: Option<&Path>,
+    span: Span,
+) -> Result<Vec<Row>, LabeledError> {
+    let metadata_bytes = fs::read(metadata_path).map_err(|source| {
+        LabeledError::new("failed to read nix flake metadata artifact")
+            .with_label(format!("{}: {source}", metadata_path.display()), span)
+    })?;
+    let metadata_hash = format!("{:x}", Sha256::digest(&metadata_bytes));
+    let metadata: JsonValue = serde_json::from_slice(&metadata_bytes).map_err(|source| {
+        LabeledError::new("failed to parse nix flake metadata artifact")
+            .with_label(format!("{}: {source}", metadata_path.display()), span)
+    })?;
+    let observed = format!("unix:{}", unix_timestamp_seconds());
+    let mut rows = Vec::new();
+
+    rows.push(nix_flake_summary_row(
+        &metadata,
+        metadata_path,
+        &metadata_hash,
+        &observed,
+        span,
+    )?);
+    rows.extend(nix_flake_reference_rows(
+        &metadata,
+        metadata_path,
+        &metadata_hash,
+        span,
+    ));
+    rows.extend(nix_flake_lock_rows(
+        &metadata,
+        metadata_path,
+        &metadata_hash,
+        span,
+    )?);
+
+    if let Some(outputs_path) = outputs_path {
+        let output_bytes = fs::read(outputs_path).map_err(|source| {
+            LabeledError::new("failed to read nix flake outputs artifact")
+                .with_label(format!("{}: {source}", outputs_path.display()), span)
+        })?;
+        let output_hash = format!("{:x}", Sha256::digest(&output_bytes));
+        let outputs: JsonValue = serde_json::from_slice(&output_bytes).map_err(|source| {
+            LabeledError::new("failed to parse nix flake outputs artifact")
+                .with_label(format!("{}: {source}", outputs_path.display()), span)
+        })?;
+        rows.extend(nix_flake_output_rows(
+            &outputs,
+            outputs_path,
+            &output_hash,
+            span,
+        ));
+    }
+
+    Ok(rows)
+}
+
+fn nix_flake_summary_row(
+    metadata: &JsonValue,
+    metadata_path: &Path,
+    source_hash: &str,
+    observed: &str,
+    span: Span,
+) -> Result<Row, LabeledError> {
+    Ok(vec![
+        ("table", string("nix_flake_summary", span)),
+        (
+            "row_id",
+            string(
+                format!("nix_flake_summary:{}", json_string(metadata, "url")),
+                span,
+            ),
+        ),
+        ("schema_version", string("codedb.nix_flake_import.v1", span)),
+        (
+            "description",
+            string(json_string(metadata, "description"), span),
+        ),
+        (
+            "original_url",
+            string(json_string(metadata, "originalUrl"), span),
+        ),
+        (
+            "resolved_url",
+            string(json_string(metadata, "resolvedUrl"), span),
+        ),
+        (
+            "locked_url",
+            string(json_string(metadata, "lockedUrl"), span),
+        ),
+        ("url", string(json_string(metadata, "url"), span)),
+        ("store_path", string(json_string(metadata, "path"), span)),
+        ("revision", string(json_string(metadata, "revision"), span)),
+        (
+            "rev_count",
+            int(json_i64(metadata, "revCount").unwrap_or_default(), span)?,
+        ),
+        (
+            "last_modified",
+            int(json_i64(metadata, "lastModified").unwrap_or_default(), span)?,
+        ),
+        (
+            "metadata_artifact",
+            string(metadata_path.display().to_string(), span),
+        ),
+        ("metadata_hash", string(source_hash, span)),
+        ("import_status", string("flake_metadata_ready", span)),
+        ("last_observed", string(observed, span)),
+        ("provenance", string("nix flake metadata --json", span)),
+    ])
+}
+
+fn nix_flake_reference_rows(
+    metadata: &JsonValue,
+    metadata_path: &Path,
+    source_hash: &str,
+    span: Span,
+) -> Vec<Row> {
+    ["original", "resolved", "locked"]
+        .into_iter()
+        .filter_map(|kind| {
+            let value = metadata.get(kind)?;
+            Some(vec![
+                ("table", string("nix_flake_refs", span)),
+                (
+                    "row_id",
+                    string(
+                        format!(
+                            "nix_flake_refs:{}:{}",
+                            kind,
+                            json_string(metadata, &format!("{kind}Url"))
+                        ),
+                        span,
+                    ),
+                ),
+                ("schema_version", string("codedb.nix_flake_import.v1", span)),
+                ("ref_kind", string(kind, span)),
+                (
+                    "url",
+                    string(json_string(metadata, &format!("{kind}Url")), span),
+                ),
+                ("type", string(json_object_string(value, "type"), span)),
+                ("owner", string(json_object_string(value, "owner"), span)),
+                ("repo", string(json_object_string(value, "repo"), span)),
+                ("rev", string(json_object_string(value, "rev"), span)),
+                ("ref", string(json_object_string(value, "ref"), span)),
+                (
+                    "nar_hash",
+                    string(json_object_string(value, "narHash"), span),
+                ),
+                ("dir", string(json_object_string(value, "dir"), span)),
+                (
+                    "artifact_path",
+                    string(metadata_path.display().to_string(), span),
+                ),
+                ("artifact_hash", string(source_hash, span)),
+                ("provenance", string("nix flake metadata --json", span)),
+            ])
+        })
+        .collect()
+}
+
+fn nix_flake_lock_rows(
+    metadata: &JsonValue,
+    metadata_path: &Path,
+    source_hash: &str,
+    span: Span,
+) -> Result<Vec<Row>, LabeledError> {
+    let Some(nodes) = metadata
+        .get("locks")
+        .and_then(|locks| locks.get("nodes"))
+        .and_then(JsonValue::as_object)
+    else {
+        return Ok(vec![nix_flake_validation_row(
+            "nix_flake_lock_nodes",
+            "missing_locks_nodes",
+            "metadata JSON did not contain locks.nodes",
+            metadata_path,
+            source_hash,
+            span,
+        )]);
+    };
+
+    let mut rows = Vec::new();
+    for (node_name, node) in nodes {
+        let locked = node.get("locked").unwrap_or(&JsonValue::Null);
+        let original = node.get("original").unwrap_or(&JsonValue::Null);
+        rows.push(vec![
+            ("table", string("nix_flake_lock_nodes", span)),
+            (
+                "row_id",
+                string(format!("nix_flake_lock_nodes:{node_name}"), span),
+            ),
+            ("schema_version", string("codedb.nix_flake_import.v1", span)),
+            ("node_name", string(node_name, span)),
+            (
+                "locked_type",
+                string(json_object_string(locked, "type"), span),
+            ),
+            (
+                "locked_owner",
+                string(json_object_string(locked, "owner"), span),
+            ),
+            (
+                "locked_repo",
+                string(json_object_string(locked, "repo"), span),
+            ),
+            (
+                "locked_rev",
+                string(json_object_string(locked, "rev"), span),
+            ),
+            (
+                "locked_ref",
+                string(json_object_string(locked, "ref"), span),
+            ),
+            (
+                "locked_nar_hash",
+                string(json_object_string(locked, "narHash"), span),
+            ),
+            (
+                "locked_last_modified",
+                int(
+                    json_object_i64(locked, "lastModified").unwrap_or_default(),
+                    span,
+                )?,
+            ),
+            (
+                "original_type",
+                string(json_object_string(original, "type"), span),
+            ),
+            (
+                "original_owner",
+                string(json_object_string(original, "owner"), span),
+            ),
+            (
+                "original_repo",
+                string(json_object_string(original, "repo"), span),
+            ),
+            (
+                "artifact_path",
+                string(metadata_path.display().to_string(), span),
+            ),
+            ("artifact_hash", string(source_hash, span)),
+            ("provenance", string("flake.lock via metadata.locks", span)),
+        ]);
+
+        if let Some(inputs) = node.get("inputs").and_then(JsonValue::as_object) {
+            for (input_name, target) in inputs {
+                let target_path = nix_lock_input_target(target);
+                rows.push(vec![
+                    ("table", string("nix_flake_lock_edges", span)),
+                    (
+                        "row_id",
+                        string(
+                            format!("nix_flake_lock_edges:{node_name}:{input_name}:{target_path}"),
+                            span,
+                        ),
+                    ),
+                    ("schema_version", string("codedb.nix_flake_import.v1", span)),
+                    ("source_node", string(node_name, span)),
+                    ("input_name", string(input_name, span)),
+                    ("target_path", string(target_path, span)),
+                    (
+                        "edge_kind",
+                        string(
+                            if target.is_array() {
+                                "follows_path"
+                            } else {
+                                "node_ref"
+                            },
+                            span,
+                        ),
+                    ),
+                    (
+                        "artifact_path",
+                        string(metadata_path.display().to_string(), span),
+                    ),
+                    ("artifact_hash", string(source_hash, span)),
+                    ("provenance", string("flake.lock inputs", span)),
+                ]);
+            }
+        }
+    }
+    Ok(rows)
+}
+
+fn nix_flake_output_rows(
+    outputs: &JsonValue,
+    outputs_path: &Path,
+    source_hash: &str,
+    span: Span,
+) -> Vec<Row> {
+    let mut rows = Vec::new();
+    collect_nix_output_rows(
+        Vec::new(),
+        outputs,
+        outputs_path,
+        source_hash,
+        span,
+        &mut rows,
+    );
+    if rows.is_empty() {
+        rows.push(nix_flake_validation_row(
+            "nix_flake_outputs",
+            "empty_outputs",
+            "outputs artifact did not contain any traversable output values",
+            outputs_path,
+            source_hash,
+            span,
+        ));
+    }
+    rows
+}
+
+fn collect_nix_output_rows(
+    path: Vec<String>,
+    value: &JsonValue,
+    outputs_path: &Path,
+    source_hash: &str,
+    span: Span,
+    rows: &mut Vec<Row>,
+) {
+    if path.len() >= 2 && value.get("type").and_then(JsonValue::as_str).is_some() {
+        rows.push(nix_flake_output_row(
+            &path,
+            value,
+            outputs_path,
+            source_hash,
+            span,
+        ));
+        return;
+    }
+    match value {
+        JsonValue::Object(map) => {
+            for (key, child) in map {
+                let mut next = path.clone();
+                next.push(key.clone());
+                collect_nix_output_rows(next, child, outputs_path, source_hash, span, rows);
+            }
+        }
+        JsonValue::Array(items) => {
+            for (idx, child) in items.iter().enumerate() {
+                let mut next = path.clone();
+                next.push(idx.to_string());
+                collect_nix_output_rows(next, child, outputs_path, source_hash, span, rows);
+            }
+        }
+        _ if !path.is_empty() => rows.push(nix_flake_output_row(
+            &path,
+            value,
+            outputs_path,
+            source_hash,
+            span,
+        )),
+        _ => {}
+    }
+}
+
+fn nix_flake_output_row(
+    path: &[String],
+    value: &JsonValue,
+    outputs_path: &Path,
+    source_hash: &str,
+    span: Span,
+) -> Row {
+    let category = path.first().cloned().unwrap_or_default();
+    let system = if matches!(
+        category.as_str(),
+        "apps" | "checks" | "devShells" | "formatter" | "legacyPackages" | "packages"
+    ) {
+        path.get(1).cloned().unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let output_kind = value
+        .get("type")
+        .and_then(JsonValue::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| json_value_kind(value).to_string());
+    vec![
+        ("table", string("nix_flake_outputs", span)),
+        (
+            "row_id",
+            string(format!("nix_flake_outputs:{}", path.join(".")), span),
+        ),
+        ("schema_version", string("codedb.nix_flake_import.v1", span)),
+        ("attr_path", string(path.join("."), span)),
+        ("category", string(category, span)),
+        ("system", string(system, span)),
+        (
+            "name",
+            string(path.last().cloned().unwrap_or_default(), span),
+        ),
+        ("output_kind", string(output_kind, span)),
+        (
+            "description",
+            string(json_object_string(value, "description"), span),
+        ),
+        ("value", string(json_value_string(value), span)),
+        (
+            "artifact_path",
+            string(outputs_path.display().to_string(), span),
+        ),
+        ("artifact_hash", string(source_hash, span)),
+        (
+            "provenance",
+            string("nix flake show --json --all-systems", span),
+        ),
+    ]
+}
+
+fn nix_flake_validation_row(
+    table: &'static str,
+    code: &'static str,
+    message: &'static str,
+    path: &Path,
+    source_hash: &str,
+    span: Span,
+) -> Row {
+    vec![
+        ("table", string("codedb_validation_errors", span)),
+        (
+            "row_id",
+            string(format!("codedb_validation_errors:{table}:{code}"), span),
+        ),
+        ("source_table", string(table, span)),
+        ("code", string(code, span)),
+        ("message", string(message, span)),
+        ("artifact_path", string(path.display().to_string(), span)),
+        ("artifact_hash", string(source_hash, span)),
+        ("provenance", string("nix flake import validation", span)),
+    ]
+}
+
 fn structured_file_rows(parser_hint: &str, bytes: &[u8], span: Span) -> Option<Vec<Value>> {
     let text = std::str::from_utf8(bytes).ok()?;
     match parser_hint {
@@ -964,6 +1401,49 @@ fn json_string(row: &JsonValue, key: &str) -> String {
         .to_string()
 }
 
+fn json_i64(row: &JsonValue, key: &str) -> Option<i64> {
+    row.get(key).and_then(JsonValue::as_i64)
+}
+
+fn json_object_string(row: &JsonValue, key: &str) -> String {
+    row.get(key)
+        .and_then(JsonValue::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            row.get(key)
+                .filter(|value| !value.is_null())
+                .map(json_value_string)
+                .unwrap_or_default()
+        })
+}
+
+fn json_object_i64(row: &JsonValue, key: &str) -> Option<i64> {
+    row.get(key).and_then(JsonValue::as_i64)
+}
+
+fn json_value_kind(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
+}
+
+fn nix_lock_input_target(value: &JsonValue) -> String {
+    match value {
+        JsonValue::String(value) => value.clone(),
+        JsonValue::Array(parts) => parts
+            .iter()
+            .map(json_value_string)
+            .collect::<Vec<_>>()
+            .join("/"),
+        _ => json_value_string(value),
+    }
+}
+
 fn export_rows(table: &str, repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledError> {
     match table {
         "filesystem_entries" | "fs_entries" => filesystem_rows(repo_path, span),
@@ -1192,6 +1672,53 @@ impl SimplePluginCommand for EnvctlInventoryImport {
     ) -> Result<Value, LabeledError> {
         let inventory_path: String = call.req(0)?;
         let rows = envctl_inventory_import_rows(Path::new(&inventory_path), call.head)?;
+        Ok(rows_to_value(page_rows(rows, call)?, call.head))
+    }
+}
+
+impl SimplePluginCommand for NixFlakeImport {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb nix flake import"
+    }
+
+    fn description(&self) -> &str {
+        "Convert Nix flake metadata/show JSON artifacts into CodeDB-style import rows."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required(
+                "metadata_path",
+                SyntaxShape::Filepath,
+                "JSON produced by nix flake metadata --json",
+            )
+            .named(
+                "outputs",
+                SyntaxShape::Filepath,
+                "Optional JSON produced by nix flake show --json --all-systems",
+                None,
+            )
+            .named("store", SyntaxShape::Filepath, "CodeDB store path", None)
+            .named("limit", SyntaxShape::Int, "Maximum rows to return", None)
+            .named("cursor", SyntaxShape::Int, "Zero-based row cursor", None)
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let metadata_path: String = call.req(0)?;
+        let outputs_path = call.get_flag::<String>("outputs")?;
+        let rows = nix_flake_import_rows(
+            Path::new(&metadata_path),
+            outputs_path.as_deref().map(Path::new),
+            call.head,
+        )?;
         Ok(rows_to_value(page_rows(rows, call)?, call.head))
     }
 }
@@ -1639,5 +2166,150 @@ tab_width = 2
                     && matches!(value, Value::String { val, .. } if val == "metadata_only")
             })
         }));
+    }
+
+    // Defends: Nix flake metadata JSON imports into summary, ref, lock-node, lock-edge, and output rows.
+    #[test]
+    fn nix_flake_import_rows_include_metadata_lock_graph_and_outputs() {
+        let root = temp_path("nix-flake-import");
+        fs::create_dir_all(&root).unwrap();
+        let metadata_path = root.join("metadata.json");
+        let outputs_path = root.join("outputs.json");
+        fs::write(
+            &metadata_path,
+            r#"{
+  "description": "CodeDB package",
+  "lastModified": 1783020000,
+  "locked": {
+    "lastModified": 1783020000,
+    "narHash": "sha256-local",
+    "rev": "abcdef",
+    "type": "git"
+  },
+  "lockedUrl": "git+file:///repo?rev=abcdef",
+  "locks": {
+    "nodes": {
+      "root": {
+        "inputs": {
+          "nixpkgs": "nixpkgs",
+          "systems": ["flake-utils", "systems"]
+        }
+      },
+      "nixpkgs": {
+        "locked": {
+          "lastModified": 1783010000,
+          "narHash": "sha256-nixpkgs",
+          "owner": "NixOS",
+          "repo": "nixpkgs",
+          "rev": "123456",
+          "type": "github"
+        },
+        "original": {
+          "owner": "NixOS",
+          "repo": "nixpkgs",
+          "type": "github"
+        }
+      }
+    },
+    "root": "root",
+    "version": 7
+  },
+  "original": { "type": "path", "path": "." },
+  "originalUrl": "path:.",
+  "path": "/nix/store/example-source",
+  "resolved": { "type": "git", "url": "file:///repo" },
+  "resolvedUrl": "git+file:///repo",
+  "revision": "abcdef",
+  "url": "git+file:///repo?rev=abcdef"
+}"#,
+        )
+        .unwrap();
+        fs::write(
+            &outputs_path,
+            r#"{
+  "packages": {
+    "x86_64-linux": {
+      "default": {
+        "type": "derivation",
+        "name": "codedb-runtime-tools",
+        "description": "runtime tools"
+      }
+    }
+  },
+  "apps": {
+    "x86_64-linux": {
+      "codedb": {
+        "type": "app",
+        "program": "/nix/store/example/bin/codedb"
+      }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let rows =
+            nix_flake_import_rows(&metadata_path, Some(&outputs_path), Span::unknown()).unwrap();
+
+        assert!(
+            rows.iter()
+                .any(|row| row_has_string(row, "table", "nix_flake_summary")
+                    && row_has_string(row, "description", "CodeDB package")
+                    && row_has_string(row, "revision", "abcdef")
+                    && row_has_hash(row, "metadata_hash"))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row_has_string(row, "table", "nix_flake_refs")
+                    && row_has_string(row, "ref_kind", "locked")
+                    && row_has_string(row, "nar_hash", "sha256-local"))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row_has_string(row, "table", "nix_flake_lock_nodes")
+                    && row_has_string(row, "node_name", "nixpkgs")
+                    && row_has_string(row, "locked_owner", "NixOS"))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row_has_string(row, "table", "nix_flake_lock_edges")
+                    && row_has_string(row, "source_node", "root")
+                    && row_has_string(row, "input_name", "systems")
+                    && row_has_string(row, "target_path", "flake-utils/systems")
+                    && row_has_string(row, "edge_kind", "follows_path"))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row_has_string(row, "table", "nix_flake_outputs")
+                    && row_has_string(row, "attr_path", "packages.x86_64-linux.default")
+                    && row_has_string(row, "category", "packages")
+                    && row_has_string(row, "system", "x86_64-linux")
+                    && row_has_string(row, "output_kind", "derivation"))
+        );
+    }
+
+    // Defends: malformed metadata produces an import error before any partial row claim.
+    #[test]
+    fn nix_flake_import_rows_reject_bad_metadata_json() {
+        let root = temp_path("nix-flake-bad-json");
+        fs::create_dir_all(&root).unwrap();
+        let metadata_path = root.join("metadata.json");
+        fs::write(&metadata_path, "{not json").unwrap();
+
+        let error = nix_flake_import_rows(&metadata_path, None, Span::unknown()).unwrap_err();
+
+        assert!(error.to_string().contains("failed to parse"));
+    }
+
+    fn row_has_string(row: &Row, key: &str, expected: &str) -> bool {
+        row.iter().any(|(candidate, value)| {
+            *candidate == key && matches!(value, Value::String { val, .. } if val == expected)
+        })
+    }
+
+    fn row_has_hash(row: &Row, key: &str) -> bool {
+        row.iter().any(|(candidate, value)| {
+            *candidate == key && matches!(value, Value::String { val, .. } if val.len() == 64)
+        })
     }
 }
