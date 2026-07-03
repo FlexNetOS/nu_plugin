@@ -15,13 +15,16 @@ Read order:
 11. `execution/TASK_GRAPH.md`
 12. `execution/TASK_FILE_MAP.csv`
 13. selected target docs/task files
-14. optional: `research/nushell_yazelix_cross_reference_report.md` only for Yazelix/Nushell bridge tasks
-15. `execution/COMMAND_LEDGER.csv`
-16. `execution/WORKLOG.md`
-17. `manifests/PACKAGE_VALIDATION.json`
+14. if working the V1.2 planning lane: `docs/polyglot-import/README.md` -> supporting polyglot docs -> `execution/POLYGLOT_TASK_GRAPH.csv` -> `execution/POLYGLOT_TASK_FILE_MAP.csv` -> `execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md`
+15. optional: `research/nushell_yazelix_cross_reference_report.md` only for Yazelix/Nushell bridge tasks
+16. `execution/COMMAND_LEDGER.csv`
+17. `execution/WORKLOG.md`
+18. `manifests/PACKAGE_VALIDATION.json`
 
 Dependency rule:
 
 ```text
-start -> readiness -> navigation -> goal/subgoals -> PRD -> checklist completion -> task graph -> task file map -> execution -> ledger/worklog -> manifest
+start -> readiness -> navigation -> goal/subgoals -> PRD -> checklist completion -> task graph
+task graph -> task file map -> selected execution lane
+selected execution lane -> ledger/worklog -> manifest
 ```

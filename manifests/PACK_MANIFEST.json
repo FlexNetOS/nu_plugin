@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "fd4cc51bd025ee6e2f27521a5148c65a5d82549d8d7b55fae126a0704dd916c2",
+  "checksum_scope_files_sha256": "ccee55d3063602790df2aba70df13b75021d8995fd8c9c7f269cb2f3adc43527",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 254,
   "files": [
@@ -31,9 +31,9 @@
       "sha256": "26b1bf203e8ec0b92851cc193808b9ad5eda0db31ac08dbe138ef469ab9c9c8f"
     },
     {
-      "bytes": 803,
+      "bytes": 785,
       "path": ".kb/config.toml",
-      "sha256": "c96596f8c98fcf9929e1546596bac7c59c4d70afbaf2660678f58e66f7ff6ccb"
+      "sha256": "9a5b58c5e953dd1b9d7b07319529ee4b89300713471b343d62daefb7452cc53e"
     },
     {
       "bytes": 3848,
@@ -226,9 +226,9 @@
       "sha256": "2a113643d58aa8d7ef1204fa42f619fd50e4b7529fc321939abbfa6833b417f2"
     },
     {
-      "bytes": 910,
+      "bytes": 1486,
       "path": "ACCEPTANCE.md",
-      "sha256": "01018c7206398687526f1155f4a7d1096c9cfd7ca0497258806a7f9a7ab5dfa8"
+      "sha256": "c73bff52b5269d51b317a058819d67717d46a8bf114fdd35f3003676fe845295"
     },
     {
       "bytes": 678,
@@ -261,9 +261,9 @@
       "sha256": "bfa29d13b47f1d517264e6f3958f546818dbf6e513020bedde5a5b9e1d9470ac"
     },
     {
-      "bytes": 792,
+      "bytes": 1069,
       "path": "DOC_GRAPH.md",
-      "sha256": "2119511975e50fa63eeb7c0212ac1492e41afcf74345d73e953757877f6925ce"
+      "sha256": "6c9f6a2e3e4f8ac266a24dbc6a081cb418211bc291c140364dc5b6818981493b"
     },
     {
       "bytes": 522,
@@ -281,29 +281,29 @@
       "sha256": "1f44932177a48edfaac878dcb044a3ae68616181a091026344a313fc80cf7535"
     },
     {
-      "bytes": 2953,
+      "bytes": 4009,
       "path": "HANDOFF.md",
-      "sha256": "be5e6f868f77584a1b4874371c612e6fd1d1955f20d0b0fd54ef17ed6cd833d3"
+      "sha256": "41fde860bd98b6fe1b7ae5e599f3214c7b5c1499c32b1961669d85b9875ff5ec"
     },
     {
-      "bytes": 11403,
+      "bytes": 16942,
       "path": "NAVIGATION.json",
-      "sha256": "d738c3f5e56653aefb803f5023c4b83973857ced5bcf9a664a7d1fec847720f4"
+      "sha256": "2525639b1888e0c6fca2445885e59e858d38b27215c3dfc96d92ccf0d276896e"
     },
     {
-      "bytes": 4585,
+      "bytes": 7014,
       "path": "NAVIGATION.md",
-      "sha256": "0450489f41837323f7e902e900dc5ccb766b0f93027ab033458772566f5ade32"
+      "sha256": "31259b0fcbf52942e7bff5c2fe628017414de8f3de9a5b7e01b2f50a0c39a2cc"
     },
     {
-      "bytes": 893,
+      "bytes": 1062,
       "path": "READINESS_GATE.md",
-      "sha256": "0efd94c162555e18980137f4f55b86ba065bd0557388cced862a3c0d16d8d277"
+      "sha256": "e9c789a300c293b394e6bf698fe3be1b1d1d833cdacd8e4daab743d0829c7a1a"
     },
     {
-      "bytes": 776,
+      "bytes": 981,
       "path": "STOP_CONDITIONS.md",
-      "sha256": "80221f20d719cd2c1ba0dea61813296ad4ffc4fc1526a2dada17a8e675b92a21"
+      "sha256": "799a0bfd44ae945bee3ddd833bb84e10be15902206e2fa9540a85bda93f1793f"
     },
     {
       "bytes": 455,
@@ -516,9 +516,9 @@
       "sha256": "87890ae91fc2163b969df25e3c4a63cf66c100dff2eafa0394873012c9ac56c1"
     },
     {
-      "bytes": 5294,
+      "bytes": 7254,
       "path": "execution/COMMAND_LEDGER.csv",
-      "sha256": "f1cc7244bcaa334e9efd096bfb79962bbaf3459c33eabe81379ddf29a0004c1c"
+      "sha256": "a2b8b41cedcfc9495bd53478c4d7190de6871fc3d9d29b1a43eed5ef9f35875f"
     },
     {
       "bytes": 103906,
@@ -536,9 +536,9 @@
       "sha256": "297383e863b063d80fb379127ccde5c6be4948669b5779b5731f579197ce5047"
     },
     {
-      "bytes": 3612,
+      "bytes": 4552,
       "path": "execution/WORKLOG.md",
-      "sha256": "4731e3db93c3706648c263a0de116aa36e5d9f387525e85758c1277f5b1cfb11"
+      "sha256": "1e36190fb3dec6e48460a0d8533845cfb0f931b2e9600f035731824348aa449d"
     },
     {
       "bytes": 2076,
@@ -1281,7 +1281,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T21:34:46+00:00",
+  "generated_at_utc": "2026-07-03T01:18:35+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

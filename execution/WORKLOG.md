@@ -74,3 +74,11 @@ Surgical repair performed:
 - resealed validation, manifest, checksums, link report, ledger, and worklog.
 
 Evidence: `logs/CDB068-csv-source-of-truth-repair.log`, `manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json`, `execution/TASK_GRAPH.csv`.
+
+## 2026-07-03T01:18:10Z — CDB091-CDB105 — Polyglot planning package and reseal
+
+- Created the V1.2 planning-only polyglot package under `docs/polyglot-import/`.
+- Captured the research ledger, language/package surface, parser/indexer matrix, schema-extension plan, whole-repo architecture, generated crate contract, proof gates, security policy, open questions, and issue-delivery map.
+- Added `execution/POLYGLOT_TASK_GRAPH.csv`, `execution/POLYGLOT_TASK_FILE_MAP.csv`, and `execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md` and marked CDB091-CDB105 complete as planning tasks.
+- Updated `NAVIGATION.md`, `NAVIGATION.json`, `DOC_GRAPH.md`, `HANDOFF.md`, `ACCEPTANCE.md`, `READINESS_GATE.md`, and `STOP_CONDITIONS.md` so V1.1 implementation truth stays distinct from the V1.2 planning lane.
+- Validated the planning CSVs, JSON navigation surface, git diff hygiene, and resealed the package truth surface with updated manifests and checksums.
