@@ -17,6 +17,7 @@ pub const STATUS: &str = "bounded_read_only_mcp_available";
 pub const DEFAULT_ROW_LIMIT: usize = 50;
 pub const MAX_ROW_LIMIT: usize = 200;
 pub const DEFAULT_MAX_BYTES: usize = 65_536;
+pub const DEFAULT_TRANSPORT: &str = "stdio";
 
 pub const ALLOWED_TOOLS: &[&str] = &[
     "codedb_schema",
@@ -34,6 +35,10 @@ pub const ALLOWED_TOOLS: &[&str] = &[
 
 pub const BLOCKED_TOOLS: &[&str] = &[
     "raw_source_blob_read",
+    "raw_source_read",
+    "raw_blob_read",
+    "source_blob_read",
+    "artifact_blob_read",
     "full_file_dump",
     "unsafe_build_capture",
     "source_overwrite",
@@ -65,6 +70,25 @@ pub struct McpResponse {
     pub truncated: bool,
     pub rows: Vec<Row>,
     pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub transport: String,
+    pub default_row_limit: usize,
+    pub max_row_limit: usize,
+    pub default_max_bytes: usize,
+    pub raw_source_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpLifecycleReport {
+    pub phase: String,
+    pub status: String,
+    pub transport: String,
+    pub bounded_defaults: bool,
+    pub raw_source_enabled: bool,
+    pub note: String,
 }
 
 #[derive(Debug)]
@@ -118,6 +142,65 @@ pub fn list_blocked_tools() -> Vec<Row> {
             ])
         })
         .collect()
+}
+
+pub fn default_server_config() -> McpServerConfig {
+    McpServerConfig {
+        transport: DEFAULT_TRANSPORT.to_string(),
+        default_row_limit: DEFAULT_ROW_LIMIT,
+        max_row_limit: MAX_ROW_LIMIT,
+        default_max_bytes: DEFAULT_MAX_BYTES,
+        raw_source_enabled: false,
+    }
+}
+
+pub fn lifecycle_start(config: &McpServerConfig) -> Result<McpLifecycleReport, McpError> {
+    if config.default_row_limit > config.max_row_limit {
+        return Err(McpError::LimitTooLarge {
+            requested: config.default_row_limit,
+            max: config.max_row_limit,
+        });
+    }
+    Ok(McpLifecycleReport {
+        phase: "startup".to_string(),
+        status: "ready".to_string(),
+        transport: config.transport.clone(),
+        bounded_defaults: config.max_row_limit <= MAX_ROW_LIMIT
+            && config.default_max_bytes <= DEFAULT_MAX_BYTES,
+        raw_source_enabled: config.raw_source_enabled,
+        note: "external MCP server lifecycle configured with bounded read-only defaults"
+            .to_string(),
+    })
+}
+
+pub fn lifecycle_shutdown(config: &McpServerConfig) -> McpLifecycleReport {
+    McpLifecycleReport {
+        phase: "shutdown".to_string(),
+        status: "stopped".to_string(),
+        transport: config.transport.clone(),
+        bounded_defaults: true,
+        raw_source_enabled: config.raw_source_enabled,
+        note: "shutdown completes without mutating repositories or exposing raw source".to_string(),
+    }
+}
+
+pub fn lifecycle_rows(config: &McpServerConfig) -> Result<Vec<Row>, McpError> {
+    let start = lifecycle_start(config)?;
+    let shutdown = lifecycle_shutdown(config);
+    Ok(vec![
+        lifecycle_row(&start),
+        lifecycle_row(&shutdown),
+        row([
+            ("table", "mcp_config".to_string()),
+            ("phase", "config".to_string()),
+            ("status", "available".to_string()),
+            ("transport", config.transport.clone()),
+            ("default_row_limit", config.default_row_limit.to_string()),
+            ("max_row_limit", config.max_row_limit.to_string()),
+            ("default_max_bytes", config.default_max_bytes.to_string()),
+            ("raw_source_enabled", config.raw_source_enabled.to_string()),
+        ]),
+    ])
 }
 
 pub fn handle_request(request: McpRequest) -> Result<McpResponse, McpError> {
@@ -224,6 +307,18 @@ fn bound_response(
     }
 }
 
+fn lifecycle_row(report: &McpLifecycleReport) -> Row {
+    row([
+        ("table", "mcp_lifecycle".to_string()),
+        ("phase", report.phase.clone()),
+        ("status", report.status.clone()),
+        ("transport", report.transport.clone()),
+        ("bounded_defaults", report.bounded_defaults.to_string()),
+        ("raw_source_enabled", report.raw_source_enabled.to_string()),
+        ("note", report.note.clone()),
+    ])
+}
+
 fn table_page_rows(table: &str, repo_path: Option<&Path>) -> Result<Vec<Row>, McpError> {
     match table {
         "schema" | "schema_versions" => Ok(table_rows(schema_rows())),
@@ -245,6 +340,17 @@ fn table_page_rows(table: &str, repo_path: Option<&Path>) -> Result<Vec<Row>, Mc
         "build_script_summary" | "build_scripts" => build_script_summary_rows(
             repo_path.ok_or(McpError::MissingRepoPath("codedb_get_table_page"))?,
         ),
+        "mcp_lifecycle" | "mcp_config" => lifecycle_rows(&default_server_config()),
+        "source_blobs" | "artifact_blobs" | "blob_refs" | "raw_source" | "raw_blobs" => {
+            Ok(vec![row([
+                ("table", "validation_errors".to_string()),
+                ("code", "raw_blob_table_blocked".to_string()),
+                (
+                    "message",
+                    format!("raw source/blob table is blocked by MCP: {table}"),
+                ),
+            ])])
+        }
         other => Ok(vec![row([
             ("table", "validation_errors".to_string()),
             ("code", "unsupported_table".to_string()),
@@ -429,18 +535,60 @@ mod tests {
     #[test]
     fn allowed_and_blocked_tools_are_explicit() {
         assert!(ensure_tool_allowed("codedb_schema").is_ok());
-        assert!(matches!(
-            ensure_tool_allowed("raw_source_blob_read"),
-            Err(McpError::BlockedTool(_))
-        ));
-        assert!(matches!(
-            ensure_tool_allowed("patch_apply"),
-            Err(McpError::BlockedTool(_))
-        ));
+        for tool in [
+            "raw_source_blob_read",
+            "raw_source_read",
+            "raw_blob_read",
+            "source_blob_read",
+            "artifact_blob_read",
+            "full_file_dump",
+            "source_overwrite",
+            "patch_apply",
+            "git_mutation",
+            "unbounded_table_dump",
+        ] {
+            assert!(
+                matches!(ensure_tool_allowed(tool), Err(McpError::BlockedTool(_))),
+                "{tool} should be blocked by default"
+            );
+        }
         assert!(matches!(
             ensure_tool_allowed("codedb_dump_everything"),
             Err(McpError::UnknownTool(_))
         ));
+    }
+
+    // Test lane: default
+    // Defends: CDB083 raw source/blob table aliases are denied without leaking bytes.
+    #[test]
+    fn raw_source_and_blob_table_pages_return_denial_rows() {
+        for table in [
+            "source_blobs",
+            "artifact_blobs",
+            "blob_refs",
+            "raw_source",
+            "raw_blobs",
+        ] {
+            let response = handle_request(McpRequest {
+                tool: "codedb_get_table_page".to_string(),
+                repo_path: None,
+                table: Some(table.to_string()),
+                cursor: None,
+                limit: Some(DEFAULT_ROW_LIMIT),
+                max_bytes: Some(DEFAULT_MAX_BYTES),
+            })
+            .expect("blocked table returns validation row");
+            let output = serde_json::to_string(&response).expect("serialize response");
+
+            assert_eq!(response.rows.len(), 1);
+            assert_eq!(
+                response.rows[0].get("code").map(String::as_str),
+                Some("raw_blob_table_blocked")
+            );
+            assert!(output.contains(table));
+            assert!(!output.contains("should_not_escape"));
+            assert!(!output.contains("SECRET_TOKEN"));
+        }
     }
 
     // Test lane: default
@@ -523,6 +671,34 @@ mod tests {
         assert!(!output.contains("SECRET_TOKEN"));
 
         let _ = fs::remove_dir_all(repo);
+    }
+
+    // Test lane: default
+    // Defends: packaged MCP lifecycle exposes startup/shutdown/config proof without enabling raw source.
+    #[test]
+    fn lifecycle_rows_keep_raw_source_disabled() {
+        let config = default_server_config();
+        let rows = lifecycle_rows(&config).expect("lifecycle rows");
+        assert!(rows.iter().any(|row| {
+            row.get("phase").is_some_and(|phase| phase == "startup")
+                && row.get("status").is_some_and(|status| status == "ready")
+        }));
+        assert!(rows.iter().all(|row| {
+            row.get("raw_source_enabled")
+                .is_none_or(|enabled| enabled == "false")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: external MCP config remains bounded before serving requests.
+    #[test]
+    fn lifecycle_rejects_unbounded_default_limit() {
+        let mut config = default_server_config();
+        config.default_row_limit = MAX_ROW_LIMIT + 1;
+        assert!(matches!(
+            lifecycle_start(&config),
+            Err(McpError::LimitTooLarge { .. })
+        ));
     }
 
     fn temp_repo() -> PathBuf {

@@ -32,6 +32,19 @@ jobs:
       - name: Envctl inventory smoke
         run: cargo test -p nu_plugin_codedb envctl_inventory_import_rows
 
+  nu:
+    name: Nu smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - name: Syntax gate
+        run: nix develop .#ci -c nu tests/test_nushell_syntax_gate.nu
+      - name: Transient plugin smoke
+        run: nix develop .#ci -c nu tests/test_transient_plugin.nu
+      - name: Plugin registry smoke
+        run: nix develop .#ci -c nu tests/test_plugin_registry.nu
+
   nix:
     name: Nix checks
     runs-on: ubuntu-latest

@@ -41,3 +41,14 @@ Release is blocked until these proofs exist:
 - redb backup/restore smoke passes;
 - envctl export JSON/NUON/CSV validates;
 - package manifest/checksums/link report validate.
+- `bidirectional_issue_212` runner proof row is `satisfied`, with CDB070-CDB090
+  complete or explicitly represented as GAP/QUESTION evidence, read-only
+  defaults proven, and hidden mutation forbidden.
+
+## CDB090 Bidirectional Gate
+
+CDB090 reseals the bidirectional package by requiring
+`scripts/validate_bidirectional_package.py` to reject any non-`complete`
+CDB070-CDB090 task graph row. CodeDB also emits a `runner_proof_manifest` row
+with `gate_id = bidirectional_issue_212`, `status = satisfied`,
+`release_without_provenance = forbidden`, and `task_count = 21`.

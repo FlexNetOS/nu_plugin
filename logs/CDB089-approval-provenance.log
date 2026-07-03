@@ -1,0 +1,19 @@
+CDB089 operator approval and manual decision provenance
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: apply gates require decision IDs and actor/timestamp/evidence
+  references.
+
+Implementation:
+- Added `decided_at` to `OperatorDecision`.
+- `validate_apply_gate` now refuses apply intent when decision ID, actor,
+  timestamp, evidence reference, or manual-decision reference is blank.
+- `operator_decisions` rows include the decision timestamp in their bounded
+  provenance note.
+- Documented the approval provenance contract in the change-plan schema and
+  bidirectional architecture.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-core apply_gate_refuses_incomplete_operator_decision_provenance`
+- `nix develop .#ci -c cargo test -p codedb-core apply_gate_allows_only_complete_operator_provenance`

@@ -96,6 +96,40 @@
               printf '%s\n' "import rows smoke ok" > "$out/result.txt"
             '';
           };
+
+          nushell_syntax_smoke = pkgs.runCommand "codedb-nushell-syntax-smoke" { } ''
+            set -eu
+            cp -R ${source} source
+            chmod -R u+w source
+            cd source
+            export PATH="${pkgs.nushell}/bin:$PATH"
+            ${pkgs.nushell}/bin/nu tests/test_nushell_syntax_gate.nu
+            mkdir -p "$out"
+            printf '%s\n' "nushell syntax smoke ok" > "$out/result.txt"
+          '';
+        }
+      );
+
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        {
+          default = self.devShells.${system}.ci;
+          ci = pkgs.mkShell {
+            packages = [
+              pkgs.cargo
+              pkgs.clippy
+              pkgs.rustc
+              pkgs.rustfmt
+              pkgs.nushell
+              pkgs.python3
+              pkgs.nixfmt
+            ];
+
+            CODEDB_CI_SHELL = "1";
+          };
         }
       );
 

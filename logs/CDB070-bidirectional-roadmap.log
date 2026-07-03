@@ -1,0 +1,25 @@
+2026-07-02T17:50:43Z CDB070 bidirectional roadmap package
+
+Source issue:
+- https://github.com/FlexNetOS/flexnetos_runner/issues/212
+
+GitKB backlog:
+- created active tasks CDB070-CDB090 under tasks/cdb070-* through tasks/cdb090-*
+
+Validation:
+- python3 scripts/validate_bidirectional_package.py
+  -> bidirectional package ok: 21 task rows
+- issue minimum CSV check
+  -> execution/BIDIRECTIONAL_TASK_GRAPH.csv: 21 rows
+  -> execution/BIDIRECTIONAL_TASK_FILE_MAP.csv: 21 rows
+- python3 -m json.tool NAVIGATION.json
+  -> ok
+- git diff --check
+  -> ok
+
+Safety:
+- default commands remain read-only
+- MCP remains read-only and bounded by default
+- no hidden Git mutation
+- no direct source overwrite before controlled apply gates
+- missing evidence is QUESTION or GAP, not FACT

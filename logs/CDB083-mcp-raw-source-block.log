@@ -1,0 +1,14 @@
+CDB083 MCP raw source and blob block
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: bounded MCP output tests deny raw blobs/secrets.
+
+Implementation:
+- Added raw source/blob read aliases to `BLOCKED_TOOLS`.
+- Added bounded `raw_blob_table_blocked` validation rows for raw source/blob
+  table-page aliases.
+- Preserved metadata-only repository summary behavior.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-mcp raw_source`

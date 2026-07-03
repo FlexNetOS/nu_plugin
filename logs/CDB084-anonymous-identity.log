@@ -1,0 +1,16 @@
+CDB084 stable anonymous and unstable syntax identity
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: identities survive round-trip or are marked as unstable with
+  conflict behavior.
+
+Implementation:
+- Added Rust item identity classification to static item rows.
+- Named syntax rows are `stable_named`.
+- Anonymous impl rows receive deterministic scan-order names like `impl#1` and
+  are marked `unstable_anonymous` with source-drift-sensitive notes.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-rust-static anonymous_impl_identity_is_distinct_and_marked_unstable`
+- `nix develop .#ci -c cargo test -p codedb-rust-static`

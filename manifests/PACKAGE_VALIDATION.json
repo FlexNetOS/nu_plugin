@@ -1,5 +1,7 @@
 {
   "checks": {
+    "checksum_scope_count": 282,
+    "checksum_scope_files_sha256": "b7c6db8a07a69da49e2780aac1e54f6157445c799c698c852c764b239f802e09",
     "checksum_scope_count": 254,
     "checksum_scope_files_sha256": "fd4cc51bd025ee6e2f27521a5148c65a5d82549d8d7b55fae126a0704dd916c2",
     "checksums_path": "manifests/CHECKSUMS.sha256",
@@ -11,6 +13,7 @@
     "manifest_path": "manifests/PACK_MANIFEST.json",
     "mode": "repo_native"
   },
+  "generated_at_utc": "2026-07-02T19:56:32+00:00",
   "generated_at_utc": "2026-07-02T21:34:46+00:00",
   "status": "passed",
   "warnings": [

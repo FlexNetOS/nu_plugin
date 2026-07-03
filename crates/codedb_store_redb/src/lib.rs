@@ -13,7 +13,7 @@ use redb::{
 };
 use sha2::{Digest, Sha256};
 
-pub const STATUS: &str = "planned";
+pub const STATUS: &str = "source_blob_store_available";
 pub const STORE_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(1, 0, 0);
 
 const SCHEMA_VERSION_TABLE: TableDefinition<&str, &str> = TableDefinition::new("schema_versions");
@@ -21,6 +21,10 @@ const STORE_METADATA_TABLE: TableDefinition<&str, &str> = TableDefinition::new("
 const TOOLCHAIN_METADATA_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("toolchain_metadata");
 const VALIDATION_ROWS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("validation_rows");
+const SOURCE_BLOBS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("source_blobs");
+const SOURCE_FILES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("source_files");
+const SOURCE_FILE_METADATA_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("source_file_metadata");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreInitContext<'a> {
@@ -60,6 +64,22 @@ pub struct StoreRestoreReport {
     pub restored_store: StoreInitReport,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceBlobRow {
+    pub relative_path: String,
+    pub blob_ref: String,
+    pub sha256: String,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileMaterializationReport {
+    pub path: PathBuf,
+    pub blob_ref: String,
+    pub sha256: String,
+    pub bytes: u64,
+}
+
 #[derive(Debug)]
 pub enum StoreError {
     Database(DatabaseError),
@@ -68,6 +88,9 @@ pub enum StoreError {
     Table(TableError),
     Storage(StorageError),
     Io(io::Error),
+    UnsupportedSchemaVersion {
+        observed: String,
+    },
     MissingValue {
         table: &'static str,
         key: &'static str,
@@ -83,6 +106,9 @@ impl Display for StoreError {
             Self::Table(err) => write!(f, "table error: {err}"),
             Self::Storage(err) => write!(f, "storage error: {err}"),
             Self::Io(err) => write!(f, "io error: {err}"),
+            Self::UnsupportedSchemaVersion { observed } => {
+                write!(f, "unsupported store schema version: {observed}")
+            }
             Self::MissingValue { table, key } => {
                 write!(f, "missing metadata value {key} in table {table}")
             }
@@ -170,6 +196,11 @@ pub fn initialize_store(
             )?;
             validation_rows.insert("plugin_lifecycle_gc", "drop_releases_write_lock")?;
         }
+        {
+            write_txn.open_table(SOURCE_BLOBS_TABLE)?;
+            write_txn.open_table(SOURCE_FILES_TABLE)?;
+            write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+        }
         write_txn.commit()?;
     }
 
@@ -194,7 +225,11 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
             })?;
         match value.value() {
             "1.0.0" => STORE_SCHEMA_VERSION,
-            _ => STORE_SCHEMA_VERSION,
+            other => {
+                return Err(StoreError::UnsupportedSchemaVersion {
+                    observed: other.to_string(),
+                });
+            }
         }
     };
 
@@ -204,6 +239,8 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
         ("store_metadata", STORE_METADATA_TABLE),
         ("toolchain_metadata", TOOLCHAIN_METADATA_TABLE),
         ("validation_rows", VALIDATION_ROWS_TABLE),
+        ("source_files", SOURCE_FILES_TABLE),
+        ("source_file_metadata", SOURCE_FILE_METADATA_TABLE),
     ] {
         let table = read_txn.open_table(definition)?;
         for result in table.iter()? {
@@ -220,6 +257,160 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
         path,
         schema_version,
         rows,
+    })
+}
+
+pub fn persist_source_file(
+    store_path: impl AsRef<Path>,
+    relative_path: impl AsRef<str>,
+    source_path: impl AsRef<Path>,
+) -> Result<SourceBlobRow, StoreError> {
+    let store_path = store_path.as_ref();
+    let relative_path = relative_path.as_ref().to_string();
+    let source_path = source_path.as_ref();
+    let bytes = fs::read(source_path)?;
+    let row = persist_source_blob(store_path, relative_path, &bytes)?;
+    persist_source_file_metadata(store_path, &row.relative_path, source_path)?;
+    Ok(row)
+}
+
+pub fn persist_source_blob(
+    store_path: impl AsRef<Path>,
+    relative_path: impl Into<String>,
+    bytes: &[u8],
+) -> Result<SourceBlobRow, StoreError> {
+    let relative_path = relative_path.into();
+    let sha256 = sha256_bytes(bytes);
+    let blob_ref = format!("sha256:{sha256}");
+    let db = Database::open(store_path)?;
+    {
+        let write_txn = db.begin_write()?;
+        {
+            let mut blobs = write_txn.open_table(SOURCE_BLOBS_TABLE)?;
+            blobs.insert(sha256.as_str(), bytes)?;
+        }
+        {
+            let mut files = write_txn.open_table(SOURCE_FILES_TABLE)?;
+            files.insert(relative_path.as_str(), blob_ref.as_str())?;
+        }
+        {
+            let mut metadata = write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+            metadata.insert(
+                source_file_metadata_key(&relative_path, "artifact_kind").as_str(),
+                "raw_blob",
+            )?;
+            metadata.insert(
+                source_file_metadata_key(&relative_path, "permission_capture").as_str(),
+                "gap_not_available_for_raw_blob",
+            )?;
+        }
+        write_txn.commit()?;
+    }
+
+    Ok(SourceBlobRow {
+        relative_path,
+        blob_ref,
+        sha256,
+        bytes: bytes.len() as u64,
+    })
+}
+
+pub fn read_source_file_blob(
+    store_path: impl AsRef<Path>,
+    relative_path: impl AsRef<str>,
+) -> Result<SourceBlobRow, StoreError> {
+    let relative_path = relative_path.as_ref().to_string();
+    let db = Database::open(store_path)?;
+    let read_txn = db.begin_read()?;
+    let blob_ref = {
+        let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+        files
+            .get(relative_path.as_str())?
+            .ok_or(StoreError::MissingValue {
+                table: "source_files",
+                key: "relative_path",
+            })?
+            .value()
+            .to_string()
+    };
+    let sha256 = blob_ref.trim_start_matches("sha256:").to_string();
+    let bytes = {
+        let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
+        blobs
+            .get(sha256.as_str())?
+            .ok_or(StoreError::MissingValue {
+                table: "source_blobs",
+                key: "sha256",
+            })?
+            .value()
+            .len() as u64
+    };
+
+    Ok(SourceBlobRow {
+        relative_path,
+        blob_ref,
+        sha256,
+        bytes,
+    })
+}
+
+pub fn materialize_source_file(
+    store_path: impl AsRef<Path>,
+    relative_path: impl AsRef<str>,
+    output_path: impl AsRef<Path>,
+) -> Result<FileMaterializationReport, StoreError> {
+    let relative_path = relative_path.as_ref();
+    let output_path = output_path.as_ref().to_path_buf();
+    let db = Database::open(store_path)?;
+    let read_txn = db.begin_read()?;
+    let blob_ref = {
+        let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+        files
+            .get(relative_path)?
+            .ok_or(StoreError::MissingValue {
+                table: "source_files",
+                key: "relative_path",
+            })?
+            .value()
+            .to_string()
+    };
+    let sha256 = blob_ref.trim_start_matches("sha256:").to_string();
+    let bytes = {
+        let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
+        blobs
+            .get(sha256.as_str())?
+            .ok_or(StoreError::MissingValue {
+                table: "source_blobs",
+                key: "sha256",
+            })?
+            .value()
+            .to_vec()
+    };
+    let unix_mode = {
+        let metadata = read_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+        metadata
+            .get(source_file_metadata_key(relative_path, "unix_mode").as_str())?
+            .map(|value| value.value().to_string())
+    };
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&output_path, &bytes)?;
+    #[cfg(unix)]
+    if let Some(mode) = unix_mode {
+        use std::os::unix::fs::PermissionsExt;
+
+        if let Ok(parsed_mode) = u32::from_str_radix(&mode, 8) {
+            fs::set_permissions(&output_path, fs::Permissions::from_mode(parsed_mode))?;
+        }
+    }
+    let materialized_sha256 = checksum_file_sha256(&output_path)?;
+
+    Ok(FileMaterializationReport {
+        path: output_path,
+        blob_ref,
+        sha256: materialized_sha256,
+        bytes: bytes.len() as u64,
     })
 }
 
@@ -240,6 +431,58 @@ pub fn checksum_file_sha256(path: impl AsRef<Path>) -> Result<String, StoreError
         hasher.update(&buffer[..read]);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn source_file_metadata_key(relative_path: &str, field: &str) -> String {
+    format!("{relative_path}::{field}")
+}
+
+fn persist_source_file_metadata(
+    store_path: &Path,
+    relative_path: &str,
+    source_path: &Path,
+) -> Result<(), StoreError> {
+    let source_metadata = fs::metadata(source_path)?;
+    let db = Database::open(store_path)?;
+    let write_txn = db.begin_write()?;
+    {
+        let mut metadata = write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+        metadata.insert(
+            source_file_metadata_key(relative_path, "artifact_kind").as_str(),
+            "source_file",
+        )?;
+        metadata.insert(
+            source_file_metadata_key(relative_path, "readonly").as_str(),
+            if source_metadata.permissions().readonly() {
+                "true"
+            } else {
+                "false"
+            },
+        )?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mode = source_metadata.permissions().mode() & 0o777;
+            metadata.insert(
+                source_file_metadata_key(relative_path, "unix_mode").as_str(),
+                format!("{mode:o}").as_str(),
+            )?;
+        }
+        #[cfg(not(unix))]
+        {
+            metadata.insert(
+                source_file_metadata_key(relative_path, "unix_mode").as_str(),
+                "gap_not_available_on_non_unix_platform",
+            )?;
+        }
+    }
+    write_txn.commit()?;
+    Ok(())
 }
 
 #[allow(clippy::result_large_err)]
@@ -355,6 +598,41 @@ mod tests {
     }
 
     // Test lane: default
+    // Defends: CDB086 unknown future schemas are refused instead of silently treated as current.
+    #[test]
+    fn unknown_schema_version_is_refused() {
+        let path = temp_store_path();
+        let context = StoreInitContext {
+            codedb_version: "0.1.0",
+            toolchain: "stable-x86_64-unknown-linux-gnu",
+            rustc_version: "rustc 1.92.0",
+            cargo_version: "cargo 1.96.0",
+        };
+        initialize_store(&path, &context).expect("store init");
+        {
+            let db = Database::open(&path).expect("open store");
+            let write_txn = db.begin_write().expect("begin write");
+            {
+                let mut schema_versions = write_txn
+                    .open_table(SCHEMA_VERSION_TABLE)
+                    .expect("schema table");
+                schema_versions
+                    .insert("schema_version", "99.0.0")
+                    .expect("write future schema");
+            }
+            write_txn.commit().expect("commit future schema");
+        }
+
+        let err = read_store_report(&path).expect_err("future schema should be refused");
+        assert!(matches!(
+            err,
+            StoreError::UnsupportedSchemaVersion { observed } if observed == "99.0.0"
+        ));
+
+        fs::remove_file(&path).ok();
+    }
+
+    // Test lane: default
     // Defends: CDB061 redb lifecycle keeps one writer active and releases the lock when plugin-like handles drop.
     #[test]
     fn lock_contention_blocks_until_writer_lifecycle_release() {
@@ -458,5 +736,115 @@ mod tests {
         fs::remove_file(&path).ok();
         fs::remove_file(&backup_path).ok();
         fs::remove_file(&restored_path).ok();
+    }
+
+    // Test lane: default
+    // Defends: source blob bytes are owned by the redb store and can be materialized after restore.
+    #[test]
+    fn source_blob_persists_and_materializes_after_restore() {
+        let path = temp_store_path();
+        let backup_path = path.with_extension("backup.redb");
+        let restored_path = path.with_extension("restored.redb");
+        let output_path = path.with_extension("materialized.rs");
+        let context = StoreInitContext {
+            codedb_version: "0.1.0",
+            toolchain: "stable-x86_64-unknown-linux-gnu",
+            rustc_version: "rustc 1.92.0",
+            cargo_version: "cargo 1.96.0",
+        };
+        let source = b"pub fn codedb_blob_roundtrip() -> bool { true }\n";
+
+        initialize_store(&path, &context).expect("store init");
+        let persisted =
+            persist_source_blob(&path, "src/lib.rs", source).expect("persist source blob");
+        assert_eq!(persisted.bytes, source.len() as u64);
+        assert!(persisted.blob_ref.starts_with("sha256:"));
+        let reread = read_source_file_blob(&path, "src/lib.rs").expect("read source blob row");
+        assert_eq!(reread, persisted);
+
+        backup_store(&path, &backup_path).expect("backup");
+        restore_store_from_backup(&backup_path, &restored_path).expect("restore");
+        let materialized = materialize_source_file(&restored_path, "src/lib.rs", &output_path)
+            .expect("materialize");
+        assert_eq!(materialized.sha256, persisted.sha256);
+        assert_eq!(fs::read(&output_path).expect("materialized bytes"), source);
+
+        fs::remove_file(&path).ok();
+        fs::remove_file(&backup_path).ok();
+        fs::remove_file(&restored_path).ok();
+        fs::remove_file(&output_path).ok();
+    }
+
+    // Test lane: default
+    // Defends: binary and non-Rust artifacts are stored as exact bytes, not text-normalized.
+    #[test]
+    fn non_rust_binary_artifact_materializes_exact_bytes() {
+        let path = temp_store_path();
+        let output_path = path.with_extension("materialized.bin");
+        let context = StoreInitContext {
+            codedb_version: "0.1.0",
+            toolchain: "stable-x86_64-unknown-linux-gnu",
+            rustc_version: "rustc 1.92.0",
+            cargo_version: "cargo 1.96.0",
+        };
+        let asset = b"\x00PNG\r\n\x1a\n\xffcodedb\x00asset";
+
+        initialize_store(&path, &context).expect("store init");
+        let persisted = persist_source_blob(&path, "assets/logo.bin", asset)
+            .expect("persist binary source blob");
+        let materialized = materialize_source_file(&path, "assets/logo.bin", &output_path)
+            .expect("materialize binary asset");
+
+        assert_eq!(materialized.sha256, persisted.sha256);
+        assert_eq!(fs::read(&output_path).expect("materialized bytes"), asset);
+
+        fs::remove_file(&path).ok();
+        fs::remove_file(&output_path).ok();
+    }
+
+    // Test lane: default
+    // Defends: source-file capture records and restores executable permission bits on Unix.
+    #[cfg(unix)]
+    #[test]
+    fn source_file_materialization_restores_unix_executable_bits() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = temp_store_path();
+        let source_path = path.with_extension("source.sh");
+        let output_path = path.with_extension("materialized.sh");
+        let context = StoreInitContext {
+            codedb_version: "0.1.0",
+            toolchain: "stable-x86_64-unknown-linux-gnu",
+            rustc_version: "rustc 1.92.0",
+            cargo_version: "cargo 1.96.0",
+        };
+
+        initialize_store(&path, &context).expect("store init");
+        fs::write(&source_path, b"#!/usr/bin/env bash\necho codedb\n").expect("write source");
+        fs::set_permissions(&source_path, fs::Permissions::from_mode(0o755))
+            .expect("set source mode");
+
+        let persisted = persist_source_file(&path, "scripts/codedb.sh", &source_path)
+            .expect("persist source file");
+        let materialized = materialize_source_file(&path, "scripts/codedb.sh", &output_path)
+            .expect("materialize source file");
+
+        assert_eq!(materialized.sha256, persisted.sha256);
+        assert_eq!(
+            fs::read(&output_path).expect("materialized bytes"),
+            fs::read(&source_path).expect("source bytes")
+        );
+        assert_eq!(
+            fs::metadata(&output_path)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+
+        fs::remove_file(&path).ok();
+        fs::remove_file(&source_path).ok();
+        fs::remove_file(&output_path).ok();
     }
 }

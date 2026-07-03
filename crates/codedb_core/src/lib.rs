@@ -134,6 +134,31 @@ impl FilesystemEntryKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymlinkMaterializationStatus {
+    Supported,
+    MetadataOnlyFallback,
+}
+
+impl SymlinkMaterializationStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Supported => "supported",
+            Self::MetadataOnlyFallback => "metadata_only_fallback",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformMaterializationRow {
+    pub table: &'static str,
+    pub status: &'static str,
+    pub rows: u64,
+    pub relative_path: String,
+    pub platform: &'static str,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileClassification {
     RustSource,
     CargoManifest,
@@ -262,6 +287,303 @@ pub struct NoMutationProof {
     pub mutation_detected: bool,
     pub degradation_reason: Option<String>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangePlanStatus {
+    Draft,
+    Reviewed,
+    Blocked,
+    ApprovedForIsolatedPatch,
+    ApprovedForApply,
+    Applied,
+    Recovered,
+}
+
+impl ChangePlanStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Reviewed => "reviewed",
+            Self::Blocked => "blocked",
+            Self::ApprovedForIsolatedPatch => "approved_for_isolated_patch",
+            Self::ApprovedForApply => "approved_for_apply",
+            Self::Applied => "applied",
+            Self::Recovered => "recovered",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeKind {
+    Create,
+    Update,
+    Delete,
+}
+
+impl ChangeKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Create => "create",
+            Self::Update => "update",
+            Self::Delete => "delete",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanRoot {
+    pub plan_id: &'static str,
+    pub source_snapshot_id: &'static str,
+    pub status: ChangePlanStatus,
+    pub created_at: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanNode {
+    pub node_id: &'static str,
+    pub object_id: &'static str,
+    pub change_kind: ChangeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanEdge {
+    pub from_node_id: &'static str,
+    pub to_node_id: &'static str,
+    pub edge_kind: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanGraph {
+    pub plan: ChangePlanRoot,
+    pub nodes: Vec<ChangePlanNode>,
+    pub edges: Vec<ChangePlanEdge>,
+}
+
+impl ChangePlanGraph {
+    pub const fn status_allows_source_apply(&self) -> bool {
+        matches!(
+            self.plan.status,
+            ChangePlanStatus::ApprovedForApply | ChangePlanStatus::Applied
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePlanTableRow {
+    pub table: &'static str,
+    pub status: &'static str,
+    pub rows: u64,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanConflictKind {
+    SourceDrift,
+    MissingEvidence,
+}
+
+impl PlanConflictKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SourceDrift => "source_drift",
+            Self::MissingEvidence => "missing_evidence",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanConflict {
+    pub plan_id: &'static str,
+    pub source_snapshot_id: &'static str,
+    pub conflict_kind: PlanConflictKind,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IsolatedPatchArtifact {
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub sha256: String,
+    pub proof_gate: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyDecision {
+    Approved,
+    Denied,
+}
+
+impl ApplyDecision {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Approved => "approved",
+            Self::Denied => "denied",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperatorDecision {
+    pub decision_id: &'static str,
+    pub plan_id: &'static str,
+    pub actor: &'static str,
+    pub decided_at: &'static str,
+    pub decision: ApplyDecision,
+    pub evidence_ref: &'static str,
+    pub manual_decision_ref: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StopConditionProof {
+    pub proof_id: &'static str,
+    pub passed: bool,
+    pub evidence_ref: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyGateReport {
+    pub plan_id: &'static str,
+    pub decision_id: &'static str,
+    pub status: &'static str,
+    pub recovery_ref: String,
+    pub rows: Vec<ChangePlanTableRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApplyGateError {
+    PlanNotApprovedForApply,
+    MissingOperatorDecision,
+    OperatorDecisionPlanMismatch,
+    OperatorDenied,
+    MissingDecisionEvidence,
+    StopConditionFailed,
+    MissingRecoveryRef,
+    SourceDrift,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BidirectionalSyncDirection {
+    SourceToStore,
+    StoreToSource,
+}
+
+impl BidirectionalSyncDirection {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SourceToStore => "source_to_store",
+            Self::StoreToSource => "store_to_source",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BidirectionalSyncStatus {
+    Verified,
+    Conflict,
+    RecoveryRequired,
+    Recovered,
+}
+
+impl BidirectionalSyncStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Conflict => "conflict",
+            Self::RecoveryRequired => "recovery_required",
+            Self::Recovered => "recovered",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BidirectionalSyncReport {
+    pub plan_id: &'static str,
+    pub direction: BidirectionalSyncDirection,
+    pub status: BidirectionalSyncStatus,
+    pub rows: Vec<ChangePlanTableRow>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailedApplyKind {
+    Materialization,
+    Apply,
+}
+
+impl FailedApplyKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Materialization => "materialization",
+            Self::Apply => "apply",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailedApplyRecoveryInput {
+    pub attempt_id: &'static str,
+    pub plan_id: &'static str,
+    pub kind: FailedApplyKind,
+    pub failure_ref: &'static str,
+    pub observed_snapshot_id: &'static str,
+    pub restored_snapshot_id: &'static str,
+    pub quarantine_ref: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FailedApplyRecoveryError {
+    AttemptPlanMismatch,
+    MissingAuditRef,
+    SourceNotRestored,
+}
+
+#[derive(Debug)]
+pub enum PatchPlanError {
+    TargetInsideSource {
+        source_checkout: PathBuf,
+        target_worktree: PathBuf,
+    },
+    UnsafePatchPath {
+        relative_patch_path: PathBuf,
+    },
+    MissingProofGate,
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
+}
+
+impl Display for PatchPlanError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TargetInsideSource {
+                source_checkout,
+                target_worktree,
+            } => write!(
+                f,
+                "patch target {} is inside source checkout {}",
+                target_worktree.display(),
+                source_checkout.display()
+            ),
+            Self::UnsafePatchPath {
+                relative_patch_path,
+            } => write!(
+                f,
+                "patch path must be relative and cannot escape target: {}",
+                relative_patch_path.display()
+            ),
+            Self::MissingProofGate => write!(f, "isolated patch plan requires a proof gate"),
+            Self::Io { path, source } => {
+                write!(
+                    f,
+                    "failed to write patch artifact {}: {source}",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
+impl StdError for PatchPlanError {}
 
 impl FileClassification {
     pub const fn as_str(self) -> &'static str {
@@ -493,6 +815,67 @@ pub fn schema_tables() -> Vec<TableSpec> {
             note: "raw source export is disabled by default after CDB018",
         },
         TableSpec {
+            name: "change_plans",
+            domain: "bidirectional/plan",
+            state: RowState::Available,
+            row_count: 0,
+            note: "reviewable change-plan roots are modeled after CDB073",
+        },
+        TableSpec {
+            name: "change_plan_nodes",
+            domain: "bidirectional/plan",
+            state: RowState::Available,
+            row_count: 0,
+            note: "object-level plan nodes are modeled after CDB073",
+        },
+        TableSpec {
+            name: "change_plan_edges",
+            domain: "bidirectional/plan",
+            state: RowState::Available,
+            row_count: 0,
+            note: "plan dependency edges are modeled after CDB073",
+        },
+        TableSpec {
+            name: "plan_conflicts",
+            domain: "bidirectional/plan",
+            state: RowState::Available,
+            row_count: 0,
+            note: "source drift conflicts are modeled before apply after CDB073",
+        },
+        TableSpec {
+            name: "operator_decisions",
+            domain: "bidirectional/apply",
+            state: RowState::Available,
+            row_count: 0,
+            note: "operator approval provenance is modeled after CDB075",
+        },
+        TableSpec {
+            name: "apply_attempts",
+            domain: "bidirectional/apply",
+            state: RowState::Available,
+            row_count: 0,
+            note: "apply attempts require approval, stop proof, and recovery refs after CDB075",
+        },
+        TableSpec {
+            name: "sync_verifications",
+            domain: "bidirectional/sync",
+            state: RowState::Available,
+            row_count: 0,
+            note: "final re-scan verification rows are modeled after CDB076",
+        },
+        TableSpec {
+            name: "recovery_rows",
+            domain: "bidirectional/sync",
+            state: RowState::Available,
+            row_count: 0,
+            note: "failed sync/apply recovery rows are modeled after CDB076",
+        },
+        TableSpec {
+            name: "platform_materialization_capabilities",
+            domain: "bidirectional/materialization",
+            state: RowState::Available,
+            row_count: 0,
+            note: "symlink/platform materialization limits are explicit after CDB081",
             name: "nix_flake_summary",
             domain: "nix/flake",
             state: RowState::Available,
@@ -644,6 +1027,344 @@ pub fn source_policy_row(metadata: &SourceBlobMetadata) -> SourcePolicyRow {
         mode: metadata.default_mode,
         raw_export_allowed: metadata.export_raw_by_default,
         reason: metadata.policy_reason.clone(),
+    }
+}
+
+pub fn symlink_materialization_rows(
+    entries: &[FilesystemEntry],
+    symlink_creation_supported: bool,
+) -> Vec<PlatformMaterializationRow> {
+    let status = if symlink_creation_supported {
+        SymlinkMaterializationStatus::Supported
+    } else {
+        SymlinkMaterializationStatus::MetadataOnlyFallback
+    };
+    entries
+        .iter()
+        .filter(|entry| entry.kind == FilesystemEntryKind::Symlink || entry.is_symlink)
+        .map(|entry| {
+            let target = entry.symlink_target.as_deref().unwrap_or("unknown-target");
+            let note = if symlink_creation_supported {
+                format!(
+                    "symlink can be materialized as link to {target}; target existence still validated separately"
+                )
+            } else {
+                format!(
+                    "safe fallback: preserve symlink metadata for {target}; do not materialize as regular file"
+                )
+            };
+            PlatformMaterializationRow {
+                table: "platform_materialization_capabilities",
+                status: status.as_str(),
+                rows: 1,
+                relative_path: entry.relative_path.clone(),
+                platform: std::env::consts::OS,
+                note,
+            }
+        })
+        .collect()
+}
+
+pub fn change_plan_table_rows(graph: &ChangePlanGraph) -> Vec<ChangePlanTableRow> {
+    let first_node = graph
+        .nodes
+        .first()
+        .map(|node| {
+            format!(
+                "{}:{}:{}",
+                node.node_id,
+                node.object_id,
+                node.change_kind.as_str()
+            )
+        })
+        .unwrap_or_else(|| "no_nodes".to_string());
+    let first_edge = graph
+        .edges
+        .first()
+        .map(|edge| {
+            format!(
+                "{}->{}:{}",
+                edge.from_node_id, edge.to_node_id, edge.edge_kind
+            )
+        })
+        .unwrap_or_else(|| "no_edges".to_string());
+
+    vec![
+        ChangePlanTableRow {
+            table: "change_plans",
+            status: graph.plan.status.as_str(),
+            rows: 1,
+            note: format!(
+                "{}:{}:{}",
+                graph.plan.plan_id, graph.plan.source_snapshot_id, graph.plan.created_at
+            ),
+        },
+        ChangePlanTableRow {
+            table: "change_plan_nodes",
+            status: RowState::Available.as_str(),
+            rows: graph.nodes.len() as u64,
+            note: first_node,
+        },
+        ChangePlanTableRow {
+            table: "change_plan_edges",
+            status: RowState::Available.as_str(),
+            rows: graph.edges.len() as u64,
+            note: first_edge,
+        },
+    ]
+}
+
+pub fn detect_plan_conflicts(
+    graph: &ChangePlanGraph,
+    current_source_snapshot_id: &'static str,
+) -> Vec<PlanConflict> {
+    if graph.plan.source_snapshot_id == current_source_snapshot_id {
+        return Vec::new();
+    }
+
+    vec![PlanConflict {
+        plan_id: graph.plan.plan_id,
+        source_snapshot_id: graph.plan.source_snapshot_id,
+        conflict_kind: PlanConflictKind::SourceDrift,
+        message: format!(
+            "plan snapshot {} differs from current snapshot {}",
+            graph.plan.source_snapshot_id, current_source_snapshot_id
+        ),
+    }]
+}
+
+pub fn generate_isolated_patch_artifact(
+    source_checkout: impl AsRef<Path>,
+    target_worktree: impl AsRef<Path>,
+    relative_patch_path: impl AsRef<Path>,
+    patch_bytes: &[u8],
+    proof_gate: impl AsRef<str>,
+) -> Result<IsolatedPatchArtifact, PatchPlanError> {
+    let source_checkout = source_checkout.as_ref().to_path_buf();
+    let target_worktree = target_worktree.as_ref().to_path_buf();
+    let relative_patch_path = relative_patch_path.as_ref();
+    let proof_gate = proof_gate.as_ref();
+
+    if proof_gate.trim().is_empty() {
+        return Err(PatchPlanError::MissingProofGate);
+    }
+    if relative_patch_path.is_absolute()
+        || relative_patch_path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(PatchPlanError::UnsafePatchPath {
+            relative_patch_path: relative_patch_path.to_path_buf(),
+        });
+    }
+    if target_worktree == source_checkout || target_worktree.starts_with(&source_checkout) {
+        return Err(PatchPlanError::TargetInsideSource {
+            source_checkout,
+            target_worktree,
+        });
+    }
+
+    let output_path = target_worktree.join(relative_patch_path);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).map_err(|source| PatchPlanError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    fs::write(&output_path, patch_bytes).map_err(|source| PatchPlanError::Io {
+        path: output_path.clone(),
+        source,
+    })?;
+
+    Ok(IsolatedPatchArtifact {
+        path: output_path,
+        bytes: patch_bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(patch_bytes)),
+        proof_gate: proof_gate.to_string(),
+    })
+}
+
+pub fn validate_apply_gate(
+    graph: &ChangePlanGraph,
+    decision: Option<&OperatorDecision>,
+    stop_condition: &StopConditionProof,
+    recovery_ref: impl AsRef<str>,
+    current_source_snapshot_id: &'static str,
+) -> Result<ApplyGateReport, ApplyGateError> {
+    if !matches!(graph.plan.status, ChangePlanStatus::ApprovedForApply) {
+        return Err(ApplyGateError::PlanNotApprovedForApply);
+    }
+    if graph.plan.source_snapshot_id != current_source_snapshot_id {
+        return Err(ApplyGateError::SourceDrift);
+    }
+    let decision = decision.ok_or(ApplyGateError::MissingOperatorDecision)?;
+    if decision.plan_id != graph.plan.plan_id {
+        return Err(ApplyGateError::OperatorDecisionPlanMismatch);
+    }
+    if !matches!(decision.decision, ApplyDecision::Approved) {
+        return Err(ApplyGateError::OperatorDenied);
+    }
+    if decision.decision_id.trim().is_empty()
+        || decision.actor.trim().is_empty()
+        || decision.decided_at.trim().is_empty()
+        || decision.evidence_ref.trim().is_empty()
+        || decision.manual_decision_ref.trim().is_empty()
+    {
+        return Err(ApplyGateError::MissingDecisionEvidence);
+    }
+    if !stop_condition.passed || stop_condition.evidence_ref.trim().is_empty() {
+        return Err(ApplyGateError::StopConditionFailed);
+    }
+    let recovery_ref = recovery_ref.as_ref();
+    if recovery_ref.trim().is_empty() {
+        return Err(ApplyGateError::MissingRecoveryRef);
+    }
+
+    Ok(ApplyGateReport {
+        plan_id: graph.plan.plan_id,
+        decision_id: decision.decision_id,
+        status: ChangePlanStatus::ApprovedForApply.as_str(),
+        recovery_ref: recovery_ref.to_string(),
+        rows: vec![
+            ChangePlanTableRow {
+                table: "operator_decisions",
+                status: decision.decision.as_str(),
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}:{}:{}:{}",
+                    decision.decision_id,
+                    decision.plan_id,
+                    decision.actor,
+                    decision.decided_at,
+                    decision.evidence_ref,
+                    decision.manual_decision_ref
+                ),
+            },
+            ChangePlanTableRow {
+                table: "apply_attempts",
+                status: "ready_for_apply",
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}",
+                    graph.plan.plan_id, stop_condition.proof_id, recovery_ref
+                ),
+            },
+        ],
+    })
+}
+
+pub fn record_failed_apply_recovery(
+    graph: &ChangePlanGraph,
+    input: &FailedApplyRecoveryInput,
+) -> Result<BidirectionalSyncReport, FailedApplyRecoveryError> {
+    if input.plan_id != graph.plan.plan_id {
+        return Err(FailedApplyRecoveryError::AttemptPlanMismatch);
+    }
+    if input.attempt_id.trim().is_empty()
+        || input.failure_ref.trim().is_empty()
+        || input.quarantine_ref.trim().is_empty()
+    {
+        return Err(FailedApplyRecoveryError::MissingAuditRef);
+    }
+    if input.restored_snapshot_id != graph.plan.source_snapshot_id {
+        return Err(FailedApplyRecoveryError::SourceNotRestored);
+    }
+
+    Ok(BidirectionalSyncReport {
+        plan_id: graph.plan.plan_id,
+        direction: BidirectionalSyncDirection::StoreToSource,
+        status: BidirectionalSyncStatus::Recovered,
+        rows: vec![
+            ChangePlanTableRow {
+                table: "apply_attempts",
+                status: "failed",
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}:{}",
+                    input.attempt_id,
+                    graph.plan.plan_id,
+                    input.kind.as_str(),
+                    input.failure_ref
+                ),
+            },
+            ChangePlanTableRow {
+                table: "recovery_rows",
+                status: BidirectionalSyncStatus::Recovered.as_str(),
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}:{}",
+                    graph.plan.plan_id,
+                    input.observed_snapshot_id,
+                    input.restored_snapshot_id,
+                    input.quarantine_ref
+                ),
+            },
+        ],
+    })
+}
+
+pub fn evaluate_bidirectional_sync(
+    graph: &ChangePlanGraph,
+    direction: BidirectionalSyncDirection,
+    current_source_snapshot_id: &'static str,
+    expected_rescan_snapshot_id: &'static str,
+    actual_rescan_snapshot_id: &'static str,
+    recovery_ref: &'static str,
+) -> BidirectionalSyncReport {
+    let conflicts = detect_plan_conflicts(graph, current_source_snapshot_id);
+    if let Some(conflict) = conflicts.first() {
+        return BidirectionalSyncReport {
+            plan_id: graph.plan.plan_id,
+            direction,
+            status: BidirectionalSyncStatus::Conflict,
+            rows: vec![ChangePlanTableRow {
+                table: "plan_conflicts",
+                status: conflict.conflict_kind.as_str(),
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}",
+                    conflict.plan_id, current_source_snapshot_id, conflict.message
+                ),
+            }],
+        };
+    }
+
+    if expected_rescan_snapshot_id != actual_rescan_snapshot_id {
+        return BidirectionalSyncReport {
+            plan_id: graph.plan.plan_id,
+            direction,
+            status: BidirectionalSyncStatus::RecoveryRequired,
+            rows: vec![ChangePlanTableRow {
+                table: "recovery_rows",
+                status: BidirectionalSyncStatus::RecoveryRequired.as_str(),
+                rows: 1,
+                note: format!(
+                    "{}:{}:{}:{}",
+                    graph.plan.plan_id,
+                    expected_rescan_snapshot_id,
+                    actual_rescan_snapshot_id,
+                    recovery_ref
+                ),
+            }],
+        };
+    }
+
+    BidirectionalSyncReport {
+        plan_id: graph.plan.plan_id,
+        direction,
+        status: BidirectionalSyncStatus::Verified,
+        rows: vec![ChangePlanTableRow {
+            table: "sync_verifications",
+            status: BidirectionalSyncStatus::Verified.as_str(),
+            rows: 1,
+            note: format!(
+                "{}:{}:{}:{}",
+                graph.plan.plan_id,
+                direction.as_str(),
+                current_source_snapshot_id,
+                actual_rescan_snapshot_id
+            ),
+        }],
     }
 }
 
@@ -1033,6 +1754,67 @@ mod tests {
     }
 
     // Test lane: default
+    // Defends: CDB081 platforms without symlink creation support preserve link metadata as a safe fallback.
+    #[test]
+    fn symlink_materialization_records_metadata_only_fallback() {
+        let entries = vec![FilesystemEntry {
+            relative_path: "link.txt".to_string(),
+            kind: FilesystemEntryKind::Symlink,
+            size_bytes: 0,
+            readonly: false,
+            is_symlink: true,
+            symlink_target: Some("target.txt".to_string()),
+            classification: FileClassification::Other,
+        }];
+
+        let rows = symlink_materialization_rows(&entries, false);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].table, "platform_materialization_capabilities");
+        assert_eq!(
+            rows[0].status,
+            SymlinkMaterializationStatus::MetadataOnlyFallback.as_str()
+        );
+        assert_eq!(rows[0].relative_path, "link.txt");
+        assert!(rows[0].note.contains("safe fallback"));
+        assert!(rows[0].note.contains("target.txt"));
+        assert!(rows[0].note.contains("do not materialize as regular file"));
+    }
+
+    // Test lane: default
+    // Defends: CDB081 Unix symlink scans capture the link target without following it.
+    #[cfg(unix)]
+    #[test]
+    fn symlink_scan_records_target_and_supported_materialization_row() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_fixture_root();
+        fs::create_dir_all(&root).expect("create root");
+        fs::write(root.join("target.txt"), "symlink target\n").expect("write target");
+        symlink("target.txt", root.join("link.txt")).expect("create symlink");
+
+        let entries = scan_filesystem(&root).expect("scan symlink fixture");
+        let link = entries
+            .iter()
+            .find(|entry| entry.relative_path == "link.txt")
+            .expect("link entry");
+        assert_eq!(link.kind, FilesystemEntryKind::Symlink);
+        assert!(link.is_symlink);
+        assert_eq!(link.symlink_target.as_deref(), Some("target.txt"));
+
+        let rows = symlink_materialization_rows(&entries, true);
+        let row = rows
+            .iter()
+            .find(|row| row.relative_path == "link.txt")
+            .expect("symlink materialization row");
+        assert_eq!(row.status, SymlinkMaterializationStatus::Supported.as_str());
+        assert_eq!(row.platform, std::env::consts::OS);
+        assert!(row.note.contains("target.txt"));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default
     // Defends: CDB018 source capture must record exact metadata without exporting raw source.
     #[test]
     fn source_metadata_is_metadata_only_by_default() {
@@ -1074,6 +1856,483 @@ mod tests {
         assert!(!policy.reason.contains("sk-test-value"));
 
         fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB073 change plans are reviewable graph rows, not source mutations.
+    #[test]
+    fn change_plan_graph_is_reviewable_without_apply() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb073:review",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::Reviewed,
+                created_at: "2026-07-02T18:00:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:docs-round-trip",
+                object_id: "object:docs/ROUND_TRIP_PROOF.md",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: vec![ChangePlanEdge {
+                from_node_id: "node:docs-round-trip",
+                to_node_id: "node:proof-gate",
+                edge_kind: "requires_validation",
+            }],
+        };
+
+        let rows = change_plan_table_rows(&graph);
+
+        assert!(!graph.status_allows_source_apply());
+        assert!(rows.iter().any(|row| {
+            row.table == "change_plans"
+                && row.status == "reviewed"
+                && row.note.contains("plan:cdb073:review")
+        }));
+        assert!(rows.iter().any(|row| {
+            row.table == "change_plan_nodes"
+                && row.rows == 1
+                && row.note.contains("object:docs/ROUND_TRIP_PROOF.md")
+        }));
+        assert!(rows.iter().any(|row| {
+            row.table == "change_plan_edges"
+                && row.rows == 1
+                && row.note.contains("requires_validation")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: CDB073 detects source drift before any apply gate can mutate source.
+    #[test]
+    fn source_snapshot_drift_blocks_change_plan_before_apply() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb073:drift",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForIsolatedPatch,
+                created_at: "2026-07-02T18:00:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let conflicts = detect_plan_conflicts(&graph, "snapshot:sha256:after");
+
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].plan_id, "plan:cdb073:drift");
+        assert_eq!(conflicts[0].conflict_kind, PlanConflictKind::SourceDrift);
+        assert!(conflicts[0].message.contains("snapshot:sha256:before"));
+        assert!(conflicts[0].message.contains("snapshot:sha256:after"));
+    }
+
+    // Test lane: default
+    // Defends: CDB074 patch artifacts are generated only outside the source checkout.
+    #[test]
+    fn isolated_patch_artifact_refuses_source_checkout_target() {
+        let source_root = temp_fixture_root();
+        fs::create_dir_all(&source_root).expect("create source");
+        let err = generate_isolated_patch_artifact(
+            &source_root,
+            source_root.join("patches"),
+            "codedb.patch",
+            b"diff --git a/src/lib.rs b/src/lib.rs\n",
+            "rescan:required",
+        )
+        .expect_err("source target must be rejected");
+
+        assert!(matches!(err, PatchPlanError::TargetInsideSource { .. }));
+        assert!(!source_root.join("patches/codedb.patch").exists());
+
+        fs::remove_dir_all(&source_root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB074 writes patch bytes into an isolated worktree with a required proof gate.
+    #[test]
+    fn isolated_patch_artifact_writes_outside_source_checkout() {
+        let source_root = temp_fixture_root();
+        let isolated_root = source_root.with_file_name(format!(
+            "{}_isolated",
+            source_root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("codedb_core_fs_fixture")
+        ));
+        fs::create_dir_all(&source_root).expect("create source");
+        fs::write(source_root.join("sentinel.txt"), "unchanged\n").expect("source sentinel");
+
+        let patch_bytes = b"diff --git a/src/lib.rs b/src/lib.rs\n";
+        let artifact = generate_isolated_patch_artifact(
+            &source_root,
+            &isolated_root,
+            "patches/codedb.patch",
+            patch_bytes,
+            "rescan:isolated-worktree",
+        )
+        .expect("isolated patch artifact");
+
+        assert_eq!(artifact.bytes, patch_bytes.len() as u64);
+        assert_eq!(artifact.proof_gate, "rescan:isolated-worktree");
+        assert!(artifact.path.starts_with(&isolated_root));
+        assert_eq!(
+            fs::read_to_string(source_root.join("sentinel.txt")).expect("source sentinel"),
+            "unchanged\n"
+        );
+        assert!(isolated_root.join("patches/codedb.patch").exists());
+
+        fs::remove_dir_all(&source_root).ok();
+        fs::remove_dir_all(&isolated_root).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB075 refuses source apply when approval provenance is incomplete.
+    #[test]
+    fn apply_gate_refuses_missing_operator_approval() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb075:missing-approval",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:10:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let err = validate_apply_gate(
+            &graph,
+            None,
+            &StopConditionProof {
+                proof_id: "stop:cdb075:clean",
+                passed: true,
+                evidence_ref: "logs/CDB075-apply-gate.log",
+            },
+            "recovery:quarantine-ready",
+            "snapshot:sha256:before",
+        )
+        .expect_err("missing approval must refuse apply");
+
+        assert_eq!(err, ApplyGateError::MissingOperatorDecision);
+    }
+
+    // Test lane: default
+    // Defends: CDB075 allows apply intent only with approval, stop proof, recovery, and no drift.
+    #[test]
+    fn apply_gate_allows_only_complete_operator_provenance() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb075:approved",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:10:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+        let decision = OperatorDecision {
+            decision_id: "decision:cdb075:approve",
+            plan_id: "plan:cdb075:approved",
+            actor: "operator:flexnetos",
+            decided_at: "2026-07-02T18:10:30Z",
+            decision: ApplyDecision::Approved,
+            evidence_ref: "logs/CDB075-apply-gate.log",
+            manual_decision_ref: "manual:cdb075:reviewed",
+        };
+
+        let report = validate_apply_gate(
+            &graph,
+            Some(&decision),
+            &StopConditionProof {
+                proof_id: "stop:cdb075:clean",
+                passed: true,
+                evidence_ref: "logs/CDB075-apply-gate.log",
+            },
+            "recovery:quarantine-ready",
+            "snapshot:sha256:before",
+        )
+        .expect("complete provenance allows apply intent");
+
+        assert_eq!(report.plan_id, "plan:cdb075:approved");
+        assert_eq!(report.decision_id, "decision:cdb075:approve");
+        assert_eq!(report.status, "approved_for_apply");
+        assert_eq!(report.recovery_ref, "recovery:quarantine-ready");
+        assert_eq!(report.rows.len(), 2);
+        assert!(report.rows.iter().any(|row| {
+            row.table == "operator_decisions"
+                && row.note.contains("manual:cdb075:reviewed")
+                && row.note.contains("operator:flexnetos")
+                && row.note.contains("2026-07-02T18:10:30Z")
+        }));
+        assert!(report.rows.iter().any(|row| {
+            row.table == "apply_attempts" && row.note.contains("recovery:quarantine-ready")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: CDB089 apply approval must include decision ID, actor, timestamp, and evidence.
+    #[test]
+    fn apply_gate_refuses_incomplete_operator_decision_provenance() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb089:approval",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:35:00Z",
+            },
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        };
+        let decision = OperatorDecision {
+            decision_id: "decision:cdb089:approve",
+            plan_id: "plan:cdb089:approval",
+            actor: "operator:flexnetos",
+            decided_at: "",
+            decision: ApplyDecision::Approved,
+            evidence_ref: "logs/CDB089-approval-provenance.log",
+            manual_decision_ref: "manual:cdb089:reviewed",
+        };
+
+        let err = validate_apply_gate(
+            &graph,
+            Some(&decision),
+            &StopConditionProof {
+                proof_id: "stop:cdb089:clean",
+                passed: true,
+                evidence_ref: "logs/CDB089-approval-provenance.log",
+            },
+            "recovery:quarantine-ready",
+            "snapshot:sha256:before",
+        )
+        .expect_err("missing decision timestamp must refuse apply");
+
+        assert_eq!(err, ApplyGateError::MissingDecisionEvidence);
+    }
+
+    // Test lane: default
+    // Defends: CDB087 stale approved plans cannot apply after source drift.
+    #[test]
+    fn stale_approved_plan_cannot_apply_silently() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb087:stale",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:25:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+        let decision = OperatorDecision {
+            decision_id: "decision:cdb087:approve",
+            plan_id: "plan:cdb087:stale",
+            actor: "operator:flexnetos",
+            decided_at: "2026-07-02T18:25:30Z",
+            decision: ApplyDecision::Approved,
+            evidence_ref: "logs/CDB087-source-drift.log",
+            manual_decision_ref: "manual:cdb087:reviewed-before-drift",
+        };
+
+        let conflicts = detect_plan_conflicts(&graph, "snapshot:sha256:after");
+        let err = validate_apply_gate(
+            &graph,
+            Some(&decision),
+            &StopConditionProof {
+                proof_id: "stop:cdb087:clean",
+                passed: true,
+                evidence_ref: "logs/CDB087-source-drift.log",
+            },
+            "recovery:quarantine-ready",
+            "snapshot:sha256:after",
+        )
+        .expect_err("source drift must invalidate stale approved plans");
+
+        assert_eq!(err, ApplyGateError::SourceDrift);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].plan_id, "plan:cdb087:stale");
+        assert_eq!(conflicts[0].source_snapshot_id, "snapshot:sha256:before");
+        assert_eq!(conflicts[0].conflict_kind, PlanConflictKind::SourceDrift);
+        assert!(conflicts[0].message.contains("snapshot:sha256:after"));
+    }
+
+    // Test lane: default
+    // Defends: CDB076 source drift becomes a sync conflict before store-to-source apply.
+    #[test]
+    fn bidirectional_sync_reports_source_drift_conflict() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb076:drift",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:15:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let report = evaluate_bidirectional_sync(
+            &graph,
+            BidirectionalSyncDirection::StoreToSource,
+            "snapshot:sha256:drifted",
+            "snapshot:sha256:after",
+            "snapshot:sha256:after",
+            "recovery:quarantine-ready",
+        );
+
+        assert_eq!(report.status, BidirectionalSyncStatus::Conflict);
+        assert!(report.rows.iter().any(|row| {
+            row.table == "plan_conflicts" && row.note.contains("snapshot:sha256:drifted")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: CDB076 final re-scan must match the expected post-apply snapshot.
+    #[test]
+    fn bidirectional_sync_requires_matching_final_rescan() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb076:verified",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::Applied,
+                created_at: "2026-07-02T18:15:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let report = evaluate_bidirectional_sync(
+            &graph,
+            BidirectionalSyncDirection::SourceToStore,
+            "snapshot:sha256:before",
+            "snapshot:sha256:after",
+            "snapshot:sha256:after",
+            "recovery:quarantine-ready",
+        );
+
+        assert_eq!(report.status, BidirectionalSyncStatus::Verified);
+        assert!(report.rows.iter().any(|row| {
+            row.table == "sync_verifications"
+                && row.status == "verified"
+                && row.note.contains("source_to_store")
+        }));
+
+        let recovery = evaluate_bidirectional_sync(
+            &graph,
+            BidirectionalSyncDirection::SourceToStore,
+            "snapshot:sha256:before",
+            "snapshot:sha256:after",
+            "snapshot:sha256:unexpected",
+            "recovery:quarantine-ready",
+        );
+
+        assert_eq!(recovery.status, BidirectionalSyncStatus::RecoveryRequired);
+        assert!(recovery.rows.iter().any(|row| {
+            row.table == "recovery_rows" && row.note.contains("snapshot:sha256:unexpected")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: CDB088 failed materialization records audit rows after source restore.
+    #[test]
+    fn failed_materialization_recovery_records_audit_and_restored_snapshot() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb088:materialization",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:30:00Z",
+            },
+            nodes: vec![ChangePlanNode {
+                node_id: "node:src",
+                object_id: "object:src/lib.rs",
+                change_kind: ChangeKind::Update,
+            }],
+            edges: Vec::new(),
+        };
+
+        let report = record_failed_apply_recovery(
+            &graph,
+            &FailedApplyRecoveryInput {
+                attempt_id: "attempt:cdb088:materialization",
+                plan_id: "plan:cdb088:materialization",
+                kind: FailedApplyKind::Materialization,
+                failure_ref: "logs/CDB088-failed-apply-recovery.log",
+                observed_snapshot_id: "snapshot:sha256:partial",
+                restored_snapshot_id: "snapshot:sha256:before",
+                quarantine_ref: "quarantine:cdb088:partial-output",
+            },
+        )
+        .expect("restored source snapshot records recovery");
+
+        assert_eq!(report.status, BidirectionalSyncStatus::Recovered);
+        assert!(report.rows.iter().any(|row| {
+            row.table == "apply_attempts"
+                && row.status == "failed"
+                && row.note.contains("materialization")
+                && row.note.contains("logs/CDB088-failed-apply-recovery.log")
+        }));
+        assert!(report.rows.iter().any(|row| {
+            row.table == "recovery_rows"
+                && row.status == "recovered"
+                && row.note.contains("snapshot:sha256:partial")
+                && row.note.contains("snapshot:sha256:before")
+                && row.note.contains("quarantine:cdb088:partial-output")
+        }));
+    }
+
+    // Test lane: default
+    // Defends: CDB088 recovery cannot complete while source/worktree snapshot is still changed.
+    #[test]
+    fn failed_apply_recovery_requires_restored_source_snapshot() {
+        let graph = ChangePlanGraph {
+            plan: ChangePlanRoot {
+                plan_id: "plan:cdb088:apply",
+                source_snapshot_id: "snapshot:sha256:before",
+                status: ChangePlanStatus::ApprovedForApply,
+                created_at: "2026-07-02T18:30:00Z",
+            },
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        };
+
+        let err = record_failed_apply_recovery(
+            &graph,
+            &FailedApplyRecoveryInput {
+                attempt_id: "attempt:cdb088:apply",
+                plan_id: "plan:cdb088:apply",
+                kind: FailedApplyKind::Apply,
+                failure_ref: "logs/CDB088-failed-apply-recovery.log",
+                observed_snapshot_id: "snapshot:sha256:partial",
+                restored_snapshot_id: "snapshot:sha256:still-partial",
+                quarantine_ref: "quarantine:cdb088:partial-output",
+            },
+        )
+        .expect_err("recovery must prove source/worktree restore");
+
+        assert_eq!(err, FailedApplyRecoveryError::SourceNotRestored);
     }
 
     // Test lane: default

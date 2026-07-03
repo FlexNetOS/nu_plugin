@@ -115,21 +115,20 @@ plugin-side envctl inventory upgrade in one Rust source file.
   verification requires the intended Nix/dev environment rather than direct
   shell execution
 
-## Current gaps
+## Current state and remaining gaps
 
-- The envctl bridge produces datatable rows from the inventory artifact, but it
-  does not yet persist the full file/blob model into a redb-backed CodeDB store
-- Blob semantics are currently hash/ref metadata in the envctl import path, not
-  a complete persisted source blob table with restore/materialization ownership
-- The structured conversion is deterministic and useful, but it is not yet a
-  full native Nushell parser bridge for every file type. It performs Rust-side
-  JSON/JSONC flattening and line-oriented parsing for text formats
-- envctl remains a downstream consumer. The CodeDB-to-envctl export contract is
-  documented, but the full `codedb export envctl` surface and envctl
-  file-materialization round trip are not complete in this repository
-- The redb crate initializes metadata tables and backup/restore proof rows, but
-  the status is still `planned`; it is not yet the authoritative live store for
-  every generated table
+- The envctl bridge produces datatable rows from the inventory artifact, and
+  `codedb export envctl` includes checksum-bound materialization target rows.
+- Blob semantics include envctl hash/ref metadata and redb-backed source blob
+  rows with restore/materialization ownership.
+- The structured conversion is deterministic and useful, but it is not a full
+  native parser bridge for every file type. It performs Rust-side JSON/JSONC
+  flattening, native TOML flattening, and line-oriented parsing for text formats
+  without native bridges.
+- envctl remains a downstream consumer. It consumes exported datatables and
+  checksums and does not read CodeDB redb internals.
+- The redb crate owns source blobs plus metadata/backup/restore proof rows; it
+  is not yet the authoritative live store for every generated table.
 - The MCP crate exposes bounded in-process request handling, but a complete
   externally packaged MCP server lifecycle is not proven here
 - The published repo should get a real CI workflow for `cargo test --workspace`,

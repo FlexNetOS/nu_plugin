@@ -1,0 +1,22 @@
+2026-07-02T17:50:43Z CDB071 read-only foundation hardening
+
+Tests added:
+- `crates/codedb/src/main.rs`
+  - `mutating_bidirectional_commands_are_not_cli_defaults`
+- `crates/nu_plugin_codedb/src/main.rs`
+  - `plugin_command_surface_has_no_mutating_bidirectional_defaults`
+- `crates/codedb_mcp/src/lib.rs`
+  - strengthened `allowed_and_blocked_tools_are_explicit`
+
+Validation:
+- `nix develop .#ci -c cargo test -p codedb mutating_bidirectional_commands_are_not_cli_defaults`
+  -> passed
+- `nix develop .#ci -c cargo test -p nu_plugin_codedb plugin_command_surface_has_no_mutating_bidirectional_defaults`
+  -> passed
+- `nix develop .#ci -c cargo test -p codedb-mcp allowed_and_blocked_tools_are_explicit`
+  -> passed
+
+Safety:
+- CLI exposes no default apply/patch/source-overwrite/git-mutation/sync-bidirectional commands.
+- Nu plugin exposes no default mutating bidirectional commands.
+- MCP blocks raw source, full file dump, source overwrite, patch apply, git mutation, and unbounded table dump tools by default.

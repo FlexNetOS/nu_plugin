@@ -1,10 +1,11 @@
 # CodeDB Handoff
 
-Task: CDB048
+Task: CDB070
 
 ## Current State
 
-The V1.1 implementation slice has progressed through CDB047.
+The V1.1 implementation slice has progressed through CDB069 and issue 212 has
+opened the bidirectional roadmap rail CDB070-CDB090.
 
 Completed local release block:
 
@@ -68,16 +69,18 @@ Known V1.1 gaps are explicit by design:
 
 ## Next Work
 
-Continue from `execution/TASK_GRAPH.csv`.
+Continue from `execution/TASK_GRAPH.csv`. For issue 212 bidirectional work,
+also use `execution/BIDIRECTIONAL_TASK_GRAPH.csv` and
+`execution/BIDIRECTIONAL_TASK_FILE_MAP.csv`.
 
-The next planned block starts at CDB049:
+The new bidirectional rail starts at CDB070:
 
-- CDB049: inspect Yazelix Nushell runtime bridge
-- CDB050: package `nu_plugin_codedb` as a runtime tool
-- CDB051: validate host Nu vs Yazelix runtime Nu protocol
-- CDB052: implement transient `nu --plugins` smoke test
-- CDB053-CDB063: complete runtime/plugin/Codex/envctl hardening tasks
-- CDB064-CDB068: final package repair and validation tasks already have scaffold evidence but must be re-evaluated after implementation changes
+- CDB070-CDB076: phases 0-6 from issue 212;
+- CDB077-CDB089: required V1.1 gap closure items;
+- CDB090: final bidirectional release gate and manifest reseal.
+
+Default behavior remains read-only. No direct source apply is allowed until the
+CDB075 operator-approved apply gate is implemented and proven.
 
 ## Handoff Rule
 

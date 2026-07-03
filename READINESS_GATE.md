@@ -15,3 +15,12 @@ Before any implementation task starts, prove:
 No task starts without this gate.
 
 CSV row is the authority. If prose docs disagree with `execution/TASK_GRAPH.csv`, stop and repair the CSV or the prose before changing implementation files.
+
+For issue 212 bidirectional work, also prove:
+
+- selected a CDB070-CDB090 row from `execution/BIDIRECTIONAL_TASK_GRAPH.csv`;
+- checked the matching GitKB task slug;
+- read the matching row in `execution/BIDIRECTIONAL_TASK_FILE_MAP.csv`;
+- confirmed whether the selected phase permits source mutation. Only CDB075+
+  may introduce operator-approved source apply behavior, and even then only
+  through explicit approval provenance and recovery gates.

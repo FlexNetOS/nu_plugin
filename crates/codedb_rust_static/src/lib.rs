@@ -19,6 +19,8 @@ pub struct RustItemRow {
     pub module_path: String,
     pub item_kind: RustItemKind,
     pub name: String,
+    pub identity_kind: RustIdentityKind,
+    pub identity_note: String,
     pub visibility: RustVisibility,
     pub confidence: StaticCaptureConfidence,
 }
@@ -28,6 +30,7 @@ pub struct MacroInventory {
     pub definitions: Vec<MacroDefinitionRow>,
     pub invocations: Vec<MacroInvocationRow>,
     pub gaps: Vec<MacroCaptureGap>,
+    pub expansion_gates: Vec<MacroExpansionGateRow>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +59,15 @@ pub struct NativeLinkInventory {
     pub link_args: Vec<LinkArgRow>,
     pub link_search_paths: Vec<LinkSearchPathRow>,
     pub gaps: Vec<NativeLinkGap>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticHashReport {
+    pub semantic_hash: String,
+    pub public_api_hash: String,
+    pub semantic_inputs: Vec<String>,
+    pub public_api_inputs: Vec<String>,
+    pub limitation: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -339,6 +351,32 @@ pub struct MacroCaptureGap {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroExpansionGateRow {
+    pub context_id: String,
+    pub relative_path: String,
+    pub module_path: String,
+    pub macro_name: String,
+    pub gate_status: MacroExpansionGateStatus,
+    pub evidence_kind: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MacroExpansionGateStatus {
+    Gap,
+    CompilerObserved,
+}
+
+impl MacroExpansionGateStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Gap => "gap",
+            Self::CompilerObserved => "compiler_observed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MacroMissingTruth {
     Expansion,
@@ -366,6 +404,21 @@ pub enum RustItemKind {
     Static,
     Impl,
     Use,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RustIdentityKind {
+    StableNamed,
+    UnstableAnonymous,
+}
+
+impl RustIdentityKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::StableNamed => "stable_named",
+            Self::UnstableAnonymous => "unstable_anonymous",
+        }
+    }
 }
 
 impl RustItemKind {
@@ -498,6 +551,7 @@ pub fn capture_rust_macros(
         definitions: Vec::new(),
         invocations: Vec::new(),
         gaps: Vec::new(),
+        expansion_gates: Vec::new(),
     };
     collect_macros(
         &syntax.items,
@@ -523,6 +577,12 @@ pub fn capture_rust_macros(
             .cmp(&right.module_path)
             .then_with(|| left.macro_name.cmp(&right.macro_name))
             .then_with(|| left.missing_truth.cmp(&right.missing_truth))
+    });
+    inventory.expansion_gates.sort_by(|left, right| {
+        left.module_path
+            .cmp(&right.module_path)
+            .then_with(|| left.macro_name.cmp(&right.macro_name))
+            .then_with(|| left.gate_status.cmp(&right.gate_status))
     });
     Ok(inventory)
 }
@@ -712,6 +772,27 @@ pub fn capture_native_link_static(
     Ok(inventory)
 }
 
+pub fn semantic_hash_report(rows: &[RustItemRow]) -> SemanticHashReport {
+    let mut semantic_inputs = rows.iter().map(semantic_hash_input).collect::<Vec<_>>();
+    semantic_inputs.sort();
+    let mut public_api_inputs = rows
+        .iter()
+        .filter(|row| row.visibility == RustVisibility::Public)
+        .map(semantic_hash_input)
+        .collect::<Vec<_>>();
+    public_api_inputs.sort();
+
+    SemanticHashReport {
+        semantic_hash: hash_lines(&semantic_inputs),
+        public_api_hash: hash_lines(&public_api_inputs),
+        semantic_inputs,
+        public_api_inputs,
+        limitation:
+            "static syntax hash excludes function bodies, type layout, macro expansion, and rustc semantic checks"
+                .to_string(),
+    }
+}
+
 fn collect_items(
     items: &[Item],
     context_id: &str,
@@ -719,6 +800,7 @@ fn collect_items(
     module_path: &str,
     rows: &mut Vec<RustItemRow>,
 ) {
+    let mut anonymous_impl_index = 0usize;
     for item in items {
         match item {
             Item::Mod(item_mod) => {
@@ -806,15 +888,23 @@ fn collect_items(
                 &item_static.ident.to_string(),
                 classify_visibility(&item_static.vis),
             ),
-            Item::Impl(_) => push_row(
-                rows,
-                context_id,
-                relative_path,
-                module_path,
-                RustItemKind::Impl,
-                "impl",
-                RustVisibility::Private,
-            ),
+            Item::Impl(_) => {
+                anonymous_impl_index += 1;
+                let name = format!("impl#{anonymous_impl_index}");
+                push_row_with_identity(
+                    rows,
+                    RustItemInput {
+                        context_id,
+                        relative_path,
+                        module_path,
+                        item_kind: RustItemKind::Impl,
+                        name: &name,
+                        visibility: RustVisibility::Private,
+                        identity_kind: RustIdentityKind::UnstableAnonymous,
+                        identity_note: "anonymous impl identity is scan-order stable but source-drift sensitive",
+                    },
+                );
+            }
             Item::Use(item_use) => push_row(
                 rows,
                 context_id,
@@ -1635,6 +1725,7 @@ fn push_macro_definition(
         name,
         MacroMissingTruth::Expansion,
     );
+    push_macro_expansion_gate(inventory, context_id, relative_path, module_path, name);
     push_macro_gap(
         inventory,
         context_id,
@@ -1671,6 +1762,13 @@ fn push_macro_invocation(
         token_summary: summarize_tokens(tokens),
         confidence: StaticCaptureConfidence::SyntaxOnly,
     });
+    push_macro_expansion_gate(
+        inventory,
+        context_id,
+        relative_path,
+        module_path,
+        macro_path,
+    );
 }
 
 fn push_macro_gap(
@@ -1688,6 +1786,35 @@ fn push_macro_gap(
         macro_name: macro_name.to_string(),
         missing_truth,
         reason: "static macro capture does not prove compiler expansion or hygiene".to_string(),
+    });
+}
+
+fn push_macro_expansion_gate(
+    inventory: &mut MacroInventory,
+    context_id: &str,
+    relative_path: &str,
+    module_path: &str,
+    macro_name: &str,
+) {
+    let already_recorded = inventory.expansion_gates.iter().any(|gate| {
+        gate.context_id == context_id
+            && gate.relative_path == relative_path
+            && gate.module_path == module_path
+            && gate.macro_name == macro_name
+            && gate.gate_status == MacroExpansionGateStatus::Gap
+    });
+    if already_recorded {
+        return;
+    }
+    inventory.expansion_gates.push(MacroExpansionGateRow {
+        context_id: context_id.to_string(),
+        relative_path: relative_path.to_string(),
+        module_path: module_path.to_string(),
+        macro_name: macro_name.to_string(),
+        gate_status: MacroExpansionGateStatus::Gap,
+        evidence_kind: "compiler_observed_expansion".to_string(),
+        reason: "compiler-observed macro expansion was not executed; static capture records a GAP"
+            .to_string(),
     });
 }
 
@@ -1786,14 +1913,49 @@ fn push_row(
     name: &str,
     visibility: RustVisibility,
 ) {
+    push_row_with_identity(
+        rows,
+        RustItemInput {
+            context_id,
+            relative_path,
+            module_path,
+            item_kind,
+            name,
+            visibility,
+            identity_kind: RustIdentityKind::StableNamed,
+            identity_note: "named syntax identity is stable across repeated scans",
+        },
+    );
+}
+
+struct RustItemInput<'a> {
+    context_id: &'a str,
+    relative_path: &'a str,
+    module_path: &'a str,
+    item_kind: RustItemKind,
+    name: &'a str,
+    visibility: RustVisibility,
+    identity_kind: RustIdentityKind,
+    identity_note: &'a str,
+}
+
+fn push_row_with_identity(rows: &mut Vec<RustItemRow>, input: RustItemInput<'_>) {
     rows.push(RustItemRow {
-        stable_id: stable_item_id(context_id, relative_path, module_path, item_kind, name),
-        context_id: context_id.to_string(),
-        relative_path: relative_path.to_string(),
-        module_path: module_path.to_string(),
-        item_kind,
-        name: name.to_string(),
-        visibility,
+        stable_id: stable_item_id(
+            input.context_id,
+            input.relative_path,
+            input.module_path,
+            input.item_kind,
+            input.name,
+        ),
+        context_id: input.context_id.to_string(),
+        relative_path: input.relative_path.to_string(),
+        module_path: input.module_path.to_string(),
+        item_kind: input.item_kind,
+        name: input.name.to_string(),
+        identity_kind: input.identity_kind,
+        identity_note: input.identity_note.to_string(),
+        visibility: input.visibility,
         confidence: StaticCaptureConfidence::SyntaxOnly,
     });
 }
@@ -1837,6 +1999,28 @@ fn stable_macro_id(
         tokens,
     ] {
         hasher.update(value.as_bytes());
+        hasher.update([0]);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn semantic_hash_input(row: &RustItemRow) -> String {
+    format!(
+        "{}\0{}\0{}\0{}\0{}\0{}\0{}",
+        row.relative_path,
+        row.module_path,
+        row.item_kind.as_str(),
+        row.name,
+        row.visibility.as_str(),
+        row.identity_kind.as_str(),
+        row.identity_note
+    )
+}
+
+fn hash_lines(lines: &[String]) -> String {
+    let mut hasher = Sha256::new();
+    for line in lines {
+        hasher.update(line.as_bytes());
         hasher.update([0]);
     }
     format!("{:x}", hasher.finalize())
@@ -1989,10 +2173,128 @@ impl Thing {}
                 .iter()
                 .any(|row| row.item_kind == RustItemKind::TypeAlias && row.name == "Alias")
         );
+        assert!(first.iter().any(|row| row.item_kind == RustItemKind::Impl
+            && row.name == "impl#1"
+            && row.identity_kind == RustIdentityKind::UnstableAnonymous));
+    }
+
+    // Defends: CDB084 anonymous syntax nodes receive deterministic IDs but remain marked unstable.
+    #[test]
+    fn anonymous_impl_identity_is_distinct_and_marked_unstable() {
+        let fixture = FixtureWorkspace::new();
+        fixture.write(
+            "src/lib.rs",
+            r#"
+struct One;
+struct Two;
+
+impl One {}
+impl Two {}
+"#,
+        );
+
+        let first =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+        let second =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+
+        assert_eq!(first, second);
+        let impl_rows = first
+            .iter()
+            .filter(|row| row.item_kind == RustItemKind::Impl)
+            .collect::<Vec<_>>();
+        assert_eq!(impl_rows.len(), 2);
+        assert_ne!(impl_rows[0].stable_id, impl_rows[1].stable_id);
+        assert_eq!(impl_rows[0].name, "impl#1");
+        assert_eq!(impl_rows[1].name, "impl#2");
+        assert!(impl_rows.iter().all(|row| {
+            row.identity_kind == RustIdentityKind::UnstableAnonymous
+                && row.identity_note.contains("source-drift sensitive")
+        }));
+
+        let named_rows = first
+            .iter()
+            .filter(|row| row.item_kind == RustItemKind::Struct)
+            .collect::<Vec<_>>();
         assert!(
-            first
+            named_rows
                 .iter()
-                .any(|row| row.item_kind == RustItemKind::Impl && row.name == "impl")
+                .all(|row| row.identity_kind == RustIdentityKind::StableNamed)
+        );
+    }
+
+    // Defends: CDB085 public API hashing ignores private/body drift but moves on public symbol drift.
+    #[test]
+    fn semantic_and_public_api_hashes_are_stable_for_expected_inputs() {
+        let fixture = FixtureWorkspace::new();
+        fixture.write(
+            "src/lib.rs",
+            r#"
+pub fn public_api() -> usize {
+    1
+}
+
+fn helper() -> usize {
+    1
+}
+"#,
+        );
+        let base_rows =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+        let base = semantic_hash_report(&base_rows);
+
+        fixture.write(
+            "src/lib.rs",
+            r#"
+// comment drift should not affect static item hashes
+pub fn public_api() -> usize {
+    2
+}
+
+fn helper_private_renamed() -> usize {
+    2
+}
+"#,
+        );
+        let private_drift_rows =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+        let private_drift = semantic_hash_report(&private_drift_rows);
+
+        assert_ne!(base.semantic_hash, private_drift.semantic_hash);
+        assert_eq!(base.public_api_hash, private_drift.public_api_hash);
+        assert!(
+            private_drift
+                .limitation
+                .contains("excludes function bodies")
+        );
+
+        fixture.write(
+            "src/lib.rs",
+            r#"
+pub fn public_api_renamed() -> usize {
+    2
+}
+
+fn helper_private_renamed() -> usize {
+    2
+}
+"#,
+        );
+        let public_drift_rows =
+            capture_rust_items(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+        let public_drift = semantic_hash_report(&public_drift_rows);
+
+        assert_ne!(base.public_api_hash, public_drift.public_api_hash);
+        assert!(
+            base.public_api_inputs
+                .iter()
+                .any(|input| input.contains("public_api"))
+        );
+        assert!(
+            public_drift
+                .public_api_inputs
+                .iter()
+                .any(|input| input.contains("public_api_renamed"))
         );
     }
 
@@ -2072,6 +2374,35 @@ pub fn run() {
         }));
         assert!(first.gaps.iter().any(|gap| {
             gap.macro_name == "hello" && gap.missing_truth == MacroMissingTruth::Hygiene
+        }));
+    }
+
+    // Defends: CDB077 gates dynamic/compiler-observed macro expansion as GAP, not FACT.
+    #[test]
+    fn macro_expansion_gate_records_question_not_fact() {
+        let fixture = FixtureWorkspace::new();
+        fixture.write(
+            "src/lib.rs",
+            r#"
+macro_rules! make_item {
+    () => { pub fn generated() {} };
+}
+
+make_item!();
+"#,
+        );
+
+        let inventory =
+            capture_rust_macros(&fixture.root, fixture.root.join("src/lib.rs"), "ctx-1").unwrap();
+
+        assert!(inventory.expansion_gates.iter().any(|gate| {
+            gate.macro_name == "make_item"
+                && gate.gate_status == MacroExpansionGateStatus::Gap
+                && gate.evidence_kind == "compiler_observed_expansion"
+                && gate.reason.contains("not executed")
+        }));
+        assert!(inventory.gaps.iter().any(|gap| {
+            gap.macro_name == "make_item" && gap.missing_truth == MacroMissingTruth::Expansion
         }));
     }
 

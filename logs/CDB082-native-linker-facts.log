@@ -1,0 +1,18 @@
+CDB082 native and linker dynamic facts
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: native/linker facts are captured only under approved dynamic gates
+  or represented as GAP.
+
+Implementation:
+- Added `native_link_facts` rows to approved build capture outcomes.
+- Parsed Cargo JSON `build-script-executed` messages for `linked_libs` and
+  `linked_paths`.
+- Added `capture_approved_fixture_build_with_env` so tests can explicitly
+  enable native-link fixture output under the unsafe gate.
+- Refused/default capture records `native_linker_dynamic_facts` as a GAP with
+  required flag `--unsafe-execute-build`.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-build-capture native_linker_facts_require_approved_dynamic_capture`

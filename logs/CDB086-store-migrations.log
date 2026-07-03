@@ -1,0 +1,15 @@
+CDB086 store migrations and schema evolution
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: migration policy, test matrix, and refusal behavior for unknown
+  schemas are documented.
+
+Implementation:
+- Added `StoreError::UnsupportedSchemaVersion`.
+- `read_store_report` now accepts schema `1.0.0` and refuses unknown schema
+  values.
+- Documented migration matrix in `docs/BIDIRECTIONAL_ARCHITECTURE.md`.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-store-redb unknown_schema_version_is_refused -- --test-threads=1`

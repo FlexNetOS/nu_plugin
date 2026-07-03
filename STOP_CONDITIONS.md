@@ -14,5 +14,9 @@ Stop before proceeding if:
 - Yazelix tracked `nushell/config/config.nu` would be modified;
 - envctl would read redb internals instead of exports;
 - raw failure logs cannot be preserved.
+- bidirectional work would apply a change plan directly to source before CDB075
+  has approval provenance, stop checks, and recovery evidence;
+- a change plan lacks source snapshot hashes or conflict behavior;
+- missing bidirectional evidence would be recorded as FACT instead of QUESTION or GAP.
 
 Record blocker, evidence, and next decision.
