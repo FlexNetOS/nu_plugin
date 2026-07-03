@@ -64,5 +64,29 @@ Use this file map. Follow links and task IDs, not random browsing.
 | 57 | [manifests/PACKAGE_VALIDATION.json](manifests/PACKAGE_VALIDATION.json) | Package validation results. |
 | 58 | [manifests/CSV_DOC_LINK_AUDIT_INPUT.md](manifests/CSV_DOC_LINK_AUDIT_INPUT.md) | Input audit used for the CSV source-of-truth repair. |
 | 59 | [manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json](manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json) | Machine-readable repair evidence for strict task/file linkage. |
+| 30 | [docs/AUDIT_UPGRADE_COMPLETION.md](docs/AUDIT_UPGRADE_COMPLETION.md) | Post-audit authority, upgrade-only policy, and remaining product gaps. |
+| 31 | [BACKLOG.md](BACKLOG.md) | MVP2 backlog and downgrade exclusions. |
+| 32 | [execution/TASK_GRAPH.csv](execution/TASK_GRAPH.csv) | Canonical controlled task graph table. |
+| 33 | [execution/TASK_GRAPH.md](execution/TASK_GRAPH.md) | Readable task graph projection. |
+| 34 | [execution/TASK_FILE_MAP.csv](execution/TASK_FILE_MAP.csv) | Task-to-file map. |
+| 35 | [execution/COMMAND_LEDGER.csv](execution/COMMAND_LEDGER.csv) | Command evidence ledger. |
+| 36 | [execution/WORKLOG.md](execution/WORKLOG.md) | Narrative worklog. |
+| 37 | [manifests/EXTRACTION_PROOF.json](manifests/EXTRACTION_PROOF.json) | Source ZIP extraction proof. |
+| 38 | [manifests/CHECKLIST_COMPLETION.json](manifests/CHECKLIST_COMPLETION.json) | Checklist item completion map. |
+| 39 | [manifests/PACK_MANIFEST.json](manifests/PACK_MANIFEST.json) | Package manifest. |
+| 40 | [manifests/CHECKSUMS.sha256](manifests/CHECKSUMS.sha256) | Package checksums. |
+| 41 | [manifests/LINK_CHECK_REPORT.md](manifests/LINK_CHECK_REPORT.md) | Local link check report. |
+| 42 | [manifests/PACKAGE_VALIDATION.json](manifests/PACKAGE_VALIDATION.json) | Package validation results. |
+| 43 | [manifests/CSV_DOC_LINK_AUDIT_INPUT.md](manifests/CSV_DOC_LINK_AUDIT_INPUT.md) | Input audit used for the CSV source-of-truth repair. |
+| 44 | [manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json](manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json) | Machine-readable repair evidence for strict task/file linkage. |
+| 45 | [docs/BIDIRECTIONAL_ROADMAP.md](docs/BIDIRECTIONAL_ROADMAP.md) | Issue 212 bidirectional roadmap and phase plan. |
+| 46 | [docs/BIDIRECTIONAL_ARCHITECTURE.md](docs/BIDIRECTIONAL_ARCHITECTURE.md) | Source-to-plan-to-apply architecture and ownership boundaries. |
+| 47 | [docs/ROUND_TRIP_PROOF.md](docs/ROUND_TRIP_PROOF.md) | Round-trip artifact and re-scan proof chain. |
+| 48 | [docs/CHANGE_PLAN_SCHEMA.md](docs/CHANGE_PLAN_SCHEMA.md) | Change-plan, patch-plan, conflict, decision, and apply row schema. |
+| 49 | [docs/MUTATION_POLICY.md](docs/MUTATION_POLICY.md) | Bidirectional mutation gates and stop rules. |
+| 50 | [docs/GAP_CLOSURE_PLAN.md](docs/GAP_CLOSURE_PLAN.md) | Issue 212 V1.1 gap closure rail. |
+| 51 | [execution/BIDIRECTIONAL_TASK_GRAPH.csv](execution/BIDIRECTIONAL_TASK_GRAPH.csv) | CDB070-CDB090 bidirectional task graph. |
+| 52 | [execution/BIDIRECTIONAL_TASK_FILE_MAP.csv](execution/BIDIRECTIONAL_TASK_FILE_MAP.csv) | CDB070-CDB090 task-to-file map. |
+| 53 | [scripts/validate_bidirectional_package.py](scripts/validate_bidirectional_package.py) | Bidirectional package validation gate. |
 
 Rule: `execution/TASK_GRAPH.csv` remains the source of truth for V1.1 implementation work. `execution/POLYGLOT_TASK_GRAPH.csv` is the planning-only source of truth for the V1.2 polyglot package.

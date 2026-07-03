@@ -1,0 +1,18 @@
+timestamp_utc: 2026-07-02T18:05:03Z
+task: CDB074 Phase 4 patch generation into isolated worktrees
+repo: FlexNetOS/nu_plugin
+worktree: /home/flexnetos/FlexNetOS/src/nu_plugin-next-worktree
+
+implementation:
+- added generate_isolated_patch_artifact in codedb_core;
+- refused patch targets equal to or nested under the source checkout;
+- rejected absolute or escaping patch artifact paths;
+- required a proof gate before writing patch bytes;
+- wrote patch artifacts only beneath the isolated target.
+
+tests:
+- nix develop .#ci -c cargo test -p codedb-core isolated_patch
+
+mutation policy:
+- no source checkout mutation command was added;
+- source apply remains gated by CDB075.

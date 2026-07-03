@@ -10,6 +10,12 @@ slice progressed through CDB047, with CDB068 later repairing package CSV truth s
 The current change set adds a separate V1.2 planning package for the polyglot-import
 lane requested by issue 215. This package is documentation, task-graph, and issue-draft
 work only. It does not claim that polyglot import implementation shipped.
+Task: CDB070
+
+## Current State
+
+The V1.1 implementation slice has progressed through CDB069 and issue 212 has
+opened the bidirectional roadmap rail CDB070-CDB090.
 
 Completed local release block:
 
@@ -93,6 +99,18 @@ Two execution lanes now exist:
 
 - V1.1 implementation lane: continue from `execution/TASK_GRAPH.csv` at CDB049 for runtime/plugin/Codex/envctl work.
 - V1.2 planning lane: use `execution/POLYGLOT_TASK_GRAPH.csv` and the polyglot docs package for issue-215 delivery, review, and future implementation scoping.
+Continue from `execution/TASK_GRAPH.csv`. For issue 212 bidirectional work,
+also use `execution/BIDIRECTIONAL_TASK_GRAPH.csv` and
+`execution/BIDIRECTIONAL_TASK_FILE_MAP.csv`.
+
+The new bidirectional rail starts at CDB070:
+
+- CDB070-CDB076: phases 0-6 from issue 212;
+- CDB077-CDB089: required V1.1 gap closure items;
+- CDB090: final bidirectional release gate and manifest reseal.
+
+Default behavior remains read-only. No direct source apply is allowed until the
+CDB075 operator-approved apply gate is implemented and proven.
 
 ## Handoff Rule
 

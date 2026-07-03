@@ -29,3 +29,10 @@ The polyglot planning package is acceptable only when:
 - GitHub issue delivery drafts exist for CDB091-CDB105;
 - the addendum and navigation surfaces say clearly that V1.2 is planning-only;
 - no planning artifact is presented as completed code, runner proof, or release implementation.
+The bidirectional roadmap package is acceptable only when:
+
+- CDB070-CDB090 exist in GitKB and in `execution/BIDIRECTIONAL_TASK_GRAPH.csv`;
+- all seven phases from issue 212 are represented;
+- V1.1 gap closure coverage is explicit in `docs/GAP_CLOSURE_PLAN.md`;
+- `docs/MUTATION_POLICY.md` preserves read-only defaults, bounded MCP, no hidden Git mutation, and no source overwrite before controlled apply gates;
+- `scripts/validate_bidirectional_package.py` passes.

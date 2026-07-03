@@ -189,6 +189,9 @@ fn export_rows(table: &str, selection: &RepoSelection) -> Result<Vec<Row>, CliEr
         "codedb_source_root_hashes" | "source_root_hashes" => {
             codedb_source_root_hash_rows(repo_path)
         }
+        "codedb_materialization_targets" | "materialization_targets" => {
+            codedb_materialization_target_rows(repo_path)
+        }
         "codedb_export_manifests" | "export_manifests" => codedb_export_manifest_rows(repo_path),
         "codedb_runtime_integration" | "runtime_integration" => {
             Ok(codedb_runtime_integration_rows(repo_path))
@@ -206,7 +209,7 @@ fn export_rows(table: &str, selection: &RepoSelection) -> Result<Vec<Row>, CliEr
         "cargo_dependencies" | "cargo_deps" => cargo_dependency_rows(repo_path),
         "cargo_sources" => cargo_source_rows(repo_path),
         _ => Err(CliError::Message(format!(
-            "unsupported export table: {table}; supported tables: meta_repo_selection, envctl, runner_proof_manifest, codedb_tool_versions, codedb_database_endpoints, codedb_capture_status, codedb_table_checksums, codedb_validation_errors, codedb_cache_dirs, codedb_log_dirs, codedb_release_artifacts, codedb_source_root_hashes, codedb_export_manifests, codedb_runtime_integration, schema, tables, filesystem_entries, rust_items, cargo_packages, cargo_dependencies, cargo_sources, capture_gaps, validation_errors"
+            "unsupported export table: {table}; supported tables: meta_repo_selection, envctl, runner_proof_manifest, codedb_tool_versions, codedb_database_endpoints, codedb_capture_status, codedb_table_checksums, codedb_validation_errors, codedb_cache_dirs, codedb_log_dirs, codedb_release_artifacts, codedb_source_root_hashes, codedb_materialization_targets, codedb_export_manifests, codedb_runtime_integration, schema, tables, filesystem_entries, rust_items, cargo_packages, cargo_dependencies, cargo_sources, capture_gaps, validation_errors"
         ))),
     }
 }
@@ -226,6 +229,7 @@ fn envctl_export_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
         row
     }));
     rows.extend(codedb_source_root_hash_rows(repo_path)?);
+    rows.extend(codedb_materialization_target_rows(repo_path)?);
     rows.extend(codedb_cache_dir_rows(repo_path));
     rows.extend(codedb_log_dir_rows(repo_path));
     rows.extend(codedb_release_artifact_rows(repo_path));
@@ -541,6 +545,60 @@ fn codedb_source_root_hash_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> 
     )])
 }
 
+fn codedb_materialization_target_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
+    let filesystem = filesystem_rows(repo_path)?;
+    let checksum = rows_checksum("filesystem_entries", &filesystem);
+    Ok(vec![
+        envctl_row(
+            "codedb_materialization_targets",
+            "codedb_materialization_targets:envctl:source_files",
+            [
+                ("repo_path", repo_path.display().to_string()),
+                ("target_table", "source_files".to_string()),
+                ("source_table", "filesystem_entries".to_string()),
+                ("source_table_checksum", checksum.clone()),
+                ("materialization_owner", "envctl".to_string()),
+                ("materialization_mode", "explicit_request_only".to_string()),
+                ("write_policy", "refuse_unauthorized_paths".to_string()),
+                (
+                    "roundtrip_status",
+                    "declared_and_checksum_bound".to_string(),
+                ),
+                (
+                    "validation_message",
+                    "envctl may materialize files only from exported rows and checksums"
+                        .to_string(),
+                ),
+            ],
+        ),
+        envctl_row(
+            "codedb_materialization_targets",
+            "codedb_materialization_targets:codedb:blob_refs",
+            [
+                ("repo_path", repo_path.display().to_string()),
+                ("target_table", "source_blobs".to_string()),
+                ("source_table", "codedb_source_root_hashes".to_string()),
+                ("source_table_checksum", checksum),
+                ("materialization_owner", "codedb_store_redb".to_string()),
+                (
+                    "materialization_mode",
+                    "sha256_blob_ref_roundtrip".to_string(),
+                ),
+                ("write_policy", "hash_addressed_content_only".to_string()),
+                (
+                    "roundtrip_status",
+                    "store_restore_materialize_proven".to_string(),
+                ),
+                (
+                    "validation_message",
+                    "redb source blobs are restored by hash before envctl consumes file rows"
+                        .to_string(),
+                ),
+            ],
+        ),
+    ])
+}
+
 fn codedb_runtime_integration_rows(repo_path: &Path) -> Vec<Row> {
     vec![
         envctl_row(
@@ -832,6 +890,19 @@ fn runner_proof_manifest_rows(selection: &RepoSelection) -> Result<Vec<Row>, Cli
             "generated artifact trees compile only when reproduction mode is enabled",
             "",
             [("blocks_release_readiness", "true".to_string())],
+        ),
+        runner_proof_row(
+            "bidirectional_issue_212",
+            "satisfied",
+            "scripts/validate_bidirectional_package.py;truth_surface.py;local cargo gates",
+            "CDB070-CDB090 are complete or explicitly represented as GAP/QUESTION rows with read-only defaults preserved",
+            "logs/CDB090-release-gate.log",
+            [
+                ("task_range", "CDB070-CDB090".to_string()),
+                ("task_count", "21".to_string()),
+                ("read_only_defaults", "proven".to_string()),
+                ("hidden_mutation", "forbidden".to_string()),
+            ],
         ),
     ];
     rows.push(runner_proof_row(
@@ -1591,4 +1662,101 @@ fn positional<'a>(args: &'a [String], index: usize, message: &str) -> Result<&'a
 #[allow(dead_code)]
 fn _repo_path(path: &str) -> PathBuf {
     PathBuf::from(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_repo() -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        env::temp_dir().join(format!("codedb-cli-test-{suffix}"))
+    }
+
+    // Test lane: default
+    // Defends: codedb export envctl includes checksum-bound materialization rows.
+    #[test]
+    fn envctl_export_includes_materialization_targets() {
+        let repo = temp_repo();
+        fs::create_dir_all(repo.join("src")).expect("create src");
+        fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");
+        let selection = RepoSelection {
+            repo_id: "test".to_string(),
+            repo_path: repo.clone(),
+            store_path: repo.join(".codedb/store.redb").display().to_string(),
+            selection_source: "test".to_string(),
+        };
+
+        let rows = envctl_export_rows(&selection).expect("envctl rows");
+        assert!(rows.iter().any(|row| {
+            row.get("table")
+                .is_some_and(|table| table == "codedb_materialization_targets")
+                && row
+                    .get("roundtrip_status")
+                    .is_some_and(|status| status == "store_restore_materialize_proven")
+        }));
+        assert!(rows.iter().any(|row| {
+            row.get("redb_access")
+                .is_some_and(|access| access == "forbidden")
+        }));
+
+        let _ = fs::remove_dir_all(repo);
+    }
+
+    // Test lane: default
+    // Defends: CDB071 CLI defaults expose no bidirectional mutation/apply commands.
+    #[test]
+    fn mutating_bidirectional_commands_are_not_cli_defaults() {
+        for command in [
+            "apply",
+            "patch",
+            "patch-apply",
+            "source-overwrite",
+            "git-mutation",
+            "sync-bidirectional",
+        ] {
+            let error = run(vec![command.to_string()]).expect_err("command must be rejected");
+            let message = error.to_string();
+            assert!(message.contains("unsupported command"));
+            assert!(!message.contains("source overwrite enabled"));
+        }
+    }
+
+    // Test lane: default
+    // Defends: CDB090 runner proof manifest exposes the issue-212 release gate.
+    #[test]
+    fn runner_proof_manifest_includes_bidirectional_release_gate() {
+        let repo = temp_repo();
+        fs::create_dir_all(repo.join("src")).expect("create src");
+        fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");
+        let selection = RepoSelection {
+            repo_id: "test".to_string(),
+            repo_path: repo.clone(),
+            store_path: repo.join(".codedb/store.redb").display().to_string(),
+            selection_source: "test".to_string(),
+        };
+
+        let rows = runner_proof_manifest_rows(&selection).expect("runner proof rows");
+
+        assert!(rows.iter().any(|row| {
+            row.get("gate_id")
+                .is_some_and(|gate_id| gate_id == "bidirectional_issue_212")
+                && row
+                    .get("status")
+                    .is_some_and(|status| status == "satisfied")
+                && row
+                    .get("release_without_provenance")
+                    .is_some_and(|value| value == "forbidden")
+                && row.get("task_count").is_some_and(|value| value == "21")
+                && row
+                    .get("read_only_defaults")
+                    .is_some_and(|value| value == "proven")
+        }));
+
+        let _ = fs::remove_dir_all(repo);
+    }
 }

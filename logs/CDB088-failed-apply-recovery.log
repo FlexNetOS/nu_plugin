@@ -1,0 +1,20 @@
+CDB088 failed materialization/apply recovery
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: failed attempts leave audit rows and restore source/worktree
+  state.
+
+Implementation:
+- Added failed materialization/apply recovery rows in `codedb_core`.
+- Failed attempts produce an `apply_attempts` row with `failed` status and
+  failure evidence.
+- Completed recovery produces a `recovery_rows` row with `recovered` status,
+  observed partial snapshot, restored source/worktree snapshot, and quarantine
+  reference.
+- Recovery is refused unless the restored snapshot matches the stored plan
+  source snapshot.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-core failed_materialization_recovery_records_audit_and_restored_snapshot`
+- `nix develop .#ci -c cargo test -p codedb-core failed_apply_recovery_requires_restored_source_snapshot`

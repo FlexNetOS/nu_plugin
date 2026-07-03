@@ -1,0 +1,18 @@
+CDB085 semantic and public API hashing
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: hash inputs and limitations are documented and tested against
+  source drift.
+
+Implementation:
+- Added `SemanticHashReport` and `semantic_hash_report` to
+  `codedb_rust_static`.
+- Semantic hash inputs include relative path, module path, item kind, item
+  name, visibility, identity kind, and identity note.
+- Public API hash inputs include only public item rows.
+- Limitations explicitly exclude function bodies, type layout, macro expansion,
+  and rustc semantic checks.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-rust-static semantic_and_public_api_hashes_are_stable_for_expected_inputs`

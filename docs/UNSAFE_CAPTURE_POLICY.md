@@ -32,4 +32,6 @@ and only after the selected task declares:
 
 ## Evidence required
 
-Unsafe capture must preserve stdout/stderr, Cargo instructions, OUT_DIR artifact hashes, environment allowlist, and failure logs. Missing observations become `capture_gaps`.
+Unsafe capture must preserve stdout/stderr, Cargo instructions, native
+`linked_libs`/`linked_paths`, OUT_DIR artifact hashes, environment allowlist,
+and failure logs. Missing observations become `capture_gaps`.

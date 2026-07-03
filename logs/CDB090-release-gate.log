@@ -1,0 +1,25 @@
+CDB090 final bidirectional release gate and manifest reseal
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: all phases/gaps are complete or explicitly deferred,
+  validations pass, manifests resealed, and PR evidence confirms read-only
+  defaults and no secrets/hidden mutation.
+
+Implementation:
+- Marked CDB087-CDB090 complete in `execution/BIDIRECTIONAL_TASK_GRAPH.csv`.
+- `scripts/validate_bidirectional_package.py` now rejects incomplete CDB070-CDB090
+  task rows.
+- Added `bidirectional_issue_212` to `runner_proof_manifest` with satisfied
+  status, read-only defaults, hidden mutation forbidden, and provenance
+  required.
+- Documented the CDB090 bidirectional release gate in `docs/RELEASE_GATE.md`.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb runner_proof_manifest_includes_bidirectional_release_gate`
+- `python3 scripts/validate_bidirectional_package.py`
+- `python3 scripts/truth_surface.py --write && python3 scripts/truth_surface.py --check`
+- `git diff --check`
+- `nix develop .#ci -c cargo fmt --all -- --check`
+- `nix develop .#ci -c cargo clippy --all-targets --all-features`
+- `nix develop .#ci -c cargo test --workspace -- --test-threads=1`

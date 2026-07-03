@@ -3,7 +3,6 @@
 [sync.remotes]
 
 [repos]
-strategy = "meta"
 
 [apps]
 enabled = []

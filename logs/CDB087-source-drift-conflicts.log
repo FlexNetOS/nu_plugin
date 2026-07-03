@@ -1,0 +1,20 @@
+CDB087 source drift versus stored plans
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: stale plans cannot apply silently after source drift.
+
+Implementation:
+- Added an apply-gate regression proving an `approved_for_apply` plan with a
+  stale stored source snapshot is refused with `ApplyGateError::SourceDrift`.
+- Verified the same stale plan emits a `source_drift` `plan_conflicts` row.
+- Documented that operator approval, stop-condition proof, and recovery
+  references cannot override source snapshot drift.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-core stale_approved_plan_cannot_apply_silently`
+- `python3 scripts/validate_bidirectional_package.py`
+- `python3 scripts/truth_surface.py --write && python3 scripts/truth_surface.py --check`
+- `nix develop .#ci -c cargo fmt --all -- --check`
+- `nix develop .#ci -c cargo clippy --all-targets --all-features`
+- `nix develop .#ci -c cargo test --workspace -- --test-threads=1`

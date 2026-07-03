@@ -1,0 +1,18 @@
+CDB081 symlink and platform materialization
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: platform-dependent behavior is explicit and safe fallback rows
+  exist.
+
+Implementation:
+- Added `platform_materialization_capabilities` to the core table inventory.
+- Added `symlink_materialization_rows` with `supported` and
+  `metadata_only_fallback` statuses.
+- Fallback rows preserve symlink target metadata and explicitly avoid
+  materializing symlinks as regular files.
+- Unix fixture coverage creates a real symlink and proves the scanner records
+  the symlink target without following it.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-core symlink_`

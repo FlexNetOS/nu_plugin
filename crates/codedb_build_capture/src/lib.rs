@@ -29,6 +29,7 @@ pub struct BuildCaptureOutcome {
     pub unsafe_execution_approval: Vec<Row>,
     pub build_script_runs: Vec<Row>,
     pub proc_macro_invocations: Vec<Row>,
+    pub native_link_facts: Vec<Row>,
     pub validation_errors: Vec<Row>,
     pub capture_gaps: Vec<Row>,
     pub raw_log_paths: Vec<Row>,
@@ -101,13 +102,25 @@ pub fn capture_build(request: BuildCaptureRequest) -> BuildCaptureOutcome {
 pub fn capture_approved_fixture_build(
     request: BuildCaptureRequest,
 ) -> Result<BuildCaptureOutcome, BuildCaptureError> {
+    capture_approved_fixture_build_with_env(request, &[])
+}
+
+pub fn capture_approved_fixture_build_with_env(
+    request: BuildCaptureRequest,
+    environment: &[(&str, &str)],
+) -> Result<BuildCaptureOutcome, BuildCaptureError> {
     if !request.unsafe_execute_build {
         return Ok(refused_capture(request));
     }
 
-    let output = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .args(["check", "--message-format=json"])
-        .current_dir(&request.repo_path)
+        .current_dir(&request.repo_path);
+    for (key, value) in environment {
+        command.env(key, value);
+    }
+    let output = command
         .output()
         .map_err(|source| BuildCaptureError::SpawnCargo {
             path: request.repo_path.clone(),
@@ -122,8 +135,29 @@ pub fn capture_approved_fixture_build(
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let observed_warning =
-        stdout.contains("build-script-probe") || stderr.contains("build-script-probe");
+    let native_link_facts = native_link_facts_from_cargo_json(&stdout, &request);
+    let mut capture_gaps = vec![
+        row([
+            ("table", "capture_gaps".to_string()),
+            ("missing_truth", "proc_macro_execution".to_string()),
+            (
+                "reason",
+                "CDB034 fixture captures build logs; proc-macro execution remains represented as a gap unless fixture includes proc macros"
+                    .to_string(),
+            ),
+            ("required_task", "CDB045".to_string()),
+        ]),
+        out_dir_artifact_gap(&request),
+    ];
+    if native_link_facts.is_empty() {
+        capture_gaps.push(native_link_gap(&request));
+    }
+    let observed_warning = stdout.contains("cargo:warning=")
+        || stderr.contains("cargo:warning=")
+        || stdout.contains("warning: codedb-")
+        || stderr.contains("warning: codedb-")
+        || stdout.contains("build-script-")
+        || stderr.contains("build-script-");
 
     Ok(BuildCaptureOutcome {
         status,
@@ -136,22 +170,10 @@ pub fn capture_approved_fixture_build(
             ("table", "build_script_runs".to_string()),
             ("repo_path", request.repo_path.display().to_string()),
             ("status", status.as_str().to_string()),
-            (
-                "exit_code",
-                output.status.code().unwrap_or(-1).to_string(),
-            ),
-            (
-                "stdout_bytes",
-                output.stdout.len().to_string(),
-            ),
-            (
-                "stderr_bytes",
-                output.stderr.len().to_string(),
-            ),
-            (
-                "observed_warning",
-                observed_warning.to_string(),
-            ),
+            ("exit_code", output.status.code().unwrap_or(-1).to_string()),
+            ("stdout_bytes", output.stdout.len().to_string()),
+            ("stderr_bytes", output.stderr.len().to_string()),
+            ("observed_warning", observed_warning.to_string()),
         ])],
         proc_macro_invocations: vec![row([
             ("table", "proc_macro_invocations".to_string()),
@@ -161,6 +183,7 @@ pub fn capture_approved_fixture_build(
                 "approved fixture dynamic capture did not include a proc-macro crate".to_string(),
             ),
         ])],
+        native_link_facts,
         validation_errors: if output.status.success() {
             Vec::new()
         } else {
@@ -176,16 +199,7 @@ pub fn capture_approved_fixture_build(
                 ("repo_path", request.repo_path.display().to_string()),
             ])]
         },
-        capture_gaps: vec![row([
-            ("table", "capture_gaps".to_string()),
-            ("missing_truth", "proc_macro_execution".to_string()),
-            (
-                "reason",
-                "CDB034 fixture captures build logs; proc-macro execution remains represented as a gap unless fixture includes proc macros"
-                    .to_string(),
-            ),
-            ("required_task", "CDB045".to_string()),
-        ])],
+        capture_gaps,
         raw_log_paths: vec![raw_log_row(&request, "written")],
     })
 }
@@ -200,6 +214,7 @@ fn refused_capture(request: BuildCaptureRequest) -> BuildCaptureOutcome {
         )],
         build_script_runs: Vec::new(),
         proc_macro_invocations: Vec::new(),
+        native_link_facts: Vec::new(),
         validation_errors: vec![row([
             ("table", "validation_errors".to_string()),
             ("code", "unsafe_execution_refused".to_string()),
@@ -209,16 +224,36 @@ fn refused_capture(request: BuildCaptureRequest) -> BuildCaptureOutcome {
             ),
             ("repo_path", request.repo_path.display().to_string()),
         ])],
-        capture_gaps: vec![row([
-            ("table", "capture_gaps".to_string()),
-            ("missing_truth", "build_script_execution".to_string()),
-            (
-                "reason",
-                "dynamic build script and proc-macro execution is gated by explicit unsafe approval"
-                    .to_string(),
-            ),
-            ("required_flag", UNSAFE_FLAG.to_string()),
-        ])],
+        capture_gaps: vec![
+            row([
+                ("table", "capture_gaps".to_string()),
+                ("missing_truth", "build_script_execution".to_string()),
+                (
+                    "reason",
+                    "dynamic build script execution is gated by explicit unsafe approval"
+                        .to_string(),
+                ),
+                ("required_flag", UNSAFE_FLAG.to_string()),
+            ]),
+            row([
+                ("table", "capture_gaps".to_string()),
+                ("missing_truth", "proc_macro_execution".to_string()),
+                (
+                    "reason",
+                    "proc-macro execution is gated by explicit unsafe approval".to_string(),
+                ),
+                ("required_flag", UNSAFE_FLAG.to_string()),
+            ]),
+            row([
+                ("table", "capture_gaps".to_string()),
+                ("missing_truth", "native_linker_dynamic_facts".to_string()),
+                (
+                    "reason",
+                    "native/linker facts require approved dynamic build execution".to_string(),
+                ),
+                ("required_flag", UNSAFE_FLAG.to_string()),
+            ]),
+        ],
         raw_log_paths: vec![raw_log_row(&request, "not_written")],
     }
 }
@@ -233,6 +268,7 @@ fn approved_scaffold(request: BuildCaptureRequest) -> BuildCaptureOutcome {
         )],
         build_script_runs: Vec::new(),
         proc_macro_invocations: Vec::new(),
+        native_link_facts: Vec::new(),
         validation_errors: Vec::new(),
         capture_gaps: vec![row([
             ("table", "capture_gaps".to_string()),
@@ -285,6 +321,100 @@ fn raw_log_row(request: &BuildCaptureRequest, status: &str) -> Row {
                 .to_string(),
         ),
     ])
+}
+
+fn out_dir_artifact_gap(request: &BuildCaptureRequest) -> Row {
+    row([
+        ("table", "capture_gaps".to_string()),
+        ("missing_truth", "out_dir_artifacts".to_string()),
+        (
+            "reason",
+            "approved dynamic capture does not yet emit a checksum-bound generated OUT_DIR artifact manifest"
+                .to_string(),
+        ),
+        ("required_task", "CDB080".to_string()),
+        (
+            "required_environment",
+            "cargo OUT_DIR path, target triple, rustc version, and filesystem metadata allowlist"
+                .to_string(),
+        ),
+        (
+            "required_provenance",
+            "unsafe approval row, raw log path, build script run row, artifact relative path, and sha256"
+                .to_string(),
+        ),
+        ("repo_path", request.repo_path.display().to_string()),
+    ])
+}
+
+fn native_link_gap(request: &BuildCaptureRequest) -> Row {
+    row([
+        ("table", "capture_gaps".to_string()),
+        ("missing_truth", "native_linker_dynamic_facts".to_string()),
+        (
+            "reason",
+            "approved dynamic capture records native/linker facts only when Cargo emits build-script-executed linked_libs or linked_paths"
+                .to_string(),
+        ),
+        ("required_task", "CDB082".to_string()),
+        ("repo_path", request.repo_path.display().to_string()),
+    ])
+}
+
+fn native_link_facts_from_cargo_json(stdout: &str, request: &BuildCaptureRequest) -> Vec<Row> {
+    let mut facts = Vec::new();
+    for line in stdout.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value.get("reason").and_then(serde_json::Value::as_str) != Some("build-script-executed")
+        {
+            continue;
+        }
+        let package_id = value
+            .get("package_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown-package");
+        push_native_link_fact_rows(
+            &mut facts,
+            request,
+            package_id,
+            "linked_lib",
+            value.get("linked_libs"),
+        );
+        push_native_link_fact_rows(
+            &mut facts,
+            request,
+            package_id,
+            "linked_path",
+            value.get("linked_paths"),
+        );
+    }
+    facts
+}
+
+fn push_native_link_fact_rows(
+    facts: &mut Vec<Row>,
+    request: &BuildCaptureRequest,
+    package_id: &str,
+    fact_kind: &str,
+    values: Option<&serde_json::Value>,
+) {
+    let Some(values) = values.and_then(serde_json::Value::as_array) else {
+        return;
+    };
+    for value in values.iter().filter_map(serde_json::Value::as_str) {
+        facts.push(row([
+            ("table", "native_link_facts".to_string()),
+            ("status", "observed".to_string()),
+            ("fact_kind", fact_kind.to_string()),
+            ("value", value.to_string()),
+            ("package_id", package_id.to_string()),
+            ("repo_path", request.repo_path.display().to_string()),
+            ("provenance", "cargo:build-script-executed".to_string()),
+            ("approval_flag", UNSAFE_FLAG.to_string()),
+        ]));
+    }
 }
 
 fn write_raw_log(path: &Path, output: &std::process::Output) -> Result<(), BuildCaptureError> {
@@ -443,6 +573,241 @@ edition = "2024"
             outcome.validation_errors[0].get("code").map(String::as_str),
             Some("unsafe_execution_refused")
         );
+    }
+
+    // Test lane: default
+    // Defends: CDB078 proc-macro execution is refused by default and approved paths record provenance.
+    #[test]
+    fn proc_macro_execution_gate_refuses_default_and_records_approval() {
+        let refused = capture_build(request(false));
+        assert!(refused.capture_gaps.iter().any(|gap| {
+            gap.get("missing_truth").map(String::as_str) == Some("proc_macro_execution")
+                && gap.get("required_flag").map(String::as_str) == Some(UNSAFE_FLAG)
+        }));
+        assert!(refused.proc_macro_invocations.is_empty());
+
+        let approved = capture_build(request(true));
+        assert_eq!(approved.status, BuildCaptureStatus::ApprovedScaffold);
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("status")
+                .map(String::as_str),
+            Some("approved")
+        );
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("flag")
+                .map(String::as_str),
+            Some(UNSAFE_FLAG)
+        );
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("approver")
+                .map(String::as_str),
+            Some("test")
+        );
+    }
+
+    // Test lane: default
+    // Defends: CDB079 build-script execution is refused by default and approved runs capture provenance/logs.
+    #[test]
+    fn build_script_execution_gate_refuses_default_and_captures_approved_logs() {
+        let refused = capture_build(request(false));
+        assert!(refused.capture_gaps.iter().any(|gap| {
+            gap.get("missing_truth").map(String::as_str) == Some("build_script_execution")
+                && gap.get("required_flag").map(String::as_str) == Some(UNSAFE_FLAG)
+        }));
+        assert!(refused.build_script_runs.is_empty());
+
+        let fixture = temp_dir("codedb_build_script_gate_fixture");
+        fs::create_dir_all(fixture.join("src")).expect("create fixture src");
+        fs::write(
+            fixture.join("Cargo.toml"),
+            r#"[package]
+name = "codedb-build-script-gate-fixture"
+version = "0.1.0"
+edition = "2024"
+"#,
+        )
+        .expect("write manifest");
+        fs::write(fixture.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write lib");
+        fs::write(
+            fixture.join("build.rs"),
+            r#"fn main() {
+    println!("cargo:warning=build-script-provenance");
+}
+"#,
+        )
+        .expect("write build script");
+
+        let raw_log_path = fixture.join("logs/raw-build.log");
+        let approved = capture_approved_fixture_build(BuildCaptureRequest {
+            repo_path: fixture.clone(),
+            store_path: Some(fixture.join("codedb.redb")),
+            raw_log_path: raw_log_path.clone(),
+            unsafe_execute_build: true,
+            approver: Some("build-script-test".to_string()),
+        })
+        .expect("approved fixture capture should run");
+
+        assert_eq!(approved.status, BuildCaptureStatus::Captured);
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("approver")
+                .map(String::as_str),
+            Some("build-script-test")
+        );
+        assert_eq!(
+            approved.build_script_runs[0]
+                .get("observed_warning")
+                .map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            approved.raw_log_paths[0].get("status").map(String::as_str),
+            Some("written")
+        );
+        let raw_log = fs::read_to_string(&raw_log_path).expect("read raw log");
+        assert!(raw_log.contains("build-script-provenance"));
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: default
+    // Defends: CDB082 native/link facts are captured only under approved dynamic build execution.
+    #[test]
+    fn native_linker_facts_require_approved_dynamic_capture() {
+        let refused = capture_build(request(false));
+        assert!(refused.native_link_facts.is_empty());
+        assert!(refused.capture_gaps.iter().any(|gap| {
+            gap.get("missing_truth").map(String::as_str) == Some("native_linker_dynamic_facts")
+                && gap.get("required_flag").map(String::as_str) == Some(UNSAFE_FLAG)
+        }));
+
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("repo root");
+        let fixture = temp_dir("codedb_native_link_fixture");
+        fs::create_dir_all(fixture.join("src")).expect("create fixture src");
+        fs::copy(
+            repo_root.join("fixtures/native_link/Cargo.toml"),
+            fixture.join("Cargo.toml"),
+        )
+        .expect("copy fixture manifest");
+        fs::copy(
+            repo_root.join("fixtures/native_link/build.rs"),
+            fixture.join("build.rs"),
+        )
+        .expect("copy fixture build script");
+        fs::copy(
+            repo_root.join("fixtures/native_link/src/lib.rs"),
+            fixture.join("src/lib.rs"),
+        )
+        .expect("copy fixture lib");
+
+        let raw_log_path = fixture.join("logs/raw-build.log");
+        let approved = capture_approved_fixture_build_with_env(
+            BuildCaptureRequest {
+                repo_path: fixture.clone(),
+                store_path: Some(repo_root.join("target/codedb-native-link.redb")),
+                raw_log_path: raw_log_path.clone(),
+                unsafe_execute_build: true,
+                approver: Some("native-link-test".to_string()),
+            },
+            &[("CODEDB_FIXTURE_EMIT_NATIVE_LINK", "1")],
+        )
+        .expect("approved native link fixture capture should run");
+
+        assert_eq!(approved.status, BuildCaptureStatus::Captured);
+        assert!(approved.native_link_facts.iter().any(|fact| {
+            fact.get("fact_kind").map(String::as_str) == Some("linked_lib")
+                && fact.get("value").map(String::as_str) == Some("static=codedb_fixture_native")
+                && fact.get("provenance").map(String::as_str) == Some("cargo:build-script-executed")
+                && fact.get("approval_flag").map(String::as_str) == Some(UNSAFE_FLAG)
+        }));
+        assert!(approved.native_link_facts.iter().any(|fact| {
+            fact.get("fact_kind").map(String::as_str) == Some("linked_path")
+                && fact.get("value").map(String::as_str) == Some("native=vendor/native")
+        }));
+        assert!(!approved.capture_gaps.iter().any(|gap| {
+            gap.get("missing_truth").map(String::as_str) == Some("native_linker_dynamic_facts")
+        }));
+
+        let raw_log = fs::read_to_string(&raw_log_path).expect("read raw log");
+        assert!(raw_log.contains("linked_libs"));
+        assert!(raw_log.contains("codedb_fixture_native"));
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: default
+    // Defends: CDB080 generated OUT_DIR artifacts are explicit GAP rows until checksum manifests exist.
+    #[test]
+    fn out_dir_artifact_reproduction_records_required_gap() {
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("repo root");
+        let fixture = temp_dir("codedb_out_dir_generator_fixture");
+        fs::create_dir_all(fixture.join("src")).expect("create fixture src");
+        fs::copy(
+            repo_root.join("fixtures/out_dir_generator/Cargo.toml"),
+            fixture.join("Cargo.toml"),
+        )
+        .expect("copy fixture manifest");
+        fs::copy(
+            repo_root.join("fixtures/out_dir_generator/build.rs"),
+            fixture.join("build.rs"),
+        )
+        .expect("copy fixture build script");
+        fs::copy(
+            repo_root.join("fixtures/out_dir_generator/src/lib.rs"),
+            fixture.join("src/lib.rs"),
+        )
+        .expect("copy fixture lib");
+        let raw_log_path = fixture.join("logs/raw-build.log");
+        let outcome = capture_approved_fixture_build(BuildCaptureRequest {
+            repo_path: fixture.clone(),
+            store_path: Some(repo_root.join("target/codedb-out-dir-gap.redb")),
+            raw_log_path: raw_log_path.clone(),
+            unsafe_execute_build: true,
+            approver: Some("out-dir-test".to_string()),
+        })
+        .expect("approved out-dir fixture capture should run");
+
+        assert_eq!(outcome.status, BuildCaptureStatus::Captured);
+        let gap = outcome
+            .capture_gaps
+            .iter()
+            .find(|gap| gap.get("missing_truth").map(String::as_str) == Some("out_dir_artifacts"))
+            .expect("out-dir artifacts gap");
+        assert_eq!(gap.get("required_task").map(String::as_str), Some("CDB080"));
+        assert_eq!(
+            gap.get("required_environment").map(String::as_str),
+            Some(
+                "cargo OUT_DIR path, target triple, rustc version, and filesystem metadata allowlist"
+            )
+        );
+        assert_eq!(
+            gap.get("required_provenance").map(String::as_str),
+            Some(
+                "unsafe approval row, raw log path, build script run row, artifact relative path, and sha256"
+            )
+        );
+        let expected_repo_path = fixture.display().to_string();
+        assert_eq!(
+            gap.get("repo_path").map(String::as_str),
+            Some(expected_repo_path.as_str())
+        );
+
+        let raw_log = fs::read_to_string(&raw_log_path).expect("read raw log");
+        assert!(
+            raw_log.contains("generated.rs")
+                || raw_log.contains("codedb_fixture_out_dir_generator")
+        );
+
+        let _ = fs::remove_dir_all(fixture);
     }
 
     fn request(unsafe_execute_build: bool) -> BuildCaptureRequest {

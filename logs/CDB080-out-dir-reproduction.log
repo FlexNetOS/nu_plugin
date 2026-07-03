@@ -1,0 +1,17 @@
+CDB080 generated OUT_DIR artifact reproduction
+
+Task:
+- Source: FlexNetOS/flexnetos_runner#212.
+- Acceptance: generated OUT_DIR artifacts are represented losslessly or marked
+  GAP with required environment/provenance.
+
+Implementation:
+- Added an approved dynamic capture gap row for missing `out_dir_artifacts`.
+- The row requires Cargo OUT_DIR path, target triple, rustc version, filesystem
+  metadata allowlist, unsafe approval, raw log path, build-script run row,
+  artifact relative path, and sha256.
+- Added a focused test using `fixtures/out_dir_generator` to prove CodeDB does
+  not claim generated artifact reproduction from raw logs alone.
+
+Evidence:
+- `nix develop .#ci -c cargo test -p codedb-build-capture out_dir_artifact_reproduction_records_required_gap`

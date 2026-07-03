@@ -16,5 +16,9 @@ Stop before proceeding if:
 - envctl would read redb internals instead of exports;
 - a planning artifact starts to imply code implementation or release proof that does not exist;
 - raw failure logs cannot be preserved.
+- bidirectional work would apply a change plan directly to source before CDB075
+  has approval provenance, stop checks, and recovery evidence;
+- a change plan lacks source snapshot hashes or conflict behavior;
+- missing bidirectional evidence would be recorded as FACT instead of QUESTION or GAP.
 
 Record blocker, evidence, and next decision.

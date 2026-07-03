@@ -16,9 +16,9 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-rust-version = "1.92"
+rust-version = "1.93.1"
 
 [workspace.dependencies]
 codedb-core = { path = "crates/codedb_core" }
-nu-plugin = "0.112.2"
-nu-protocol = "0.112.2"
+nu-plugin = "0.113.1"
+nu-protocol = "0.113.1"
