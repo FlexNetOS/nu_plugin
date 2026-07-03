@@ -876,6 +876,106 @@ pub fn schema_tables() -> Vec<TableSpec> {
             state: RowState::Available,
             row_count: 0,
             note: "symlink/platform materialization limits are explicit after CDB081",
+        },
+        TableSpec {
+            name: "agent_harness_manifests",
+            domain: "agent-harness/manifest",
+            state: RowState::Available,
+            row_count: 0,
+            note: "agent harness manifest rows summarize portable Codex and repo-local harness capture",
+        },
+        TableSpec {
+            name: "agent_harness_sources",
+            domain: "agent-harness/source",
+            state: RowState::Available,
+            row_count: 0,
+            note: "source files for harness capture are hashed with ownership boundaries",
+        },
+        TableSpec {
+            name: "agent_harness_files",
+            domain: "agent-harness/file",
+            state: RowState::Available,
+            row_count: 0,
+            note: "materialized file rows capture file names, byte lengths, and ownership boundaries",
+        },
+        TableSpec {
+            name: "agent_harness_codex_settings",
+            domain: "agent-harness/codex",
+            state: RowState::Available,
+            row_count: 0,
+            note: "Codex settings rows capture redacted configuration values and provenance",
+        },
+        TableSpec {
+            name: "agent_harness_mcp_servers",
+            domain: "agent-harness/mcp",
+            state: RowState::Available,
+            row_count: 0,
+            note: "MCP registrations are captured as bounded harness rows with validation support",
+        },
+        TableSpec {
+            name: "agent_harness_plugins",
+            domain: "agent-harness/plugins",
+            state: RowState::Available,
+            row_count: 0,
+            note: "plugin metadata rows capture installed plugin ownership and version facts",
+        },
+        TableSpec {
+            name: "agent_harness_plugin_skills",
+            domain: "agent-harness/skills",
+            state: RowState::Available,
+            row_count: 0,
+            note: "skill rows capture prompt/skill assets required to reproduce the harness",
+        },
+        TableSpec {
+            name: "agent_harness_prompts",
+            domain: "agent-harness/prompts",
+            state: RowState::Available,
+            row_count: 0,
+            note: "prompt rows capture prompt markdown surfaces without exposing private secrets",
+        },
+        TableSpec {
+            name: "agent_harness_hooks",
+            domain: "agent-harness/hooks",
+            state: RowState::Available,
+            row_count: 0,
+            note: "hook rows capture configured hook entrypoints and resolution status",
+        },
+        TableSpec {
+            name: "agent_harness_env",
+            domain: "agent-harness/env",
+            state: RowState::Available,
+            row_count: 0,
+            note: "frontdoor environment rows declare bounded reproduction inputs",
+        },
+        TableSpec {
+            name: "agent_harness_policy_rows",
+            domain: "agent-harness/policy",
+            state: RowState::Available,
+            row_count: 0,
+            note: "policy rows record redaction, ownership, and non-mutation rules for harness export",
+        },
+        TableSpec {
+            name: "agent_harness_validation_errors",
+            domain: "agent-harness/validation",
+            state: RowState::Available,
+            row_count: 0,
+            note: "validation rows surface duplicate, missing, stale, or conflicting harness components",
+        },
+        TableSpec {
+            name: "agent_harness_export_manifests",
+            domain: "agent-harness/export",
+            state: RowState::Available,
+            row_count: 0,
+            note: "export manifest rows describe bounded harness export artifacts and checksums",
+        },
+        TableSpec {
+            name: "agent_harness_materialization_plan",
+            domain: "agent-harness/materialization",
+            state: RowState::Available,
+            row_count: 0,
+            note: "materialization planning rows remain non-mutating and approval-gated by default",
+        },
+        TableSpec {
             name: "nix_flake_summary",
             domain: "nix/flake",
             state: RowState::Available,
@@ -1707,6 +1807,14 @@ mod tests {
         assert_eq!(rows[4].status, "available");
         assert!(rows.iter().any(|row| row.table == "source_blobs"));
         assert!(rows.iter().any(|row| row.table == "blob_policies"));
+        assert!(
+            rows.iter()
+                .any(|row| row.table == "agent_harness_export_manifests")
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.table == "agent_harness_materialization_plan")
+        );
     }
 
     // Test lane: default
