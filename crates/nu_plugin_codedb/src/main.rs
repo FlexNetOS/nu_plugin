@@ -1,5 +1,6 @@
 // Test lane: default
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -27,6 +28,14 @@ struct CodeDbPlugin;
 
 type Row = Vec<(&'static str, Value)>;
 
+#[derive(Clone)]
+struct PluginRecord {
+    name: String,
+    version: String,
+    owner: String,
+    source_path: PathBuf,
+}
+
 impl Plugin for CodeDbPlugin {
     fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").into()
@@ -45,6 +54,7 @@ impl Plugin for CodeDbPlugin {
             Box::new(RustCfg),
             Box::new(BuildScripts),
             Box::new(Export),
+            Box::new(AgentHarnessImport),
             Box::new(EnvctlInventoryImport),
             Box::new(NixFlakeImport),
             Box::new(Tables),
@@ -67,6 +77,7 @@ struct RustMacros;
 struct RustCfg;
 struct BuildScripts;
 struct Export;
+struct AgentHarnessImport;
 struct EnvctlInventoryImport;
 struct NixFlakeImport;
 struct Tables;
@@ -1444,6 +1455,841 @@ fn nix_lock_input_target(value: &JsonValue) -> String {
     }
 }
 
+fn agent_harness_import_rows(
+    repo_path: &Path,
+    home_path: &Path,
+    span: Span,
+) -> Result<Vec<Row>, LabeledError> {
+    let mut rows = Vec::new();
+    let mut validations = Vec::new();
+    let mut source_ids = Vec::new();
+    let codex_dir = home_path.join(".codex");
+    let config_path = codex_dir.join("config.toml");
+    let prompts_dir = codex_dir.join("prompts");
+    let skills_dir = codex_dir.join("skills");
+    let plugins_dir = codex_dir.join("plugins");
+    let auth_path = codex_dir.join("auth.json");
+    let yazelix_nushell_dir = home_path.join(".local/share/yazelix/initializers/nushell");
+    let repo_kb_config = repo_path.join(".kb/config.toml");
+    let repo_kb_agents = repo_path.join(".kb/AGENTS.md");
+    let repo_kb_skills_dir = repo_path.join(".kb/skills");
+    let repo_agents = repo_path.join("AGENTS.md");
+    let manifest_id = format!(
+        "agent_harness:{}",
+        sha256_hex(format!("{}::{}", repo_path.display(), home_path.display()).as_bytes())
+    );
+
+    for (source_id, path, source_class, owner_boundary) in [
+        (
+            "codex_config",
+            config_path.as_path(),
+            "codex_user_config",
+            "user_local",
+        ),
+        (
+            "repo_kb_config",
+            repo_kb_config.as_path(),
+            "repo_kb_config",
+            "repo_local",
+        ),
+        (
+            "repo_kb_agents",
+            repo_kb_agents.as_path(),
+            "repo_kb_agents",
+            "repo_local",
+        ),
+        (
+            "repo_agents",
+            repo_agents.as_path(),
+            "repo_agents",
+            "repo_local",
+        ),
+        (
+            "codex_auth_file",
+            auth_path.as_path(),
+            "codex_auth_file",
+            "user_local",
+        ),
+    ] {
+        if path.exists() {
+            rows.push(agent_harness_source_row(
+                source_id,
+                path,
+                source_class,
+                owner_boundary,
+                span,
+            )?);
+            rows.push(agent_harness_file_row(
+                &manifest_id,
+                source_id,
+                path,
+                source_class,
+                owner_boundary,
+                span,
+            )?);
+            source_ids.push(source_id.to_string());
+        }
+    }
+
+    if config_path.exists() {
+        let raw = fs::read_to_string(&config_path).map_err(|source| {
+            LabeledError::new("failed to read Codex config")
+                .with_label(format!("{}: {source}", config_path.display()), span)
+        })?;
+        let parsed: TomlValue = raw.parse().map_err(|source| {
+            LabeledError::new("failed to parse Codex config")
+                .with_label(format!("{}: {source}", config_path.display()), span)
+        })?;
+        let Some(config_table) = parsed.as_table() else {
+            return Err(LabeledError::new("Codex config root must be a TOML table")
+                .with_label(config_path.display().to_string(), span));
+        };
+        let config_hash = sha256_hex(raw.as_bytes());
+
+        for (key, value) in config_table {
+            if key == "mcp_servers" || key == "hooks" {
+                continue;
+            }
+            if let Some(value_string) = toml_scalar_string(value) {
+                let (rendered_value, value_redacted, secret_ref) =
+                    redacted_value(key, &value_string);
+                rows.push(vec![
+                    ("table", string("agent_harness_codex_settings", span)),
+                    ("manifest_id", string(manifest_id.clone(), span)),
+                    ("key", string(key.clone(), span)),
+                    ("value", string(rendered_value, span)),
+                    ("value_redacted", string(value_redacted.to_string(), span)),
+                    ("secret_ref", string(secret_ref, span)),
+                    (
+                        "source_path",
+                        string(config_path.display().to_string(), span),
+                    ),
+                    ("owner_boundary", string("user_local", span)),
+                    ("source_hash", string(config_hash.clone(), span)),
+                ]);
+            }
+        }
+
+        if let Some(mcp_servers) = config_table
+            .get("mcp_servers")
+            .and_then(TomlValue::as_table)
+        {
+            let mut signatures: Vec<(String, String)> = Vec::new();
+            for (server_id, server_value) in mcp_servers {
+                let Some(server_table) = server_value.as_table() else {
+                    continue;
+                };
+                let command = server_table
+                    .get("command")
+                    .and_then(TomlValue::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let args = server_table
+                    .get("args")
+                    .and_then(TomlValue::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(toml_scalar_string)
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .unwrap_or_default();
+                let signature = format!("{command}::{args}");
+                signatures.push((server_id.clone(), signature.clone()));
+                rows.push(vec![
+                    ("table", string("agent_harness_mcp_servers", span)),
+                    ("manifest_id", string(manifest_id.clone(), span)),
+                    ("server_id", string(server_id.clone(), span)),
+                    ("command", string(command, span)),
+                    ("args", string(args, span)),
+                    ("signature", string(signature, span)),
+                    (
+                        "source_path",
+                        string(config_path.display().to_string(), span),
+                    ),
+                    ("owner_boundary", string("user_local", span)),
+                    ("source_hash", string(config_hash.clone(), span)),
+                ]);
+            }
+            for (server_id, signature) in &signatures {
+                let duplicates = signatures
+                    .iter()
+                    .filter(|(_, candidate)| candidate == signature)
+                    .map(|(candidate_id, _)| candidate_id.clone())
+                    .collect::<Vec<_>>();
+                if duplicates.len() > 1 {
+                    validations.push(agent_harness_validation_row(
+                        "duplicate_mcp_command",
+                        &format!(
+                            "duplicate MCP command signature shared by {}",
+                            duplicates.join(",")
+                        ),
+                        &config_path,
+                        "user_local",
+                        &config_hash,
+                        Some(server_id.as_str()),
+                        span,
+                    ));
+                }
+            }
+        }
+
+        if let Some(hooks) = config_table.get("hooks").and_then(TomlValue::as_table) {
+            for (hook_id, hook_value) in hooks {
+                let Some(hook_table) = hook_value.as_table() else {
+                    continue;
+                };
+                let enabled = hook_table
+                    .get("enabled")
+                    .and_then(TomlValue::as_bool)
+                    .unwrap_or(true);
+                let command = hook_table
+                    .get("command")
+                    .and_then(TomlValue::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let hook_path = repo_path
+                    .join(".codex/hooks")
+                    .join(command.rsplit('/').next().unwrap_or_default());
+                rows.push(vec![
+                    ("table", string("agent_harness_hooks", span)),
+                    ("manifest_id", string(manifest_id.clone(), span)),
+                    ("hook_id", string(hook_id.clone(), span)),
+                    ("command", string(command.clone(), span)),
+                    ("enabled", string(enabled.to_string(), span)),
+                    ("hook_path", string(hook_path.display().to_string(), span)),
+                    ("exists", string(hook_path.exists().to_string(), span)),
+                    (
+                        "source_path",
+                        string(config_path.display().to_string(), span),
+                    ),
+                    ("owner_boundary", string("user_local", span)),
+                    ("source_hash", string(config_hash.clone(), span)),
+                ]);
+                if hook_path.exists() {
+                    rows.push(agent_harness_source_row(
+                        &format!("hook:{hook_id}"),
+                        &hook_path,
+                        "repo_hook",
+                        "repo_local",
+                        span,
+                    )?);
+                    rows.push(agent_harness_file_row(
+                        &manifest_id,
+                        &format!("hook:{hook_id}"),
+                        &hook_path,
+                        "repo_hook",
+                        "repo_local",
+                        span,
+                    )?);
+                    source_ids.push(format!("hook:{hook_id}"));
+                } else {
+                    validations.push(agent_harness_validation_row(
+                        "missing_hook",
+                        &format!("hook {hook_id} target is missing"),
+                        &hook_path,
+                        "repo_local",
+                        "",
+                        Some(hook_id.as_str()),
+                        span,
+                    ));
+                }
+                if !enabled {
+                    validations.push(agent_harness_validation_row(
+                        "disabled_hook",
+                        &format!("hook {hook_id} is disabled and will not run"),
+                        &config_path,
+                        "user_local",
+                        &config_hash,
+                        Some(hook_id.as_str()),
+                        span,
+                    ));
+                }
+            }
+        }
+    }
+
+    for prompt_path in collect_files_recursive(&prompts_dir)? {
+        let bytes = fs::read(&prompt_path).map_err(|source| {
+            LabeledError::new("failed to read Codex prompt")
+                .with_label(format!("{}: {source}", prompt_path.display()), span)
+        })?;
+        rows.push(agent_harness_source_row(
+            &format!("prompt:{}", prompt_path.display()),
+            &prompt_path,
+            "codex_prompt",
+            "user_local",
+            span,
+        )?);
+        rows.push(agent_harness_file_row(
+            &manifest_id,
+            &format!("prompt:{}", prompt_path.display()),
+            &prompt_path,
+            "codex_prompt",
+            "user_local",
+            span,
+        )?);
+        rows.push(vec![
+            ("table", string("agent_harness_prompts", span)),
+            ("manifest_id", string(manifest_id.clone(), span)),
+            (
+                "prompt_name",
+                string(
+                    prompt_path
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy(),
+                    span,
+                ),
+            ),
+            (
+                "source_path",
+                string(prompt_path.display().to_string(), span),
+            ),
+            ("owner_boundary", string("user_local", span)),
+            ("source_hash", string(sha256_hex(&bytes), span)),
+        ]);
+        source_ids.push(format!("prompt:{}", prompt_path.display()));
+    }
+
+    for skill_path in collect_files_recursive(&skills_dir)? {
+        let bytes = fs::read(&skill_path).map_err(|source| {
+            LabeledError::new("failed to read Codex skill")
+                .with_label(format!("{}: {source}", skill_path.display()), span)
+        })?;
+        rows.push(agent_harness_source_row(
+            &format!("skill:{}", skill_path.display()),
+            &skill_path,
+            "codex_skill",
+            "user_local",
+            span,
+        )?);
+        rows.push(agent_harness_file_row(
+            &manifest_id,
+            &format!("skill:{}", skill_path.display()),
+            &skill_path,
+            "codex_skill",
+            "user_local",
+            span,
+        )?);
+        rows.push(vec![
+            ("table", string("agent_harness_plugin_skills", span)),
+            ("manifest_id", string(manifest_id.clone(), span)),
+            (
+                "skill_name",
+                string(
+                    skill_path
+                        .parent()
+                        .and_then(Path::file_name)
+                        .unwrap_or_default()
+                        .to_string_lossy(),
+                    span,
+                ),
+            ),
+            (
+                "source_path",
+                string(skill_path.display().to_string(), span),
+            ),
+            ("owner_boundary", string("user_local", span)),
+            ("source_hash", string(sha256_hex(&bytes), span)),
+        ]);
+        source_ids.push(format!("skill:{}", skill_path.display()));
+    }
+
+    for skill_path in collect_files_recursive(&repo_kb_skills_dir)? {
+        if skill_path.file_name().and_then(|name| name.to_str()) != Some("SKILL.md") {
+            continue;
+        }
+        let bytes = fs::read(&skill_path).map_err(|source| {
+            LabeledError::new("failed to read repo KB skill")
+                .with_label(format!("{}: {source}", skill_path.display()), span)
+        })?;
+        rows.push(agent_harness_source_row(
+            &format!("repo_skill:{}", skill_path.display()),
+            &skill_path,
+            "repo_kb_skill",
+            "repo_local",
+            span,
+        )?);
+        rows.push(agent_harness_file_row(
+            &manifest_id,
+            &format!("repo_skill:{}", skill_path.display()),
+            &skill_path,
+            "repo_kb_skill",
+            "repo_local",
+            span,
+        )?);
+        rows.push(vec![
+            ("table", string("agent_harness_plugin_skills", span)),
+            ("manifest_id", string(manifest_id.clone(), span)),
+            ("plugin_name", string("repo_kb_skills", span)),
+            (
+                "skill_name",
+                string(
+                    skill_path
+                        .parent()
+                        .and_then(Path::file_name)
+                        .unwrap_or_default()
+                        .to_string_lossy(),
+                    span,
+                ),
+            ),
+            (
+                "source_path",
+                string(skill_path.display().to_string(), span),
+            ),
+            ("owner_boundary", string("repo_local", span)),
+            ("source_hash", string(sha256_hex(&bytes), span)),
+        ]);
+        source_ids.push(format!("repo_skill:{}", skill_path.display()));
+    }
+
+    let mut plugin_groups: BTreeMap<String, Vec<PluginRecord>> = BTreeMap::new();
+    for plugin_path in collect_files_recursive(&plugins_dir)? {
+        if plugin_path.file_name().and_then(|name| name.to_str()) != Some("plugin.json") {
+            continue;
+        }
+        let bytes = fs::read(&plugin_path).map_err(|source| {
+            LabeledError::new("failed to read plugin metadata")
+                .with_label(format!("{}: {source}", plugin_path.display()), span)
+        })?;
+        let plugin_json: JsonValue = serde_json::from_slice(&bytes).map_err(|source| {
+            LabeledError::new("failed to parse plugin metadata")
+                .with_label(format!("{}: {source}", plugin_path.display()), span)
+        })?;
+        rows.push(agent_harness_source_row(
+            &format!("plugin:{}", plugin_path.display()),
+            &plugin_path,
+            "codex_plugin_metadata",
+            "user_local",
+            span,
+        )?);
+        rows.push(agent_harness_file_row(
+            &manifest_id,
+            &format!("plugin:{}", plugin_path.display()),
+            &plugin_path,
+            "codex_plugin_metadata",
+            "user_local",
+            span,
+        )?);
+        rows.push(vec![
+            ("table", string("agent_harness_plugins", span)),
+            ("manifest_id", string(manifest_id.clone(), span)),
+            (
+                "plugin_name",
+                string(json_object_string(&plugin_json, "name"), span),
+            ),
+            (
+                "version",
+                string(json_object_string(&plugin_json, "version"), span),
+            ),
+            (
+                "owner",
+                string(json_object_string(&plugin_json, "owner"), span),
+            ),
+            (
+                "source_path",
+                string(plugin_path.display().to_string(), span),
+            ),
+            ("owner_boundary", string("user_local", span)),
+            ("source_hash", string(sha256_hex(&bytes), span)),
+        ]);
+        let plugin_name = json_object_string(&plugin_json, "name");
+        plugin_groups
+            .entry(plugin_name.clone())
+            .or_default()
+            .push(PluginRecord {
+                name: plugin_name,
+                version: json_object_string(&plugin_json, "version"),
+                owner: json_object_string(&plugin_json, "owner"),
+                source_path: plugin_path.clone(),
+            });
+        source_ids.push(format!("plugin:{}", plugin_path.display()));
+    }
+
+    for records in plugin_groups.values() {
+        let owner_set = records
+            .iter()
+            .map(|record| record.owner.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        if records.len() > 1 && owner_set.len() > 1 {
+            validations.push(agent_harness_validation_row(
+                "duplicate_plugin_ownership",
+                &format!(
+                    "plugin {} has conflicting owners across {}",
+                    records[0].name,
+                    records
+                        .iter()
+                        .map(|record| record.source_path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                &records[0].source_path,
+                "user_local",
+                "",
+                Some(records[0].name.as_str()),
+                span,
+            ));
+        }
+        for record in records {
+            if let Some(parent_version) = version_dir_name(&record.source_path) {
+                if !record.version.is_empty() && parent_version != record.version {
+                    validations.push(agent_harness_validation_row(
+                        "stale_plugin_metadata",
+                        &format!(
+                            "plugin {} metadata version {} does not match cache path {}",
+                            record.name, record.version, parent_version
+                        ),
+                        &record.source_path,
+                        "user_local",
+                        "",
+                        Some(record.name.as_str()),
+                        span,
+                    ));
+                }
+            }
+        }
+    }
+
+    rows.push(vec![
+        ("table", string("agent_harness_env", span)),
+        ("manifest_id", string(manifest_id.clone(), span)),
+        ("key", string("CODEX_HOME", span)),
+        ("value", string(codex_dir.display().to_string(), span)),
+        ("owner_boundary", string("user_local", span)),
+    ]);
+    rows.push(vec![
+        ("table", string("agent_harness_env", span)),
+        ("manifest_id", string(manifest_id.clone(), span)),
+        ("key", string("REPO_ROOT", span)),
+        ("value", string(repo_path.display().to_string(), span)),
+        ("owner_boundary", string("repo_local", span)),
+    ]);
+    for (env_key, env_value) in secret_env_entries() {
+        let (rendered_value, value_redacted, secret_ref) = redacted_value(&env_key, &env_value);
+        rows.push(vec![
+            ("table", string("agent_harness_env", span)),
+            ("manifest_id", string(manifest_id.clone(), span)),
+            ("key", string(env_key, span)),
+            ("value", string(rendered_value, span)),
+            ("value_redacted", string(value_redacted.to_string(), span)),
+            ("secret_ref", string(secret_ref, span)),
+            ("owner_boundary", string("private_env", span)),
+        ]);
+    }
+    if yazelix_nushell_dir.exists() {
+        rows.push(vec![
+            ("table", string("agent_harness_env", span)),
+            ("manifest_id", string(manifest_id.clone(), span)),
+            ("key", string("YAZELIX_NUSHELL_INIT_DIR", span)),
+            (
+                "value",
+                string(yazelix_nushell_dir.display().to_string(), span),
+            ),
+            ("owner_boundary", string("generated_state", span)),
+        ]);
+        for file_name in ["codedb_init.nu", "codedb_extern.nu"] {
+            let bridge_path = yazelix_nushell_dir.join(file_name);
+            if bridge_path.is_file() {
+                rows.push(agent_harness_source_row(
+                    &format!("generated:{file_name}"),
+                    &bridge_path,
+                    "yazelix_generated_bridge",
+                    "generated_state",
+                    span,
+                )?);
+                rows.push(agent_harness_file_row(
+                    &manifest_id,
+                    &format!("generated:{file_name}"),
+                    &bridge_path,
+                    "yazelix_generated_bridge",
+                    "generated_state",
+                    span,
+                )?);
+                source_ids.push(format!("generated:{file_name}"));
+            } else {
+                validations.push(agent_harness_validation_row(
+                    "generated_state_missing",
+                    &format!("expected Yazelix generated bridge file {file_name} is missing"),
+                    &bridge_path,
+                    "generated_state",
+                    "",
+                    Some(file_name),
+                    span,
+                ));
+            }
+        }
+        let init_path = yazelix_nushell_dir.join("codedb_init.nu");
+        if init_path.is_file() {
+            let raw = fs::read_to_string(&init_path).map_err(|source| {
+                LabeledError::new("failed to read generated Yazelix bridge")
+                    .with_label(format!("{}: {source}", init_path.display()), span)
+            })?;
+            if !raw.contains("CODEDB_YAZELIX_BRIDGE_MODE = \"generated-state\"") {
+                validations.push(agent_harness_validation_row(
+                    "generated_state_stale",
+                    "Yazelix generated bridge is missing the generated-state mode marker",
+                    &init_path,
+                    "generated_state",
+                    "",
+                    Some("codedb_init.nu"),
+                    span,
+                ));
+            }
+        }
+    }
+    rows.push(vec![
+        ("table", string("agent_harness_policy_rows", span)),
+        ("manifest_id", string(manifest_id.clone(), span)),
+        ("policy_key", string("secret_handling", span)),
+        ("policy_value", string("hash_secret_like_values", span)),
+    ]);
+    rows.push(vec![
+        ("table", string("agent_harness_policy_rows", span)),
+        ("manifest_id", string(manifest_id.clone(), span)),
+        ("policy_key", string("mutation_policy", span)),
+        (
+            "policy_value",
+            string("read_only_import_and_planned_materialization_only", span),
+        ),
+    ]);
+
+    let mut materialization_rows = Vec::new();
+    for harness_row in &rows {
+        let Some(table) = harness_row
+            .iter()
+            .find_map(|(key, value)| (*key == "table").then_some(value))
+        else {
+            continue;
+        };
+        let Value::String { val: table, .. } = table else {
+            continue;
+        };
+        if matches!(
+            table.as_str(),
+            "agent_harness_sources"
+                | "agent_harness_prompts"
+                | "agent_harness_plugin_skills"
+                | "agent_harness_plugins"
+                | "agent_harness_hooks"
+        ) {
+            let target_class = if harness_row.iter().any(|(key, value)| {
+                *key == "owner_boundary"
+                    && matches!(value, Value::String { val, .. } if val == "user_local")
+            }) {
+                "user_local"
+            } else {
+                "repo_local"
+            };
+            materialization_rows.push(vec![
+                ("table", string("agent_harness_materialization_plan", span)),
+                ("manifest_id", string(manifest_id.clone(), span)),
+                ("source_table", string(table.clone(), span)),
+                ("target_class", string(target_class, span)),
+                ("mutation_allowed", string("false", span)),
+                ("approval_required", string("true", span)),
+            ]);
+        }
+    }
+    rows.extend(materialization_rows);
+    rows.extend(validations.clone());
+
+    rows.push(vec![
+        ("table", string("agent_harness_manifests", span)),
+        ("manifest_id", string(manifest_id.clone(), span)),
+        ("schema_version", string("codedb.agent_harness.v1", span)),
+        ("repo_root", string(repo_path.display().to_string(), span)),
+        ("home_root", string(home_path.display().to_string(), span)),
+        ("component_count", int(source_ids.len(), span)?),
+        ("validation_count", int(validations.len(), span)?),
+    ]);
+    rows.push(vec![
+        ("table", string("agent_harness_export_manifests", span)),
+        ("manifest_id", string(manifest_id, span)),
+        ("format", string("nushell_rows", span)),
+        (
+            "plan_table",
+            string("agent_harness_materialization_plan", span),
+        ),
+        (
+            "validation_table",
+            string("agent_harness_validation_errors", span),
+        ),
+        (
+            "row_checksum",
+            string(sha256_hex(rows_debug_bytes(&rows).as_bytes()), span),
+        ),
+    ]);
+
+    Ok(rows)
+}
+
+fn agent_harness_source_row(
+    source_id: &str,
+    path: &Path,
+    source_class: &str,
+    owner_boundary: &str,
+    span: Span,
+) -> Result<Row, LabeledError> {
+    let bytes = fs::read(path).map_err(|source| {
+        LabeledError::new("failed to read harness source")
+            .with_label(format!("{}: {source}", path.display()), span)
+    })?;
+    Ok(vec![
+        ("table", string("agent_harness_sources", span)),
+        ("source_id", string(source_id, span)),
+        ("source_path", string(path.display().to_string(), span)),
+        ("source_hash", string(sha256_hex(&bytes), span)),
+        ("source_class", string(source_class, span)),
+        ("owner_boundary", string(owner_boundary, span)),
+    ])
+}
+
+fn agent_harness_file_row(
+    manifest_id: &str,
+    source_id: &str,
+    path: &Path,
+    source_class: &str,
+    owner_boundary: &str,
+    span: Span,
+) -> Result<Row, LabeledError> {
+    let bytes = fs::read(path).map_err(|source| {
+        LabeledError::new("failed to read harness file")
+            .with_label(format!("{}: {source}", path.display()), span)
+    })?;
+    Ok(vec![
+        ("table", string("agent_harness_files", span)),
+        ("manifest_id", string(manifest_id, span)),
+        ("source_id", string(source_id, span)),
+        ("source_path", string(path.display().to_string(), span)),
+        (
+            "file_name",
+            string(path.file_name().unwrap_or_default().to_string_lossy(), span),
+        ),
+        ("source_class", string(source_class, span)),
+        ("owner_boundary", string(owner_boundary, span)),
+        ("byte_len", int(bytes.len(), span)?),
+        ("source_hash", string(sha256_hex(&bytes), span)),
+    ])
+}
+
+fn agent_harness_validation_row(
+    code: &str,
+    message: &str,
+    path: &Path,
+    owner_boundary: &str,
+    source_hash: &str,
+    component_id: Option<&str>,
+    span: Span,
+) -> Row {
+    vec![
+        ("table", string("agent_harness_validation_errors", span)),
+        ("code", string(code, span)),
+        ("message", string(message, span)),
+        ("source_path", string(path.display().to_string(), span)),
+        ("owner_boundary", string(owner_boundary, span)),
+        ("source_hash", string(source_hash, span)),
+        (
+            "component_id",
+            string(component_id.unwrap_or_default(), span),
+        ),
+    ]
+}
+
+fn version_dir_name(path: &Path) -> Option<String> {
+    for ancestor in path.ancestors().skip(1) {
+        let Some(name) = ancestor.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if name.contains('.') && name.chars().any(|ch| ch.is_ascii_digit()) {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
+fn collect_files_recursive(root: &Path) -> Result<Vec<PathBuf>, LabeledError> {
+    let mut paths = Vec::new();
+    if !root.exists() {
+        return Ok(paths);
+    }
+    for entry in fs::read_dir(root).map_err(|source| {
+        LabeledError::new("failed to walk harness directory")
+            .with_label(format!("{}: {source}", root.display()), Span::unknown())
+    })? {
+        let entry = entry.map_err(|source| {
+            LabeledError::new("failed to read harness directory entry")
+                .with_label(format!("{}: {source}", root.display()), Span::unknown())
+        })?;
+        let path = entry.path();
+        if path.is_dir() {
+            paths.extend(collect_files_recursive(&path)?);
+        } else if path.is_file() {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+fn toml_scalar_string(value: &TomlValue) -> Option<String> {
+    match value {
+        TomlValue::String(value) => Some(value.clone()),
+        TomlValue::Integer(value) => Some(value.to_string()),
+        TomlValue::Float(value) => Some(value.to_string()),
+        TomlValue::Boolean(value) => Some(value.to_string()),
+        TomlValue::Datetime(value) => Some(value.to_string()),
+        TomlValue::Array(values) => Some(
+            values
+                .iter()
+                .filter_map(toml_scalar_string)
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+        _ => None,
+    }
+}
+
+fn redacted_value(key: &str, value: &str) -> (String, bool, String) {
+    if secret_like_key(key) || secret_like_value(value) {
+        (
+            "[redacted]".to_string(),
+            true,
+            format!("sha256:{}", sha256_hex(value.as_bytes())),
+        )
+    } else {
+        (value.to_string(), false, String::new())
+    }
+}
+
+fn secret_like_key(key: &str) -> bool {
+    let lowered = key.to_ascii_lowercase();
+    ["token", "secret", "password", "api_key", "apikey", "auth"]
+        .iter()
+        .any(|needle| lowered.contains(needle))
+}
+
+fn secret_like_value(value: &str) -> bool {
+    value.starts_with("sk-") || value.starts_with("ghp_") || value.starts_with("github_pat_")
+}
+
+fn secret_env_entries() -> Vec<(String, String)> {
+    let mut entries = env::vars()
+        .filter(|(key, _)| secret_like_key(key))
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    entries
+}
+
+fn rows_debug_bytes(rows: &[Row]) -> String {
+    format!("{rows:?}")
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 fn export_rows(table: &str, repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledError> {
     match table {
         "filesystem_entries" | "fs_entries" => filesystem_rows(repo_path, span),
@@ -1637,6 +2483,49 @@ impl SimplePluginCommand for Export {
             page_rows(export_rows(&table, &repo_path, call.head)?, call)?,
             call.head,
         ))
+    }
+}
+
+impl SimplePluginCommand for AgentHarnessImport {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb agent harness import"
+    }
+
+    fn description(&self) -> &str {
+        "Import a fake-HOME or live agent harness into secret-safe CodeDB rows."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required(
+                "home_path",
+                SyntaxShape::Filepath,
+                "Harness HOME root to import",
+            )
+            .named(
+                "repo",
+                SyntaxShape::Filepath,
+                "Repository path to scan",
+                None,
+            )
+            .named("store", SyntaxShape::Filepath, "CodeDB store path", None)
+            .named("limit", SyntaxShape::Int, "Maximum rows to return", None)
+            .named("cursor", SyntaxShape::Int, "Zero-based row cursor", None)
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let home_path: String = call.req(0)?;
+        let repo_path = repo_from_flag_or_cwd(call)?;
+        let rows = agent_harness_import_rows(&repo_path, Path::new(&home_path), call.head)?;
+        Ok(rows_to_value(page_rows(rows, call)?, call.head))
     }
 }
 
@@ -2301,6 +3190,226 @@ tab_width = 2
         assert!(error.to_string().contains("failed to parse"));
     }
 
+    // Defends: agent harness import captures fake HOME and repo surfaces without mutating them.
+    #[test]
+    fn agent_harness_import_rows_capture_full_fixture_surface() {
+        let root = temp_path("agent-harness-import");
+        let home = root.join("home");
+        let repo = root.join("repo");
+        let codex_dir = home.join(".codex");
+        let prompts_dir = codex_dir.join("prompts");
+        let skills_dir = codex_dir.join("skills").join("reviewer");
+        let plugins_dir = codex_dir.join("plugins").join("demo-plugin");
+        let stale_plugin_dir = codex_dir.join("plugins").join("stale-plugin").join("0.9.0");
+        let conflicting_plugin_dir = codex_dir.join("plugins").join("demo-plugin-shadow");
+        let kb_dir = repo.join(".kb");
+        let kb_skills_dir = kb_dir.join("skills").join("repo-reviewer");
+        let hooks_dir = repo.join(".codex").join("hooks");
+        let generated_nushell_dir = home.join(".local/share/yazelix/initializers/nushell");
+        let _env_guard = TestEnvGuard::set("CODEX_AUTH_TOKEN", "github_pat_fixture_secret");
+        fs::create_dir_all(&prompts_dir).unwrap();
+        fs::create_dir_all(&skills_dir).unwrap();
+        fs::create_dir_all(&plugins_dir).unwrap();
+        fs::create_dir_all(&stale_plugin_dir).unwrap();
+        fs::create_dir_all(&conflicting_plugin_dir).unwrap();
+        fs::create_dir_all(&kb_dir).unwrap();
+        fs::create_dir_all(&kb_skills_dir).unwrap();
+        fs::create_dir_all(&hooks_dir).unwrap();
+        fs::create_dir_all(&generated_nushell_dir).unwrap();
+
+        let config_path = codex_dir.join("config.toml");
+        fs::write(
+            &config_path,
+            r#"
+model = "gpt-5-codex"
+OPENAI_API_KEY = "sk-test-secret"
+
+[mcp_servers.primary]
+command = "/usr/bin/codedb-mcp"
+args = ["serve", "--default-limit", "50"]
+
+[mcp_servers.duplicate]
+command = "/usr/bin/codedb-mcp"
+args = ["serve", "--default-limit", "50"]
+
+[hooks.post_apply]
+command = "/workspace/repo/.codex/hooks/post-apply.sh"
+
+[hooks.pre_tool]
+command = "/workspace/repo/.codex/hooks/pre-tool.sh"
+enabled = false
+"#,
+        )
+        .unwrap();
+        fs::write(
+            prompts_dir.join("triage.md"),
+            "# triage\nUse bounded scans.\n",
+        )
+        .unwrap();
+        fs::write(
+            skills_dir.join("SKILL.md"),
+            "# Reviewer\nUse reproducible evidence.\n",
+        )
+        .unwrap();
+        fs::write(
+            plugins_dir.join("plugin.json"),
+            r#"{"name":"demo-plugin","version":"1.2.3","owner":"meta-plugins-codex"}"#,
+        )
+        .unwrap();
+        fs::write(
+            conflicting_plugin_dir.join("plugin.json"),
+            r#"{"name":"demo-plugin","version":"1.2.3","owner":"other-owner"}"#,
+        )
+        .unwrap();
+        fs::write(
+            stale_plugin_dir.join("plugin.json"),
+            r#"{"name":"stale-plugin","version":"1.2.3","owner":"meta-plugins-codex"}"#,
+        )
+        .unwrap();
+        fs::write(
+            codex_dir.join("auth.json"),
+            r#"{"access_token":"github_pat_fixture_secret","account_id":"acct-1"}"#,
+        )
+        .unwrap();
+        fs::write(kb_dir.join("config.toml"), "workspace = \"main\"\n").unwrap();
+        fs::write(kb_dir.join("AGENTS.md"), "# KB Agents\nUse git-kb first.\n").unwrap();
+        fs::write(
+            kb_skills_dir.join("SKILL.md"),
+            "# Repo Reviewer\nUse repo-local harness rules.\n",
+        )
+        .unwrap();
+        fs::write(
+            repo.join("AGENTS.md"),
+            "# Repo Agents\nStay read only by default.\n",
+        )
+        .unwrap();
+        fs::write(
+            hooks_dir.join("post-apply.sh"),
+            "#!/usr/bin/env bash\necho post-apply\n",
+        )
+        .unwrap();
+        fs::write(
+            generated_nushell_dir.join("codedb_init.nu"),
+            "export-env { $env.CODEDB_YAZELIX_BRIDGE_MODE = \"legacy\" }\n",
+        )
+        .unwrap();
+
+        let config_before = file_snapshot(&config_path);
+        let hook_before = file_snapshot(&hooks_dir.join("post-apply.sh"));
+
+        let rows = agent_harness_import_rows(&repo, &home, Span::unknown()).unwrap();
+
+        assert_eq!(config_before, file_snapshot(&config_path));
+        assert_eq!(hook_before, file_snapshot(&hooks_dir.join("post-apply.sh")));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_manifests")
+                && row.iter().any(|(key, value)| {
+                    *key == "component_count"
+                        && matches!(value, Value::Int { val, .. } if *val >= 8)
+                })
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_codex_settings")
+                && row_has_string(row, "key", "OPENAI_API_KEY")
+                && row_has_string(row, "value", "[redacted]")
+                && row_has_string(row, "value_redacted", "true")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_prompts")
+                && row_has_string(row, "prompt_name", "triage")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_plugin_skills")
+                && row_has_string(row, "skill_name", "reviewer")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_plugin_skills")
+                && row_has_string(row, "plugin_name", "repo_kb_skills")
+                && row_has_string(row, "skill_name", "repo-reviewer")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_plugins")
+                && row_has_string(row, "plugin_name", "demo-plugin")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_files")
+                && row_has_string(row, "source_class", "codex_auth_file")
+                && row_has_string(row, "owner_boundary", "user_local")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_files")
+                && row_has_string(row, "source_class", "repo_kb_skill")
+                && row_has_string(row, "owner_boundary", "repo_local")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_env")
+                && row_has_string(row, "key", "CODEX_AUTH_TOKEN")
+                && row_has_string(row, "value", "[redacted]")
+                && row_has_string(row, "value_redacted", "true")
+                && row_has_string(row, "owner_boundary", "private_env")
+                && row_has_prefix(row, "secret_ref", "sha256:")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_mcp_servers")
+                && row_has_string(row, "server_id", "primary")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_hooks")
+                && row_has_string(row, "hook_id", "post_apply")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_validation_errors")
+                && row_has_string(row, "code", "duplicate_mcp_command")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_validation_errors")
+                && row_has_string(row, "code", "disabled_hook")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_validation_errors")
+                && row_has_string(row, "code", "duplicate_plugin_ownership")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_validation_errors")
+                && row_has_string(row, "code", "stale_plugin_metadata")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_validation_errors")
+                && row_has_string(row, "code", "generated_state_missing")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_validation_errors")
+                && row_has_string(row, "code", "generated_state_stale")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_materialization_plan")
+                && row_has_string(row, "mutation_allowed", "false")
+                && row_has_string(row, "target_class", "user_local")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_export_manifests")
+                && row_has_string(row, "plan_table", "agent_harness_materialization_plan")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "table", "agent_harness_env")
+                && row_has_string(row, "owner_boundary", "generated_state")
+        }));
+
+        let plugin = CodeDbPlugin;
+        let names = plugin
+            .commands()
+            .into_iter()
+            .map(|command| command.name().to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            names
+                .iter()
+                .any(|name| name == "codedb agent harness import")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
     fn row_has_string(row: &Row, key: &str, expected: &str) -> bool {
         row.iter().any(|(candidate, value)| {
             *candidate == key && matches!(value, Value::String { val, .. } if val == expected)
@@ -2311,5 +3420,41 @@ tab_width = 2
         row.iter().any(|(candidate, value)| {
             *candidate == key && matches!(value, Value::String { val, .. } if val.len() == 64)
         })
+    }
+
+    fn row_has_prefix(row: &Row, key: &str, prefix: &str) -> bool {
+        row.iter().any(|(candidate, value)| {
+            *candidate == key
+                && matches!(value, Value::String { val, .. } if val.starts_with(prefix))
+        })
+    }
+
+    struct TestEnvGuard {
+        key: String,
+        previous: Option<String>,
+    }
+
+    impl TestEnvGuard {
+        fn set(key: &str, value: &str) -> Self {
+            let previous = env::var(key).ok();
+            // SAFETY: this test mutates process env in a scoped guard while focused test runs single-threaded.
+            unsafe { env::set_var(key, value) };
+            Self {
+                key: key.to_string(),
+                previous,
+            }
+        }
+    }
+
+    impl Drop for TestEnvGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                // SAFETY: restore the original process env value before leaving the test scope.
+                unsafe { env::set_var(&self.key, previous) };
+            } else {
+                // SAFETY: remove the scoped test env var before leaving the test scope.
+                unsafe { env::remove_var(&self.key) };
+            }
+        }
     }
 }
