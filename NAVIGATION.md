@@ -34,6 +34,36 @@ Use this file map. Follow links and task IDs, not random browsing.
 | 27 | [docs/TEST_PLAN.md](docs/TEST_PLAN.md) | Test and validation plan. |
 | 28 | [docs/FIXTURE_MATRIX.md](docs/FIXTURE_MATRIX.md) | Fixture coverage matrix. |
 | 29 | [docs/RELEASE_GATE.md](docs/RELEASE_GATE.md) | Release proof gates. |
+| 30 | [BACKLOG.md](BACKLOG.md) | MVP2 backlog and downgrade exclusions. |
+| 31 | [docs/polyglot-import/README.md](docs/polyglot-import/README.md) | Entry point for the V1.2 polyglot planning package. |
+| 32 | [docs/polyglot-import/research-ledger.md](docs/polyglot-import/research-ledger.md) | Official-source research ledger and current-state audit. |
+| 33 | [docs/polyglot-import/language-import-surface.md](docs/polyglot-import/language-import-surface.md) | Tiered language and package capture surface. |
+| 34 | [docs/polyglot-import/polyglot-schema-extension.md](docs/polyglot-import/polyglot-schema-extension.md) | Planned schema/table extension for polyglot import. |
+| 35 | [docs/polyglot-import/parser-and-indexer-tooling-matrix.md](docs/polyglot-import/parser-and-indexer-tooling-matrix.md) | Parser, indexer, and tooling comparison. |
+| 36 | [docs/polyglot-import/package-manager-and-lockfile-matrix.md](docs/polyglot-import/package-manager-and-lockfile-matrix.md) | Package-manager and lockfile coverage plan. |
+| 37 | [docs/polyglot-import/whole-repo-import-architecture.md](docs/polyglot-import/whole-repo-import-architecture.md) | Whole-repo import and export architecture. |
+| 38 | [docs/polyglot-import/single-binary-rust-crate-export.md](docs/polyglot-import/single-binary-rust-crate-export.md) | Generated Rust crate and single-binary contract. |
+| 39 | [docs/polyglot-import/proof-and-round-trip-gates.md](docs/polyglot-import/proof-and-round-trip-gates.md) | P0-P11 proof and round-trip gates. |
+| 40 | [docs/polyglot-import/security-and-execution-policy.md](docs/polyglot-import/security-and-execution-policy.md) | Polyglot safety and execution policy. |
+| 41 | [docs/polyglot-import/github-issue-delivery-plan.md](docs/polyglot-import/github-issue-delivery-plan.md) | Issue delivery order and dependency map. |
+| 42 | [docs/polyglot-import/open-questions.md](docs/polyglot-import/open-questions.md) | Remaining questions, gaps, and blockers. |
+| 43 | [prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md](prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md) | V1.2 planning addendum without superseding V1.1. |
+| 44 | [execution/POLYGLOT_TASK_GRAPH.csv](execution/POLYGLOT_TASK_GRAPH.csv) | Planning-only polyglot task graph. |
+| 45 | [execution/POLYGLOT_TASK_FILE_MAP.csv](execution/POLYGLOT_TASK_FILE_MAP.csv) | Planning-only task-to-file map. |
+| 46 | [execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md](execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md) | Ready-to-post GitHub issue drafts for CDB091-CDB105. |
+| 47 | [execution/TASK_GRAPH.csv](execution/TASK_GRAPH.csv) | Canonical controlled V1.1 implementation task graph. |
+| 48 | [execution/TASK_GRAPH.md](execution/TASK_GRAPH.md) | Readable task graph projection. |
+| 49 | [execution/TASK_FILE_MAP.csv](execution/TASK_FILE_MAP.csv) | Task-to-file map. |
+| 50 | [execution/COMMAND_LEDGER.csv](execution/COMMAND_LEDGER.csv) | Command evidence ledger. |
+| 51 | [execution/WORKLOG.md](execution/WORKLOG.md) | Narrative worklog. |
+| 52 | [manifests/EXTRACTION_PROOF.json](manifests/EXTRACTION_PROOF.json) | Source ZIP extraction proof. |
+| 53 | [manifests/CHECKLIST_COMPLETION.json](manifests/CHECKLIST_COMPLETION.json) | Checklist item completion map. |
+| 54 | [manifests/PACK_MANIFEST.json](manifests/PACK_MANIFEST.json) | Package manifest. |
+| 55 | [manifests/CHECKSUMS.sha256](manifests/CHECKSUMS.sha256) | Package checksums. |
+| 56 | [manifests/LINK_CHECK_REPORT.md](manifests/LINK_CHECK_REPORT.md) | Local link check report. |
+| 57 | [manifests/PACKAGE_VALIDATION.json](manifests/PACKAGE_VALIDATION.json) | Package validation results. |
+| 58 | [manifests/CSV_DOC_LINK_AUDIT_INPUT.md](manifests/CSV_DOC_LINK_AUDIT_INPUT.md) | Input audit used for the CSV source-of-truth repair. |
+| 59 | [manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json](manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json) | Machine-readable repair evidence for strict task/file linkage. |
 | 30 | [docs/AUDIT_UPGRADE_COMPLETION.md](docs/AUDIT_UPGRADE_COMPLETION.md) | Post-audit authority, upgrade-only policy, and remaining product gaps. |
 | 31 | [BACKLOG.md](BACKLOG.md) | MVP2 backlog and downgrade exclusions. |
 | 32 | [execution/TASK_GRAPH.csv](execution/TASK_GRAPH.csv) | Canonical controlled task graph table. |
@@ -59,4 +89,4 @@ Use this file map. Follow links and task IDs, not random browsing.
 | 52 | [execution/BIDIRECTIONAL_TASK_FILE_MAP.csv](execution/BIDIRECTIONAL_TASK_FILE_MAP.csv) | CDB070-CDB090 task-to-file map. |
 | 53 | [scripts/validate_bidirectional_package.py](scripts/validate_bidirectional_package.py) | Bidirectional package validation gate. |
 
-Rule: `execution/TASK_GRAPH.csv` is the source of truth. Every execution step must cite a task ID, PRD section, target surface, exact allowed file paths, validation gate, evidence path, and raw log path from the CSV row.
+Rule: `execution/TASK_GRAPH.csv` remains the source of truth for V1.1 implementation work. `execution/POLYGLOT_TASK_GRAPH.csv` is the planning-only source of truth for the V1.2 polyglot package.

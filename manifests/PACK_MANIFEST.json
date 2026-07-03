@@ -6,12 +6,13 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
+  "checksum_scope_files_sha256": "6c040f7be6eb254c18ecd36df47af56d54b92272176a04d9e3dc6feb51c3e8cc",
   "checksum_scope_files_sha256": "b7c6db8a07a69da49e2780aac1e54f6157445c799c698c852c764b239f802e09",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 282,
   "checksum_scope_files_sha256": "fd4cc51bd025ee6e2f27521a5148c65a5d82549d8d7b55fae126a0704dd916c2",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 254,
+  "file_count_in_checksum_scope": 270,
   "files": [
     {
       "bytes": 1473,
@@ -229,6 +230,9 @@
       "sha256": "2a113643d58aa8d7ef1204fa42f619fd50e4b7529fc321939abbfa6833b417f2"
     },
     {
+      "bytes": 1486,
+      "path": "ACCEPTANCE.md",
+      "sha256": "c73bff52b5269d51b317a058819d67717d46a8bf114fdd35f3003676fe845295"
       "bytes": 1377,
       "path": "ACCEPTANCE.md",
       "sha256": "f14a82dbe9ccb7b411a83c99edb2cd35cc0616581634827dca7fc4759ae5e84d"
@@ -264,6 +268,9 @@
       "sha256": "33ef7811f84244ee6f4aec51695ec5e36b29c802226447fa533fe98d5ad4b786"
     },
     {
+      "bytes": 1069,
+      "path": "DOC_GRAPH.md",
+      "sha256": "6c9f6a2e3e4f8ac266a24dbc6a081cb418211bc291c140364dc5b6818981493b"
       "bytes": 1253,
       "path": "DOC_GRAPH.md",
       "sha256": "818d471891053d519fe574ca55c432edbffac30eab7535d012ab21ca00177bfb"
@@ -284,6 +291,29 @@
       "sha256": "1f44932177a48edfaac878dcb044a3ae68616181a091026344a313fc80cf7535"
     },
     {
+      "bytes": 4009,
+      "path": "HANDOFF.md",
+      "sha256": "41fde860bd98b6fe1b7ae5e599f3214c7b5c1499c32b1961669d85b9875ff5ec"
+    },
+    {
+      "bytes": 16942,
+      "path": "NAVIGATION.json",
+      "sha256": "2525639b1888e0c6fca2445885e59e858d38b27215c3dfc96d92ccf0d276896e"
+    },
+    {
+      "bytes": 7014,
+      "path": "NAVIGATION.md",
+      "sha256": "31259b0fcbf52942e7bff5c2fe628017414de8f3de9a5b7e01b2f50a0c39a2cc"
+    },
+    {
+      "bytes": 1062,
+      "path": "READINESS_GATE.md",
+      "sha256": "e9c789a300c293b394e6bf698fe3be1b1d1d833cdacd8e4daab743d0829c7a1a"
+    },
+    {
+      "bytes": 981,
+      "path": "STOP_CONDITIONS.md",
+      "sha256": "799a0bfd44ae945bee3ddd833bb84e10be15902206e2fa9540a85bda93f1793f"
       "bytes": 3030,
       "path": "HANDOFF.md",
       "sha256": "d8e6391ce46cb6d19bb4dfb58fb347946f89e34779495fcd6e6e7e604d20d3ee"
@@ -546,6 +576,66 @@
       "sha256": "0893e38d721c54366079ae983551e5cd970e7164fef7dc2f5f45f5b481ea7e18"
     },
     {
+      "bytes": 2306,
+      "path": "docs/polyglot-import/README.md",
+      "sha256": "bc3645eb335bfb458cb20d4617d8bf096223d7f29eb88b8664ca240414d69939"
+    },
+    {
+      "bytes": 1422,
+      "path": "docs/polyglot-import/github-issue-delivery-plan.md",
+      "sha256": "0f1b41e46224b2af6c4df503fccf3c182380339217772ecdc31c57558e493ea5"
+    },
+    {
+      "bytes": 3811,
+      "path": "docs/polyglot-import/language-import-surface.md",
+      "sha256": "f4c09b18731c9054d07519c8a2ab1e0a2946a7432e78dea8ca9fe684fc8e86f1"
+    },
+    {
+      "bytes": 655,
+      "path": "docs/polyglot-import/open-questions.md",
+      "sha256": "3548b6f3239c6650f292c30bfa067099e55cfb58e5a3022cbf6a1c10538b4783"
+    },
+    {
+      "bytes": 1540,
+      "path": "docs/polyglot-import/package-manager-and-lockfile-matrix.md",
+      "sha256": "dd025c2ca2b33d9242e1dbabff16daa7f87dfdef18329ba0a5bb28bfe2e87592"
+    },
+    {
+      "bytes": 2728,
+      "path": "docs/polyglot-import/parser-and-indexer-tooling-matrix.md",
+      "sha256": "e00192f6cdd224be7724cf23141202f40d984f6112284c2e6d34e961d7ae3d1d"
+    },
+    {
+      "bytes": 2372,
+      "path": "docs/polyglot-import/polyglot-schema-extension.md",
+      "sha256": "234c850c90915ced84905889e4dd767f3d46794c73411f3a0ef723639dd4d5ee"
+    },
+    {
+      "bytes": 1677,
+      "path": "docs/polyglot-import/proof-and-round-trip-gates.md",
+      "sha256": "2c4165d762c12241c8c0865f13d131998a8f122a58cdab2d01d19526e3925749"
+    },
+    {
+      "bytes": 5574,
+      "path": "docs/polyglot-import/research-ledger.md",
+      "sha256": "bc81327f52b8d6f4daa54e6ac4588dd618995b52f083294a16e93275f6ad4fae"
+    },
+    {
+      "bytes": 1048,
+      "path": "docs/polyglot-import/security-and-execution-policy.md",
+      "sha256": "22e4febb5803acf57c1627f72e89cf86b7dccf4f8a64d3d876ee1422de520c68"
+    },
+    {
+      "bytes": 1403,
+      "path": "docs/polyglot-import/single-binary-rust-crate-export.md",
+      "sha256": "fd16136f60ef6525645a05218edf91b3c4cb432dacd30b2af466482437a8fe29"
+    },
+    {
+      "bytes": 1302,
+      "path": "docs/polyglot-import/whole-repo-import-architecture.md",
+      "sha256": "688170d75e74fe92b8b19bf749b8a0158ca48b539c6952ddb68a01e287652732"
+    },
+    {
       "bytes": 965,
       "path": "examples/codex/codedb_bounded_smoke_report.json",
       "sha256": "a92fe131cb19f9ba2675596660cc85ee7a0cec713422508e6c5fadeec3a38603"
@@ -566,6 +656,24 @@
       "sha256": "87890ae91fc2163b969df25e3c4a63cf66c100dff2eafa0394873012c9ac56c1"
     },
     {
+      "bytes": 7254,
+      "path": "execution/COMMAND_LEDGER.csv",
+      "sha256": "a2b8b41cedcfc9495bd53478c4d7190de6871fc3d9d29b1a43eed5ef9f35875f"
+    },
+    {
+      "bytes": 12903,
+      "path": "execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md",
+      "sha256": "a409a2a7afce8452b8f3e454e4e67df95927fcc51b31c2c86450e70d6c7eff33"
+    },
+    {
+      "bytes": 9259,
+      "path": "execution/POLYGLOT_TASK_FILE_MAP.csv",
+      "sha256": "992c85a81d730c413a187c2454da094bd0f4bf4d3f5559cb6018668d94d22506"
+    },
+    {
+      "bytes": 4818,
+      "path": "execution/POLYGLOT_TASK_GRAPH.csv",
+      "sha256": "2c3e992a7bf68fcb12bc8a006568c29c38b89ee410807e3791a85bea2d21679b"
       "bytes": 5677,
       "path": "execution/BIDIRECTIONAL_TASK_FILE_MAP.csv",
       "sha256": "2601389d7e0662a811d804256c2c431d9e0ff559ac7b57888b8f557897ae5003"
@@ -596,6 +704,9 @@
       "sha256": "79deb5fa7aaf3e489b8ae3228720ea26b1c8a6aa85321c594a0c184ff30d3983"
     },
     {
+      "bytes": 4552,
+      "path": "execution/WORKLOG.md",
+      "sha256": "1e36190fb3dec6e48460a0d8533845cfb0f931b2e9600f035731824348aa449d"
       "bytes": 12698,
       "path": "execution/WORKLOG.md",
       "sha256": "2c7298efaef1ae30cbf66d84476ad90849d95d6f6a02f0d501719234a89a4d71"
@@ -1364,6 +1475,11 @@
       "sha256": "ea220e978ef4ac5e3ef4f4d6d0c6ab69029e7b42d33e4a52e7169fc9723aa620"
     },
     {
+      "bytes": 1074,
+      "path": "prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md",
+      "sha256": "9803cfea69643f18488c0e7b993cf7b8e2a9d1f826baf16bb5bfd50c8280c701"
+    },
+    {
       "bytes": 7243,
       "path": "research/nushell_yazelix_cross_reference_report.md",
       "sha256": "ff6d87e64836aa7983a1ae604f050fe63b425462b1cced331bfc5130602888ed"
@@ -1459,6 +1575,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
+  "generated_at_utc": "2026-07-03T13:13:31+00:00",
   "generated_at_utc": "2026-07-02T19:56:32+00:00",
   "generated_at_utc": "2026-07-02T21:34:46+00:00",
   "package": "nu_plugin",
