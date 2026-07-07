@@ -13,6 +13,10 @@ use codedb_core::{
     validation_errors,
 };
 use codedb_rust_static::capture_rust_items;
+use codedb_store_redb::{
+    StoreInitContext, initialize_store, list_source_files, materialize_source_file,
+    persist_source_file, read_store_report, store_metadata_rows,
+};
 use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
 
@@ -74,6 +78,48 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             let rows = scan_rows(&selection)?;
             print_rows(rows, format)
         }
+        // capture = scan + PERSIST: every regular file's exact bytes land in the
+        // redb store as a content-addressed blob (sha256) with its relative path
+        // and unix mode; anything unpersistable becomes a capture_gaps row —
+        // silent omission is failure (PRD CDB015/017/018 wiring).
+        "capture" => {
+            let selection = repo_selection(
+                &args,
+                1,
+                "capture requires <repo_path> or --repo-path <path>",
+            )?;
+            let format = parse_format(&args)?;
+            let rows = capture_rows(&selection)?;
+            print_rows(rows, format)
+        }
+        // materialize = re-emit captured trees byte-for-byte from the store
+        // (whole tree, or one --path), restoring unix modes; the byte-parity
+        // acceptance surface.
+        "materialize" => {
+            let store = option_value(&args, "--store")
+                .ok_or_else(|| CliError::Message("materialize requires --store <path>".into()))?
+                .to_string();
+            let out_dir = option_value(&args, "--out-dir")
+                .map(PathBuf::from)
+                .ok_or_else(|| CliError::Message("materialize requires --out-dir <path>".into()))?;
+            let only = option_value(&args, "--path").map(str::to_string);
+            let format = parse_format(&args)?;
+            let rows = materialize_rows(Path::new(&store), &out_dir, only.as_deref())?;
+            print_rows(rows, format)
+        }
+        // store-report = the store's own metadata/toolchain/validation rows.
+        "store-report" => {
+            let store = option_value(&args, "--store")
+                .ok_or_else(|| CliError::Message("store-report requires --store <path>".into()))?
+                .to_string();
+            let report = read_store_report(Path::new(&store))
+                .map_err(|e| CliError::Message(format!("store report failed: {e}")))?;
+            let rows = store_metadata_rows(&report)
+                .into_iter()
+                .map(|m| row([("table", m.table), ("key", m.key), ("value", m.value)]))
+                .collect();
+            print_rows(rows, parse_format(&args)?)
+        }
         "export" => {
             let table = positional(&args, 1, "export requires <table>")?;
             let selection = repo_selection(
@@ -107,7 +153,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             Ok(())
         }
         _ => Err(CliError::Message(format!(
-            "unsupported command: {command}; supported commands: scan, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
+            "unsupported command: {command}; supported commands: scan, capture, materialize, store-report, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
         ))),
     }
 }
@@ -118,6 +164,193 @@ struct RepoSelection {
     repo_path: PathBuf,
     store_path: String,
     selection_source: String,
+}
+
+/// First line of `<tool> --version`, or an explicit gap value — never silence.
+fn probe_tool_version(tool: &str) -> String {
+    Command::new(tool)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| {
+            String::from_utf8(out.stdout)
+                .ok()
+                .and_then(|s| s.lines().next().map(str::to_string))
+        })
+        .unwrap_or_else(|| format!("gap_tool_not_available:{tool}"))
+}
+
+/// scan + persist: exact bytes of every regular file into the redb store
+/// (content-addressed sha256 blobs + relative-path rows + unix modes); every
+/// non-file, non-directory entry becomes a capture_gaps row. Read-only on the
+/// scanned tree; the ONLY write target is the store path.
+fn capture_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
+    let repo_path = selection.repo_path.as_path();
+    let store_path = if selection.store_path.is_empty() {
+        repo_path.join(".codedb/store.redb").display().to_string()
+    } else {
+        selection.store_path.clone()
+    };
+    let store = PathBuf::from(&store_path);
+    if let Some(parent) = store.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)
+            .map_err(|e| CliError::Message(format!("creating store parent: {e}")))?;
+    }
+    if !store.exists() {
+        let rustc_version = probe_tool_version("rustc");
+        let cargo_version = probe_tool_version("cargo");
+        initialize_store(
+            &store,
+            &StoreInitContext {
+                codedb_version: codedb_core::VERSION,
+                toolchain: "host-default",
+                rustc_version: &rustc_version,
+                cargo_version: &cargo_version,
+            },
+        )
+        .map_err(|e| CliError::Message(format!("store init failed: {e}")))?;
+    }
+
+    let entries = scan_filesystem(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
+    let mut rows: Vec<Row> = Vec::new();
+    rows.push(row([
+        ("table", "meta_repo_selection".to_string()),
+        ("repo_id", selection.repo_id.clone()),
+        ("repo_path", repo_path.display().to_string()),
+        ("store_path", store_path.clone()),
+        ("selection_source", selection.selection_source.clone()),
+        (
+            "mutation_policy",
+            "read_only_scan_store_is_only_write_target".to_string(),
+        ),
+    ]));
+    let mut captured = 0usize;
+    let mut captured_bytes = 0u64;
+    let mut directories = 0usize;
+    let mut gaps = 0usize;
+    for entry in entries {
+        let kind = entry.kind.as_str();
+        if kind == "directory" && !entry.is_symlink {
+            directories += 1;
+            continue;
+        }
+        if kind == "file" && !entry.is_symlink {
+            let source = repo_path.join(&entry.relative_path);
+            let blob = persist_source_file(&store, &entry.relative_path, &source).map_err(|e| {
+                CliError::Message(format!("persist failed for {}: {e}", entry.relative_path))
+            })?;
+            captured += 1;
+            captured_bytes += blob.bytes;
+            rows.push(row([
+                ("table", "source_blobs".to_string()),
+                ("relative_path", blob.relative_path),
+                ("blob_ref", blob.blob_ref),
+                ("sha256", blob.sha256),
+                ("bytes", blob.bytes.to_string()),
+                ("status", "captured".to_string()),
+            ]));
+        } else {
+            // Symlinks and special files are not raw-blob-persistable yet:
+            // recorded as gaps, never silently dropped.
+            gaps += 1;
+            rows.push(row([
+                ("table", "capture_gaps".to_string()),
+                ("relative_path", entry.relative_path),
+                ("kind", kind.to_string()),
+                (
+                    "gap",
+                    if entry.is_symlink {
+                        "symlink_not_captured_as_blob".to_string()
+                    } else {
+                        format!("unsupported_entry_kind:{kind}")
+                    },
+                ),
+                ("symlink_target", entry.symlink_target.unwrap_or_default()),
+                ("status", "gap".to_string()),
+            ]));
+        }
+    }
+    rows.push(row([
+        ("table", "capture_summary".to_string()),
+        ("store_path", store_path),
+        ("files_captured", captured.to_string()),
+        ("bytes_captured", captured_bytes.to_string()),
+        ("directories_walked", directories.to_string()),
+        ("capture_gaps", gaps.to_string()),
+        (
+            "status",
+            if gaps == 0 {
+                "complete"
+            } else {
+                "complete_with_gaps"
+            }
+            .to_string(),
+        ),
+    ]));
+    Ok(rows)
+}
+
+/// Re-emit captured files byte-for-byte from the store (whole tree or one
+/// --path), restoring unix modes; every row re-checksums the materialized file.
+fn materialize_rows(
+    store: &Path,
+    out_dir: &Path,
+    only: Option<&str>,
+) -> Result<Vec<Row>, CliError> {
+    let files = list_source_files(store)
+        .map_err(|e| CliError::Message(format!("listing store files: {e}")))?;
+    let mut rows: Vec<Row> = Vec::new();
+    let mut count = 0usize;
+    let mut bytes = 0u64;
+    for file in files {
+        if only.is_some_and(|filter| file.relative_path != filter) {
+            continue;
+        }
+        let out_path = out_dir.join(&file.relative_path);
+        let report =
+            materialize_source_file(store, &file.relative_path, &out_path).map_err(|e| {
+                CliError::Message(format!(
+                    "materialize failed for {}: {e}",
+                    file.relative_path
+                ))
+            })?;
+        let roundtrip_ok = report.sha256 == file.sha256;
+        count += 1;
+        bytes += report.bytes;
+        rows.push(row([
+            ("table", "materialized_files".to_string()),
+            ("relative_path", file.relative_path),
+            ("path", report.path.display().to_string()),
+            ("sha256", report.sha256),
+            ("bytes", report.bytes.to_string()),
+            (
+                "status",
+                if roundtrip_ok {
+                    "sha256_roundtrip_ok".to_string()
+                } else {
+                    "sha256_roundtrip_mismatch".to_string()
+                },
+            ),
+        ]));
+        if !roundtrip_ok {
+            return Err(CliError::Message(format!(
+                "sha256 roundtrip mismatch materializing {}",
+                rows.last()
+                    .and_then(|r| r.get("relative_path").cloned())
+                    .unwrap_or_default()
+            )));
+        }
+    }
+    rows.push(row([
+        ("table", "materialize_summary".to_string()),
+        ("store_path", store.display().to_string()),
+        ("out_dir", out_dir.display().to_string()),
+        ("files_materialized", count.to_string()),
+        ("bytes_materialized", bytes.to_string()),
+        ("status", "complete".to_string()),
+    ]));
+    Ok(rows)
 }
 
 fn scan_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
