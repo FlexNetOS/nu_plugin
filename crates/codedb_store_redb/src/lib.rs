@@ -260,6 +260,7 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
     })
 }
 
+#[allow(clippy::result_large_err)]
 pub fn persist_source_file(
     store_path: impl AsRef<Path>,
     relative_path: impl AsRef<str>,
@@ -274,6 +275,7 @@ pub fn persist_source_file(
     Ok(row)
 }
 
+#[allow(clippy::result_large_err)]
 pub fn persist_source_blob(
     store_path: impl AsRef<Path>,
     relative_path: impl Into<String>,
@@ -315,6 +317,7 @@ pub fn persist_source_blob(
     })
 }
 
+#[allow(clippy::result_large_err)]
 pub fn read_source_file_blob(
     store_path: impl AsRef<Path>,
     relative_path: impl AsRef<str>,
@@ -354,6 +357,36 @@ pub fn read_source_file_blob(
     })
 }
 
+/// Every persisted source file (relative path + blob ref + sha256 + size), in
+/// key order. The full-tree read surface behind `codedb materialize` — restore
+/// walks this list so re-emission can never silently drop a captured file.
+#[allow(clippy::result_large_err)]
+pub fn list_source_files(store_path: impl AsRef<Path>) -> Result<Vec<SourceBlobRow>, StoreError> {
+    let db = Database::open(store_path)?;
+    let read_txn = db.begin_read()?;
+    let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+    let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
+    let mut rows = Vec::new();
+    for item in files.iter()? {
+        let (key, value) = item?;
+        let relative_path = key.value().to_string();
+        let blob_ref = value.value().to_string();
+        let sha256 = blob_ref.trim_start_matches("sha256:").to_string();
+        let bytes = blobs
+            .get(sha256.as_str())?
+            .map(|blob| blob.value().len() as u64)
+            .unwrap_or(0);
+        rows.push(SourceBlobRow {
+            relative_path,
+            blob_ref,
+            sha256,
+            bytes,
+        });
+    }
+    Ok(rows)
+}
+
+#[allow(clippy::result_large_err)]
 pub fn materialize_source_file(
     store_path: impl AsRef<Path>,
     relative_path: impl AsRef<str>,
@@ -441,6 +474,7 @@ fn source_file_metadata_key(relative_path: &str, field: &str) -> String {
     format!("{relative_path}::{field}")
 }
 
+#[allow(clippy::result_large_err)]
 fn persist_source_file_metadata(
     store_path: &Path,
     relative_path: &str,

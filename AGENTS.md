@@ -8,12 +8,13 @@ cd /home/flexnetos/FlexNetOS/src/nu_plugin
 
 This repo uses the GitKB workflow copied from `src/meta/.kb`.
 
-Use the workspace-provided GitKB binary explicitly unless your shell has already
-prepended `/home/flexnetos/FlexNetOS/usr/bin`:
+Use the profile-owned GitKB binary. (The old `FlexNetOS/usr/bin/git-kb` copy is
+quarantined-pack residue slated for refactor — see FlexNetOS/LOCAL_WORKAROUNDS.md,
+2026-07-07 owner correction.)
 
 ```bash
-/home/flexnetos/FlexNetOS/usr/bin/git-kb status --json
-/home/flexnetos/FlexNetOS/usr/bin/git-kb board --json
+/home/flexnetos/.nix-profile/bin/git-kb status --json
+/home/flexnetos/.nix-profile/bin/git-kb board --json
 ```
 
 GitKB materializes checked-out documents under `.kb/workspaces/main/` in this
