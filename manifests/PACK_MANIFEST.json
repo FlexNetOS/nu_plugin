@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "c64b48d38fb94eaaa1c65f571b6ce4e05f637d05570faef7df4a005511f4654f",
+  "checksum_scope_files_sha256": "15aa6b0fd3b16362abc09a4e79762deb29c36f0d85aa66a539ee79ade6bc78cc",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 302,
+  "file_count_in_checksum_scope": 303,
   "files": [
     {
       "bytes": 1473,
@@ -231,9 +231,9 @@
       "sha256": "e0a137067abc9587a52f07a97865b3b13dd7db8701d5952a6d9eaa931e371661"
     },
     {
-      "bytes": 678,
+      "bytes": 743,
       "path": "AGENTS.md",
-      "sha256": "42f554876c452054ef667d3337fcaa8329fbd9af3541ac69b8c8143b404a41a2"
+      "sha256": "174c222e1bb3c0c33f1c045e326dcd2ef9ec3190647c7b99cf8955bc37e0e1c7"
     },
     {
       "bytes": 1824,
@@ -251,9 +251,9 @@
       "sha256": "873a3b25f9298b28d2475468929b0c30cb18c988972554da926f403cd3583311"
     },
     {
-      "bytes": 58693,
+      "bytes": 58715,
       "path": "Cargo.lock",
-      "sha256": "299b43f41b75087de209971cc9111e4b2cf6de428f88c8afaefbd3705eda97de"
+      "sha256": "68bae61044e314a7b1a42d8fdf68aeaf0348707ecd5d799e91b095fc57fd6373"
     },
     {
       "bytes": 497,
@@ -311,14 +311,14 @@
       "sha256": "a01f38094ecb0aaebf8eb04726516bb1444bd95122b5dd865893eae1ca9716a4"
     },
     {
-      "bytes": 366,
+      "bytes": 420,
       "path": "crates/codedb/Cargo.toml",
-      "sha256": "3bcd6b47f211fb64e3711c36b155f183174d34b0e0159b4d386b5597344ecc51"
+      "sha256": "6c4da95f408a677273671a7507e1a4d12c49ec062958027ef5be37f326ccf792"
     },
     {
-      "bytes": 109382,
+      "bytes": 118839,
       "path": "crates/codedb/src/main.rs",
-      "sha256": "d2a8510c08c930a830f881f0ebb8dc145364893abe0d4a7fdacd3cb467fc4734"
+      "sha256": "9de014ca152aa36af6abcc47e75c8afd2473cd9bb62b1a5b49624fa291319bf8"
     },
     {
       "bytes": 205,
@@ -386,9 +386,9 @@
       "sha256": "1262602c8f07ac8e805ca17e80cd11705eb48e670fd0aede4157d8017d3b3832"
     },
     {
-      "bytes": 28965,
+      "bytes": 30672,
       "path": "crates/codedb_store_redb/src/lib.rs",
-      "sha256": "486f1dff9a00894245f2f9063aa44b5a353f652027c21d89c4e3f7a192427ff0"
+      "sha256": "3e6cc9e8343bdec8c7e708489eda02e9d09c5dcd48017fa4f4102c1aef4d1324"
     },
     {
       "bytes": 442,
@@ -601,6 +601,11 @@
       "sha256": "0435ea85d43bd3a20a82ed428d71fa2e5de43ebb80b7e4d967b4e815c8218b0e"
     },
     {
+      "bytes": 29867,
+      "path": "examples/idd_unify_e2e.nu",
+      "sha256": "abb3f489c98dbb1bebdf7f6962612a3c71fb6873cf428f8179d38aa60a27b252"
+    },
+    {
       "bytes": 652,
       "path": "examples/nushell/plugin_registry_smoke.nu",
       "sha256": "11fb6c13be09eb33b0f32a483b0d9b94f32a0f87d3e642a09336afd4a7311c98"
@@ -621,9 +626,9 @@
       "sha256": "55b38f9fc5c7f42ca61cf1c8857cad42acae4f459167a02e3293d99f2afd79c0"
     },
     {
-      "bytes": 16995,
+      "bytes": 15918,
       "path": "execution/COMMAND_LEDGER.csv",
-      "sha256": "9c9d80053aa30c4ecc00bb0e8a468762ef7a7ba3d2dfae3a042ab2038576e685"
+      "sha256": "c9bd55f27f36c7c21520e4f1bf5fe65adb942a659aa3f63eb22c9df44dada4b7"
     },
     {
       "bytes": 12903,
@@ -1521,7 +1526,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-03T14:09:29+00:00",
+  "generated_at_utc": "2026-07-07T11:26:17+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

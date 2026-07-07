@@ -580,11 +580,16 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_store_path() -> PathBuf {
+        // nanos alone collide when two tests start in the same tick (redb then
+        // fails with DatabaseAlreadyOpen); a process-wide counter makes every
+        // path unique regardless of timer resolution or parallelism.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time monotonic")
             .as_nanos();
-        std::env::temp_dir().join(format!("codedb_store_redb_{stamp}.redb"))
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!("codedb_store_redb_{stamp}_{seq}.redb"))
     }
 
     // Test lane: default
