@@ -154,6 +154,7 @@ impl From<io::Error> for StoreError {
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn initialize_store(
     path: impl AsRef<Path>,
     context: &StoreInitContext<'_>,
@@ -208,6 +209,7 @@ pub fn initialize_store(
     Ok(report)
 }
 
+#[allow(clippy::result_large_err)]
 pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, StoreError> {
     let path = path.as_ref().to_path_buf();
     let db = Database::open(&path)?;
@@ -258,6 +260,7 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
     })
 }
 
+#[allow(clippy::result_large_err)]
 pub fn persist_source_file(
     store_path: impl AsRef<Path>,
     relative_path: impl AsRef<str>,
@@ -272,6 +275,7 @@ pub fn persist_source_file(
     Ok(row)
 }
 
+#[allow(clippy::result_large_err)]
 pub fn persist_source_blob(
     store_path: impl AsRef<Path>,
     relative_path: impl Into<String>,
@@ -313,6 +317,7 @@ pub fn persist_source_blob(
     })
 }
 
+#[allow(clippy::result_large_err)]
 pub fn read_source_file_blob(
     store_path: impl AsRef<Path>,
     relative_path: impl AsRef<str>,
@@ -352,6 +357,36 @@ pub fn read_source_file_blob(
     })
 }
 
+/// Every persisted source file (relative path + blob ref + sha256 + size), in
+/// key order. The full-tree read surface behind `codedb materialize` — restore
+/// walks this list so re-emission can never silently drop a captured file.
+#[allow(clippy::result_large_err)]
+pub fn list_source_files(store_path: impl AsRef<Path>) -> Result<Vec<SourceBlobRow>, StoreError> {
+    let db = Database::open(store_path)?;
+    let read_txn = db.begin_read()?;
+    let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+    let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
+    let mut rows = Vec::new();
+    for item in files.iter()? {
+        let (key, value) = item?;
+        let relative_path = key.value().to_string();
+        let blob_ref = value.value().to_string();
+        let sha256 = blob_ref.trim_start_matches("sha256:").to_string();
+        let bytes = blobs
+            .get(sha256.as_str())?
+            .map(|blob| blob.value().len() as u64)
+            .unwrap_or(0);
+        rows.push(SourceBlobRow {
+            relative_path,
+            blob_ref,
+            sha256,
+            bytes,
+        });
+    }
+    Ok(rows)
+}
+
+#[allow(clippy::result_large_err)]
 pub fn materialize_source_file(
     store_path: impl AsRef<Path>,
     relative_path: impl AsRef<str>,
@@ -416,6 +451,7 @@ pub fn store_metadata_rows(report: &StoreInitReport) -> Vec<StoreMetadataRow> {
     report.rows.clone()
 }
 
+#[allow(clippy::result_large_err)]
 pub fn checksum_file_sha256(path: impl AsRef<Path>) -> Result<String, StoreError> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
@@ -438,6 +474,7 @@ fn source_file_metadata_key(relative_path: &str, field: &str) -> String {
     format!("{relative_path}::{field}")
 }
 
+#[allow(clippy::result_large_err)]
 fn persist_source_file_metadata(
     store_path: &Path,
     relative_path: &str,
@@ -482,6 +519,7 @@ fn persist_source_file_metadata(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 pub fn backup_store(
     source_path: impl AsRef<Path>,
     backup_path: impl AsRef<Path>,
@@ -504,6 +542,7 @@ pub fn backup_store(
     })
 }
 
+#[allow(clippy::result_large_err)]
 pub fn restore_store_from_backup(
     backup_path: impl AsRef<Path>,
     restored_path: impl AsRef<Path>,
@@ -541,11 +580,16 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_store_path() -> PathBuf {
+        // nanos alone collide when two tests start in the same tick (redb then
+        // fails with DatabaseAlreadyOpen); a process-wide counter makes every
+        // path unique regardless of timer resolution or parallelism.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time monotonic")
             .as_nanos();
-        std::env::temp_dir().join(format!("codedb_store_redb_{stamp}.redb"))
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!("codedb_store_redb_{stamp}_{seq}.redb"))
     }
 
     // Test lane: default

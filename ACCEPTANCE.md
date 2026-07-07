@@ -9,6 +9,7 @@ The package is execution-ready only when:
 - PRD is canonical and standalone.
 - Yazelix/Nushell bridge requirements are integrated.
 - Manifest, checksums, link report, and secret hygiene scan pass.
+- Any planning-only lane is labeled as planning-only and keeps V1.1 implementation status distinct.
 
 The implementation is acceptable only when:
 
@@ -21,6 +22,13 @@ The implementation is acceptable only when:
 - envctl consumes exports/checksums, not redb internals;
 - runner proof logs and manifests exist.
 
+The polyglot planning package is acceptable only when:
+
+- research, schema, language-surface, package-manager, proof-gate, and security docs exist;
+- `execution/POLYGLOT_TASK_GRAPH.csv` and `execution/POLYGLOT_TASK_FILE_MAP.csv` parse cleanly;
+- GitHub issue delivery drafts exist for CDB091-CDB105;
+- the addendum and navigation surfaces say clearly that V1.2 is planning-only;
+- no planning artifact is presented as completed code, runner proof, or release implementation.
 The bidirectional roadmap package is acceptable only when:
 
 - CDB070-CDB090 exist in GitKB and in `execution/BIDIRECTIONAL_TASK_GRAPH.csv`;

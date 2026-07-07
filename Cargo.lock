@@ -322,8 +322,10 @@ dependencies = [
  "codedb-cargo",
  "codedb-core",
  "codedb-rust-static",
+ "codedb-store-redb",
  "serde_json",
  "sha2",
+ "toml",
 ]
 
 [[package]]

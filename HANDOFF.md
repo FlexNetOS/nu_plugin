@@ -1,5 +1,15 @@
 # CodeDB Handoff
 
+Task: CDB105
+
+## Current State
+
+The V1.1 implementation baseline remains the same: the last verified code-and-release
+slice progressed through CDB047, with CDB068 later repairing package CSV truth surfaces.
+
+The current change set adds a separate V1.2 planning package for the polyglot-import
+lane requested by issue 215. This package is documentation, task-graph, and issue-draft
+work only. It does not claim that polyglot import implementation shipped.
 Task: CDB070
 
 ## Current State
@@ -25,6 +35,18 @@ Primary release evidence:
 - `manifests/PACK_MANIFEST.json`
 - `manifests/CHECKSUMS.sha256`
 - `manifests/PACKAGE_VALIDATION.json`
+
+Primary polyglot planning evidence:
+
+- `docs/polyglot-import/README.md`
+- `docs/polyglot-import/research-ledger.md`
+- `docs/polyglot-import/polyglot-schema-extension.md`
+- `docs/polyglot-import/whole-repo-import-architecture.md`
+- `docs/polyglot-import/proof-and-round-trip-gates.md`
+- `execution/POLYGLOT_TASK_GRAPH.csv`
+- `execution/POLYGLOT_TASK_FILE_MAP.csv`
+- `execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md`
+- `prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md`
 
 ## Validation Snapshot
 
@@ -55,6 +77,10 @@ CodeDB is the authoritative file-to-table and crate-fact store layer for this pa
 
 GitKB tracks durable task evidence for this execution. It does not replace CodeDB source/package truth, raw logs, release manifests, or runner proof.
 
+Issue 215 planning artifacts do not supersede the current Rust-crate-first implementation
+baseline. They define the next bounded design lane and the proof needed before any future
+authority shift.
+
 ## Capture Gaps
 
 Known V1.1 gaps are explicit by design:
@@ -69,6 +95,10 @@ Known V1.1 gaps are explicit by design:
 
 ## Next Work
 
+Two execution lanes now exist:
+
+- V1.1 implementation lane: continue from `execution/TASK_GRAPH.csv` at CDB049 for runtime/plugin/Codex/envctl work.
+- V1.2 planning lane: use `execution/POLYGLOT_TASK_GRAPH.csv` and the polyglot docs package for issue-215 delivery, review, and future implementation scoping.
 Continue from `execution/TASK_GRAPH.csv`. For issue 212 bidirectional work,
 also use `execution/BIDIRECTIONAL_TASK_GRAPH.csv` and
 `execution/BIDIRECTIONAL_TASK_FILE_MAP.csv`.
@@ -84,4 +114,12 @@ CDB075 operator-approved apply gate is implemented and proven.
 
 ## Handoff Rule
 
-Before declaring the whole objective complete, re-audit `execution/TASK_GRAPH.csv` against current package evidence. Earlier scaffold tasks CDB064-CDB068 existed before implementation and may need resealing after later runtime integration tasks.
+Before declaring the whole objective complete, re-audit both task graphs against the
+current package evidence:
+
+- `execution/TASK_GRAPH.csv` remains authoritative for V1.1 implementation status.
+- `execution/POLYGLOT_TASK_GRAPH.csv` is authoritative only for planning-package status.
+
+Earlier scaffold tasks CDB064-CDB068 existed before implementation and may need resealing
+after later runtime integration tasks. Polyglot planning completion does not satisfy those
+implementation tasks.

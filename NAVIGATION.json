@@ -3,6 +3,9 @@
   "entrypoint": "CODEDB_START_HERE.md",
   "canonical_prd": "prd/nu_plugin_codedb_v1_1_full_prd.md",
   "task_graph": "execution/TASK_GRAPH.csv",
+  "planning_addendum_prd": "prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md",
+  "planning_task_graph": "execution/POLYGLOT_TASK_GRAPH.csv",
+  "planning_task_file_map": "execution/POLYGLOT_TASK_FILE_MAP.csv",
   "created_at_utc": "2026-07-02T01:02:12.761439+00:00",
   "files": [
     {
@@ -166,6 +169,92 @@
       "purpose": "MVP2 backlog and downgrade exclusions."
     },
     {
+      "order": 31,
+      "path": "docs/polyglot-import/README.md",
+      "purpose": "Entry point for the V1.2 polyglot planning package."
+    },
+    {
+      "order": 32,
+      "path": "docs/polyglot-import/research-ledger.md",
+      "purpose": "Official-source research ledger and current-state audit."
+    },
+    {
+      "order": 33,
+      "path": "docs/polyglot-import/language-import-surface.md",
+      "purpose": "Tiered language and package capture surface."
+    },
+    {
+      "order": 34,
+      "path": "docs/polyglot-import/polyglot-schema-extension.md",
+      "purpose": "Planned schema/table extension for polyglot import."
+    },
+    {
+      "order": 35,
+      "path": "docs/polyglot-import/parser-and-indexer-tooling-matrix.md",
+      "purpose": "Parser, indexer, and tooling comparison."
+    },
+    {
+      "order": 36,
+      "path": "docs/polyglot-import/package-manager-and-lockfile-matrix.md",
+      "purpose": "Package-manager and lockfile coverage plan."
+    },
+    {
+      "order": 37,
+      "path": "docs/polyglot-import/whole-repo-import-architecture.md",
+      "purpose": "Whole-repo import and export architecture."
+    },
+    {
+      "order": 38,
+      "path": "docs/polyglot-import/single-binary-rust-crate-export.md",
+      "purpose": "Generated Rust crate and single-binary contract."
+    },
+    {
+      "order": 39,
+      "path": "docs/polyglot-import/proof-and-round-trip-gates.md",
+      "purpose": "P0-P11 proof and round-trip gates."
+    },
+    {
+      "order": 40,
+      "path": "docs/polyglot-import/security-and-execution-policy.md",
+      "purpose": "Polyglot safety and execution policy."
+    },
+    {
+      "order": 41,
+      "path": "docs/polyglot-import/github-issue-delivery-plan.md",
+      "purpose": "Issue delivery order and dependency map."
+    },
+    {
+      "order": 42,
+      "path": "docs/polyglot-import/open-questions.md",
+      "purpose": "Remaining questions, gaps, and blockers."
+    },
+    {
+      "order": 43,
+      "path": "prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md",
+      "purpose": "V1.2 planning addendum without superseding V1.1."
+    },
+    {
+      "order": 44,
+      "path": "execution/POLYGLOT_TASK_GRAPH.csv",
+      "purpose": "Planning-only polyglot task graph."
+    },
+    {
+      "order": 45,
+      "path": "execution/POLYGLOT_TASK_FILE_MAP.csv",
+      "purpose": "Planning-only task-to-file map."
+    },
+    {
+      "order": 46,
+      "path": "execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md",
+      "purpose": "Ready-to-post GitHub issue drafts for CDB091-CDB105."
+    },
+    {
+      "order": 47,
+      "path": "execution/TASK_GRAPH.csv",
+      "purpose": "Canonical controlled V1.1 implementation task graph."
+    },
+    {
+      "order": 48,
       "order": 32,
       "path": "execution/TASK_GRAPH.csv",
       "purpose": "Canonical controlled task graph table."
@@ -176,56 +265,67 @@
       "purpose": "Readable task graph projection."
     },
     {
+      "order": 49,
       "order": 34,
       "path": "execution/TASK_FILE_MAP.csv",
       "purpose": "Task-to-file map."
     },
     {
+      "order": 50,
       "order": 35,
       "path": "execution/COMMAND_LEDGER.csv",
       "purpose": "Command evidence ledger."
     },
     {
+      "order": 51,
       "order": 36,
       "path": "execution/WORKLOG.md",
       "purpose": "Narrative worklog."
     },
     {
+      "order": 52,
       "order": 37,
       "path": "manifests/EXTRACTION_PROOF.json",
       "purpose": "Source ZIP extraction proof."
     },
     {
+      "order": 53,
       "order": 38,
       "path": "manifests/CHECKLIST_COMPLETION.json",
       "purpose": "Checklist item completion map."
     },
     {
+      "order": 54,
       "order": 39,
       "path": "manifests/PACK_MANIFEST.json",
       "purpose": "Package manifest."
     },
     {
+      "order": 55,
       "order": 40,
       "path": "manifests/CHECKSUMS.sha256",
       "purpose": "Package checksums."
     },
     {
+      "order": 56,
       "order": 41,
       "path": "manifests/LINK_CHECK_REPORT.md",
       "purpose": "Local link check report."
     },
     {
+      "order": 57,
       "order": 42,
       "path": "manifests/PACKAGE_VALIDATION.json",
       "purpose": "Package validation results."
     },
     {
+      "order": 58,
       "order": 43,
       "path": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md",
       "purpose": "Input audit used for CSV source-of-truth repair."
     },
     {
+      "order": 59,
       "order": 44,
       "path": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json",
       "purpose": "Machine-readable strict task/file linkage repair evidence."
@@ -434,71 +534,152 @@
     },
     {
       "order": 31,
-      "path": "execution/TASK_GRAPH.csv",
-      "purpose": "Canonical controlled task graph table."
+      "path": "docs/polyglot-import/README.md",
+      "purpose": "Entry point for the V1.2 polyglot planning package."
     },
     {
       "order": 32,
+      "path": "docs/polyglot-import/research-ledger.md",
+      "purpose": "Official-source research ledger and current-state audit."
+    },
+    {
+      "order": 33,
+      "path": "docs/polyglot-import/language-import-surface.md",
+      "purpose": "Tiered language and package capture surface."
+    },
+    {
+      "order": 34,
+      "path": "docs/polyglot-import/polyglot-schema-extension.md",
+      "purpose": "Planned schema/table extension for polyglot import."
+    },
+    {
+      "order": 35,
+      "path": "docs/polyglot-import/parser-and-indexer-tooling-matrix.md",
+      "purpose": "Parser, indexer, and tooling comparison."
+    },
+    {
+      "order": 36,
+      "path": "docs/polyglot-import/package-manager-and-lockfile-matrix.md",
+      "purpose": "Package-manager and lockfile coverage plan."
+    },
+    {
+      "order": 37,
+      "path": "docs/polyglot-import/whole-repo-import-architecture.md",
+      "purpose": "Whole-repo import and export architecture."
+    },
+    {
+      "order": 38,
+      "path": "docs/polyglot-import/single-binary-rust-crate-export.md",
+      "purpose": "Generated Rust crate and single-binary contract."
+    },
+    {
+      "order": 39,
+      "path": "docs/polyglot-import/proof-and-round-trip-gates.md",
+      "purpose": "P0-P11 proof and round-trip gates."
+    },
+    {
+      "order": 40,
+      "path": "docs/polyglot-import/security-and-execution-policy.md",
+      "purpose": "Polyglot safety and execution policy."
+    },
+    {
+      "order": 41,
+      "path": "docs/polyglot-import/github-issue-delivery-plan.md",
+      "purpose": "Issue delivery order and dependency map."
+    },
+    {
+      "order": 42,
+      "path": "docs/polyglot-import/open-questions.md",
+      "purpose": "Remaining questions, gaps, and blockers."
+    },
+    {
+      "order": 43,
+      "path": "prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md",
+      "purpose": "V1.2 planning addendum without superseding V1.1."
+    },
+    {
+      "order": 44,
+      "path": "execution/POLYGLOT_TASK_GRAPH.csv",
+      "purpose": "Planning-only polyglot task graph."
+    },
+    {
+      "order": 45,
+      "path": "execution/POLYGLOT_TASK_FILE_MAP.csv",
+      "purpose": "Planning-only task-to-file map."
+    },
+    {
+      "order": 46,
+      "path": "execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md",
+      "purpose": "Ready-to-post GitHub issue drafts for CDB091-CDB105."
+    },
+    {
+      "order": 47,
+      "path": "execution/TASK_GRAPH.csv",
+      "purpose": "Canonical controlled V1.1 implementation task graph."
+    },
+    {
+      "order": 48,
       "path": "execution/TASK_GRAPH.md",
       "purpose": "Readable task graph projection."
     },
     {
-      "order": 33,
+      "order": 49,
       "path": "execution/TASK_FILE_MAP.csv",
       "purpose": "Task-to-file map."
     },
     {
-      "order": 34,
+      "order": 50,
       "path": "execution/COMMAND_LEDGER.csv",
       "purpose": "Command evidence ledger."
     },
     {
-      "order": 35,
+      "order": 51,
       "path": "execution/WORKLOG.md",
       "purpose": "Narrative worklog."
     },
     {
-      "order": 36,
+      "order": 52,
       "path": "manifests/EXTRACTION_PROOF.json",
       "purpose": "Source ZIP extraction proof."
     },
     {
-      "order": 37,
+      "order": 53,
       "path": "manifests/CHECKLIST_COMPLETION.json",
       "purpose": "Checklist item completion map."
     },
     {
-      "order": 38,
+      "order": 54,
       "path": "manifests/PACK_MANIFEST.json",
       "purpose": "Package manifest."
     },
     {
-      "order": 39,
+      "order": 55,
       "path": "manifests/CHECKSUMS.sha256",
       "purpose": "Package checksums."
     },
     {
-      "order": 40,
+      "order": 56,
       "path": "manifests/LINK_CHECK_REPORT.md",
       "purpose": "Local link check report."
     },
     {
-      "order": 41,
+      "order": 57,
       "path": "manifests/PACKAGE_VALIDATION.json",
       "purpose": "Package validation results."
     },
     {
-      "order": 42,
+      "order": 58,
       "path": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md",
       "purpose": "Input audit used for CSV source-of-truth repair."
     },
     {
-      "order": 43,
+      "order": 59,
       "path": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json",
       "purpose": "Machine-readable strict task/file linkage repair evidence."
     }
   ],
   "rules": [
-    "execution/TASK_GRAPH.csv is the source of truth for all task execution; exact package-relative paths in the CSV override prose summaries."
+    "execution/TASK_GRAPH.csv is the source of truth for V1.1 implementation execution; exact package-relative paths in that CSV override prose summaries for the implementation lane.",
+    "execution/POLYGLOT_TASK_GRAPH.csv is the source of truth for the V1.2 planning lane; planning artifacts must not be presented as completed implementation."
   ]
 }

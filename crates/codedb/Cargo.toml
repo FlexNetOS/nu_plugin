@@ -13,5 +13,7 @@ path = "src/main.rs"
 codedb-cargo = { path = "../codedb_cargo" }
 codedb-core.workspace = true
 codedb-rust-static = { path = "../codedb_rust_static" }
+codedb-store-redb = { path = "../codedb_store_redb" }
 serde_json = "1"
 sha2 = "0.10"
+toml = "0.8"

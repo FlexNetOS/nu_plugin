@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "b7c6db8a07a69da49e2780aac1e54f6157445c799c698c852c764b239f802e09",
+  "checksum_scope_files_sha256": "6c7880aafbb349827b8d97e960b5118a0ecb7cd1896436dd1570ea6150aa1f47",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 282,
+  "file_count_in_checksum_scope": 303,
   "files": [
     {
       "bytes": 1473,
@@ -186,6 +186,26 @@
       "sha256": "7be8cdfc3c57118240c896899bbbddaebbd87ffa3991ca52ea6b7d1ed54da853"
     },
     {
+      "bytes": 5978,
+      "path": ".kb/skills/nu-plugin-export/SKILL.md",
+      "sha256": "ebfd5107f6aab6ec0bd38842d0e14b26996a9c609cf2d724f83b8d018fa7c36e"
+    },
+    {
+      "bytes": 340,
+      "path": ".kb/skills/nu-plugin-export/agents/openai.yaml",
+      "sha256": "d037f5fb9d08b192d9f8faf1ba7a7175a08bd9be3587fd79f5d84dadaae0ca4e"
+    },
+    {
+      "bytes": 5387,
+      "path": ".kb/skills/nu-plugin-import/SKILL.md",
+      "sha256": "345916b33e972f04574c15468aeae4296bc0eef6831f20864b407be7d929477f"
+    },
+    {
+      "bytes": 303,
+      "path": ".kb/skills/nu-plugin-import/agents/openai.yaml",
+      "sha256": "f0f3b1103a690d88ab24bdb2ddeb613920cb9e93af2bb0232b6aa0b9ee0a2956"
+    },
+    {
       "bytes": 3133,
       "path": ".kb/skills/refactor-safety/SKILL.md",
       "sha256": "3e6bbd822ed50c0737069dd15b912beae6d0f0152ce1ffcca40d75c44d60035d"
@@ -206,14 +226,14 @@
       "sha256": "2a113643d58aa8d7ef1204fa42f619fd50e4b7529fc321939abbfa6833b417f2"
     },
     {
-      "bytes": 1377,
+      "bytes": 1952,
       "path": "ACCEPTANCE.md",
-      "sha256": "f14a82dbe9ccb7b411a83c99edb2cd35cc0616581634827dca7fc4759ae5e84d"
+      "sha256": "e0a137067abc9587a52f07a97865b3b13dd7db8701d5952a6d9eaa931e371661"
     },
     {
-      "bytes": 678,
+      "bytes": 743,
       "path": "AGENTS.md",
-      "sha256": "42f554876c452054ef667d3337fcaa8329fbd9af3541ac69b8c8143b404a41a2"
+      "sha256": "174c222e1bb3c0c33f1c045e326dcd2ef9ec3190647c7b99cf8955bc37e0e1c7"
     },
     {
       "bytes": 1824,
@@ -231,9 +251,9 @@
       "sha256": "873a3b25f9298b28d2475468929b0c30cb18c988972554da926f403cd3583311"
     },
     {
-      "bytes": 58684,
+      "bytes": 58715,
       "path": "Cargo.lock",
-      "sha256": "a0bb5ebeefee66676a7b91cd1f36c34be3f7451f5675c29055f5181ae1f3fd7e"
+      "sha256": "68bae61044e314a7b1a42d8fdf68aeaf0348707ecd5d799e91b095fc57fd6373"
     },
     {
       "bytes": 497,
@@ -241,9 +261,9 @@
       "sha256": "33ef7811f84244ee6f4aec51695ec5e36b29c802226447fa533fe98d5ad4b786"
     },
     {
-      "bytes": 1253,
+      "bytes": 1928,
       "path": "DOC_GRAPH.md",
-      "sha256": "818d471891053d519fe574ca55c432edbffac30eab7535d012ab21ca00177bfb"
+      "sha256": "bb016aee881473988e4ecf530abf972eb8d01f0e808bf5b55cd815241e39a50b"
     },
     {
       "bytes": 522,
@@ -261,29 +281,29 @@
       "sha256": "1f44932177a48edfaac878dcb044a3ae68616181a091026344a313fc80cf7535"
     },
     {
-      "bytes": 3030,
+      "bytes": 4696,
       "path": "HANDOFF.md",
-      "sha256": "d8e6391ce46cb6d19bb4dfb58fb347946f89e34779495fcd6e6e7e604d20d3ee"
+      "sha256": "b6211fe0f4c45f18bf600598f5afdeab3e244168548040e14dc7aeb3d6aed290"
     },
     {
-      "bytes": 12888,
+      "bytes": 18787,
       "path": "NAVIGATION.json",
-      "sha256": "babe68198252b994b01c974c524d99af9f6a5e54461ed22b6d440eb725dc3d9c"
+      "sha256": "b31cc2c2bb45fea8d3f04fd9c514b6f80d273ae959b4fdcb2344c80b82e13483"
     },
     {
-      "bytes": 5852,
+      "bytes": 9729,
       "path": "NAVIGATION.md",
-      "sha256": "317abcaab6c564df310086f495c5891c11cefabb3284e8669dfb49ba1c99eb2b"
+      "sha256": "a1385cc66c6cee1962add1132a6a5eebc2ebd461a7b5293aba3de9a64e988c6b"
     },
     {
-      "bytes": 1343,
+      "bytes": 1669,
       "path": "READINESS_GATE.md",
-      "sha256": "3a42e534e71fbfcedc71071f062d0be1eb5adbd101bba97a5000dccfe8d316c4"
+      "sha256": "608e6871473f39c330767c15bb3f00422c86ab45398902145038955ea0583566"
     },
     {
-      "bytes": 1073,
+      "bytes": 1278,
       "path": "STOP_CONDITIONS.md",
-      "sha256": "bdc7dd095898c7464f847a25c1b0a1288d9b7e52419ba956f2dc04de86d79f6e"
+      "sha256": "b395c444d2fa4780cebbf91843a38f688a8e4f785f16e1baa47063d54abcc802"
     },
     {
       "bytes": 455,
@@ -291,14 +311,14 @@
       "sha256": "a01f38094ecb0aaebf8eb04726516bb1444bd95122b5dd865893eae1ca9716a4"
     },
     {
-      "bytes": 353,
+      "bytes": 420,
       "path": "crates/codedb/Cargo.toml",
-      "sha256": "9ea33f7f883e63ae966690300e7ca8ff7e0cb5b132d17f0a1b345720d31aaecb"
+      "sha256": "6c4da95f408a677273671a7507e1a4d12c49ec062958027ef5be37f326ccf792"
     },
     {
-      "bytes": 64521,
+      "bytes": 118839,
       "path": "crates/codedb/src/main.rs",
-      "sha256": "151009c99de40e6429c0a63b0dc43d4ae14c4cd390ee8cc92712bbd793c618d5"
+      "sha256": "9de014ca152aa36af6abcc47e75c8afd2473cd9bb62b1a5b49624fa291319bf8"
     },
     {
       "bytes": 205,
@@ -326,9 +346,9 @@
       "sha256": "b3bdfe7cbb2a094ffb9a022a32d369e622324e80fcbc2146ed343dfd2d3557c6"
     },
     {
-      "bytes": 76555,
+      "bytes": 82140,
       "path": "crates/codedb_core/src/lib.rs",
-      "sha256": "b00ddccb4f8635ef13730c1de86de34864d6d77c65aec67c75c2dbfd1d93ddaf"
+      "sha256": "519ce2cc0e8e1f398d16a76a00d121256caa93b82613240c06f8d1b4f57652f4"
     },
     {
       "bytes": 167,
@@ -356,9 +376,9 @@
       "sha256": "5fbb989291c74f4497159084ee4e8a4b199e1c6ddc83e14fb8e3d084e5070774"
     },
     {
-      "bytes": 81002,
+      "bytes": 80860,
       "path": "crates/codedb_rust_static/src/lib.rs",
-      "sha256": "0cfd22dd13bb2f0c8fc7435e26b7b64e2911d419f574f5c2883d850676750a10"
+      "sha256": "c5ebea8999518c7bc962bb1bc950507d0b56a9c8bdfbb9651dfb9f6b1c5dce5a"
     },
     {
       "bytes": 243,
@@ -366,9 +386,9 @@
       "sha256": "1262602c8f07ac8e805ca17e80cd11705eb48e670fd0aede4157d8017d3b3832"
     },
     {
-      "bytes": 28790,
+      "bytes": 30274,
       "path": "crates/codedb_store_redb/src/lib.rs",
-      "sha256": "cdba0676b58efc453bdd1c14d44f1e41532a12f8d996c76c7be1610d489a2ae8"
+      "sha256": "270175c51ec6eee8c393812cc7e399dcf13959034b8518d4f6ac1596293fe2ac"
     },
     {
       "bytes": 442,
@@ -376,9 +396,9 @@
       "sha256": "2bdf00f5ded70b164210512dd0f183c89ff9855d2a20be39eadbd31e2794e14f"
     },
     {
-      "bytes": 57377,
+      "bytes": 122729,
       "path": "crates/nu_plugin_codedb/src/main.rs",
-      "sha256": "42ca78784c0f2328fe55366f576a6a6e9a40fec010df88db490d5fe7029b2e48"
+      "sha256": "fe17218c23a4b163a7e38674e8df27999f6dd466babe8bf3346c17ffbb8265cb"
     },
     {
       "bytes": 2517,
@@ -511,6 +531,66 @@
       "sha256": "0893e38d721c54366079ae983551e5cd970e7164fef7dc2f5f45f5b481ea7e18"
     },
     {
+      "bytes": 2306,
+      "path": "docs/polyglot-import/README.md",
+      "sha256": "bc3645eb335bfb458cb20d4617d8bf096223d7f29eb88b8664ca240414d69939"
+    },
+    {
+      "bytes": 1422,
+      "path": "docs/polyglot-import/github-issue-delivery-plan.md",
+      "sha256": "0f1b41e46224b2af6c4df503fccf3c182380339217772ecdc31c57558e493ea5"
+    },
+    {
+      "bytes": 3811,
+      "path": "docs/polyglot-import/language-import-surface.md",
+      "sha256": "f4c09b18731c9054d07519c8a2ab1e0a2946a7432e78dea8ca9fe684fc8e86f1"
+    },
+    {
+      "bytes": 655,
+      "path": "docs/polyglot-import/open-questions.md",
+      "sha256": "3548b6f3239c6650f292c30bfa067099e55cfb58e5a3022cbf6a1c10538b4783"
+    },
+    {
+      "bytes": 1540,
+      "path": "docs/polyglot-import/package-manager-and-lockfile-matrix.md",
+      "sha256": "dd025c2ca2b33d9242e1dbabff16daa7f87dfdef18329ba0a5bb28bfe2e87592"
+    },
+    {
+      "bytes": 2728,
+      "path": "docs/polyglot-import/parser-and-indexer-tooling-matrix.md",
+      "sha256": "e00192f6cdd224be7724cf23141202f40d984f6112284c2e6d34e961d7ae3d1d"
+    },
+    {
+      "bytes": 2372,
+      "path": "docs/polyglot-import/polyglot-schema-extension.md",
+      "sha256": "234c850c90915ced84905889e4dd767f3d46794c73411f3a0ef723639dd4d5ee"
+    },
+    {
+      "bytes": 1677,
+      "path": "docs/polyglot-import/proof-and-round-trip-gates.md",
+      "sha256": "2c4165d762c12241c8c0865f13d131998a8f122a58cdab2d01d19526e3925749"
+    },
+    {
+      "bytes": 5574,
+      "path": "docs/polyglot-import/research-ledger.md",
+      "sha256": "bc81327f52b8d6f4daa54e6ac4588dd618995b52f083294a16e93275f6ad4fae"
+    },
+    {
+      "bytes": 1048,
+      "path": "docs/polyglot-import/security-and-execution-policy.md",
+      "sha256": "22e4febb5803acf57c1627f72e89cf86b7dccf4f8a64d3d876ee1422de520c68"
+    },
+    {
+      "bytes": 1403,
+      "path": "docs/polyglot-import/single-binary-rust-crate-export.md",
+      "sha256": "fd16136f60ef6525645a05218edf91b3c4cb432dacd30b2af466482437a8fe29"
+    },
+    {
+      "bytes": 1302,
+      "path": "docs/polyglot-import/whole-repo-import-architecture.md",
+      "sha256": "688170d75e74fe92b8b19bf749b8a0158ca48b539c6952ddb68a01e287652732"
+    },
+    {
       "bytes": 965,
       "path": "examples/codex/codedb_bounded_smoke_report.json",
       "sha256": "a92fe131cb19f9ba2675596660cc85ee7a0cec713422508e6c5fadeec3a38603"
@@ -519,6 +599,11 @@
       "bytes": 756,
       "path": "examples/codex/codedb_mcp_config.json",
       "sha256": "0435ea85d43bd3a20a82ed428d71fa2e5de43ebb80b7e4d967b4e815c8218b0e"
+    },
+    {
+      "bytes": 29867,
+      "path": "examples/idd_unify_e2e.nu",
+      "sha256": "abb3f489c98dbb1bebdf7f6962612a3c71fb6873cf428f8179d38aa60a27b252"
     },
     {
       "bytes": 652,
@@ -541,9 +626,24 @@
       "sha256": "55b38f9fc5c7f42ca61cf1c8857cad42acae4f459167a02e3293d99f2afd79c0"
     },
     {
-      "bytes": 13969,
+      "bytes": 15918,
       "path": "execution/COMMAND_LEDGER.csv",
-      "sha256": "d9ae5859d7e239f610be5170cacae8bb34c8b7039dc6e929393f870db0d5050d"
+      "sha256": "c9bd55f27f36c7c21520e4f1bf5fe65adb942a659aa3f63eb22c9df44dada4b7"
+    },
+    {
+      "bytes": 12903,
+      "path": "execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md",
+      "sha256": "a409a2a7afce8452b8f3e454e4e67df95927fcc51b31c2c86450e70d6c7eff33"
+    },
+    {
+      "bytes": 9259,
+      "path": "execution/POLYGLOT_TASK_FILE_MAP.csv",
+      "sha256": "992c85a81d730c413a187c2454da094bd0f4bf4d3f5559cb6018668d94d22506"
+    },
+    {
+      "bytes": 4818,
+      "path": "execution/POLYGLOT_TASK_GRAPH.csv",
+      "sha256": "2c3e992a7bf68fcb12bc8a006568c29c38b89ee410807e3791a85bea2d21679b"
     },
     {
       "bytes": 106315,
@@ -561,9 +661,9 @@
       "sha256": "79deb5fa7aaf3e489b8ae3228720ea26b1c8a6aa85321c594a0c184ff30d3983"
     },
     {
-      "bytes": 12698,
+      "bytes": 13637,
       "path": "execution/WORKLOG.md",
-      "sha256": "2c7298efaef1ae30cbf66d84476ad90849d95d6f6a02f0d501719234a89a4d71"
+      "sha256": "59ddd3ca3112d586248a03d88d5863e9abe3df52339c11d960119d95267dbebe"
     },
     {
       "bytes": 2076,
@@ -801,9 +901,9 @@
       "sha256": "33150ce2f846aef01539145f74a8eb1a04d45df5d960494ce188111a80e170e3"
     },
     {
-      "bytes": 4514,
+      "bytes": 4482,
       "path": "flake.nix",
-      "sha256": "5b113540d272c2f69d436a2e1a21ee262036d43c8d0f7615b1496378a5973500"
+      "sha256": "9919c1675d43485666ce8a4b7db4c348e393a43ec3194c6a6d8b5f1074a2e51f"
     },
     {
       "bytes": 1090,
@@ -1326,6 +1426,11 @@
       "sha256": "ea220e978ef4ac5e3ef4f4d6d0c6ab69029e7b42d33e4a52e7169fc9723aa620"
     },
     {
+      "bytes": 1074,
+      "path": "prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md",
+      "sha256": "9803cfea69643f18488c0e7b993cf7b8e2a9d1f826baf16bb5bfd50c8280c701"
+    },
+    {
       "bytes": 7243,
       "path": "research/nushell_yazelix_cross_reference_report.md",
       "sha256": "ff6d87e64836aa7983a1ae604f050fe63b425462b1cced331bfc5130602888ed"
@@ -1421,7 +1526,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-02T19:56:32+00:00",
+  "generated_at_utc": "2026-07-07T11:21:18+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

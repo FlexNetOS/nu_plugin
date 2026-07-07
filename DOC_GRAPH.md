@@ -14,6 +14,12 @@ Read order:
 10. `execution/TASK_GRAPH.csv`
 11. `execution/TASK_GRAPH.md`
 12. `execution/TASK_FILE_MAP.csv`
+13. selected target docs/task files
+14. if working the V1.2 planning lane: `docs/polyglot-import/README.md` -> supporting polyglot docs -> `execution/POLYGLOT_TASK_GRAPH.csv` -> `execution/POLYGLOT_TASK_FILE_MAP.csv` -> `execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md`
+15. optional: `research/nushell_yazelix_cross_reference_report.md` only for Yazelix/Nushell bridge tasks
+16. `execution/COMMAND_LEDGER.csv`
+17. `execution/WORKLOG.md`
+18. `manifests/PACKAGE_VALIDATION.json`
 13. `docs/AUDIT_UPGRADE_COMPLETION.md` for post-audit upgrade and authority work
 14. `docs/BIDIRECTIONAL_ROADMAP.md` for issue 212 phase ownership
 15. `docs/BIDIRECTIONAL_ARCHITECTURE.md`
@@ -32,5 +38,8 @@ Read order:
 Dependency rule:
 
 ```text
+start -> readiness -> navigation -> goal/subgoals -> PRD -> checklist completion -> task graph
+task graph -> task file map -> selected execution lane
+selected execution lane -> ledger/worklog -> manifest
 start -> readiness -> navigation -> goal/subgoals -> PRD -> checklist completion -> task graph -> task file map -> bidirectional graph when issue 212 work is selected -> execution -> ledger/worklog -> manifest
 ```
