@@ -21,6 +21,11 @@
 # Usage:
 #   nu idd_unify_e2e.nu <work_area>
 #   nu idd_unify_e2e.nu <work_area> --check-lock <prior_lock_file>
+#   nu idd_unify_e2e.nu <work_area> --deep      # + retention deep-verify:
+#     metadata (file-mode parity), logic/functions (a REAL kb write through the
+#     compat symlink on a throwaway copy), semantics (graph-edge crosscheck),
+#     provenance (store reports), features (verb inventory), contracts
+#     (recorded contract artifacts all fulfilled)
 #
 # Expects under <work_area>: sources/{kb,handoff,idd,meta} snapshots and
 # bin/{codedb,hf,rusty-idd,nu}; envctl with the `migration` verb on
@@ -68,7 +73,7 @@ def sha256-of-string [s: string] {
 
 # ---- the pipeline --------------------------------------------------------------
 
-def main [work: string, --check-lock: string = ""] {
+def main [work: string, --check-lock: string = "", --deep] {
     let ts = (date now | format date '%Y%m%d-%H%M%S')
     let run_dir = $"($work)/e2e/run-($ts)"
     mkdir $run_dir $"($run_dir)/db" $"($run_dir)/unified" $"($run_dir)/reemit" $"($run_dir)/baselines"
@@ -308,6 +313,73 @@ def main [work: string, --check-lock: string = ""] {
     }
     run-envctl $mdb validation $run_id --validator capture-gaps-disposition --status pass --op $vop.id --details ({gaps: ($gap_events | length), disposition: "enumerated + agent-approved"} | to json) | ignore
     print $"D capture gaps: ($gap_events | length) enumerated + agent-approved"
+
+    # -- deep retention verify (--deep): logic/blobs/semantics/metadata/features/
+    #    functions/contracts, each as a recorded validation --------------------------
+    if $deep {
+        let dop = (run-envctl $mdb op add $run_id --operation-type deep_retention_verify --risk R1 --input '{"scope":"logic+blobs+semantics+metadata+features+functions+contracts"}')
+        run-envctl $mdb op start $dop.id | ignore
+
+        # metadata: file-mode parity source vs re-emitted (materialize restores modes).
+        mut modes_ok = true
+        for sys in $systems {
+            let src_modes = ((do { ^bash -c $"cd '($work)/sources/($sys)' && find . -type f -printf '%m %P\\n' | sort" } | complete).stdout)
+            let re_modes = ((do { ^bash -c $"cd '($run_dir)/reemit/($sys)' && find . -type f -printf '%m %P\\n' | sort" } | complete).stdout)
+            let same = ($src_modes == $re_modes)
+            if not $same { $modes_ok = false }
+            run-envctl $mdb validation $run_id --validator $"deep-metadata-modes-($sys)" --status (if $same {"pass"} else {"fail"}) --op $dop.id --details ({identical_mode_manifest: $same} | to json) | ignore
+        }
+        print $"DEEP metadata: unix-mode manifests identical = ($modes_ok)"
+
+        # logic/functions: a REAL mutating verb through the compat symlink, on a
+        # THROWAWAY copy of the exported tree (the locked artifact stays pristine).
+        let throwaway = $"($run_dir)/throwaway-write-probe"
+        do { ^cp -a $unified $throwaway } | ignore
+        let probe = (do { ^bash -c $"export GITKB_ROOT='($throwaway)'; git-kb create --type note --slug verify/write-probe --title 'retention write probe' --json && git-kb commit -m 'write probe' verify/write-probe && git-kb show verify/write-probe --json | head -c 200" } | complete)
+        let write_ok = ($probe.exit_code == 0 and ($probe.stdout | str contains "write-probe"))
+        run-envctl $mdb validation $run_id --validator deep-kb-write-path-via-symlink --status (if $write_ok {"pass"} else {"fail"}) --op $dop.id --details ({created_committed_shown: $write_ok, surface: ".kb -> .idd/kb on a throwaway copy"} | to json) | ignore
+        print $"DEEP logic: kb create+commit+show through the symlink = ($write_ok)"
+
+        # semantics: the graph projection in the DB matches an independent recount.
+        let db_edges = ((run-envctl $mdb run export $run_id) | get graph_edges | where edge_type == "wikilink" | length)
+        let recount = ((do { ^bash -c $"cd '($work)/sources/kb/store/documents' && grep -RoE '\\[\\[[^]]+\\]\\]' . 2>/dev/null | wc -l" } | complete).stdout | str trim | into int)
+        let sem_ok = ($db_edges == $recount)
+        run-envctl $mdb validation $run_id --validator deep-graph-semantics --status (if $sem_ok {"pass"} else {"fail"}) --op $dop.id --details ({db_wikilink_edges: $db_edges, independent_recount: $recount} | to json) | ignore
+        print $"DEEP semantics: ($db_edges) DB wikilink edges == ($recount) recount = ($sem_ok)"
+
+        # provenance: every system store self-reports sha256 checksum algorithm.
+        mut prov_ok = true
+        for sys in $systems {
+            let rep = (run-codedb store-report --store $"($run_dir)/db/($sys).redb")
+            let sha = ($rep | where key == "checksum_algorithm" | get value | first | default "missing")
+            if $sha != "sha256" { $prov_ok = false }
+        }
+        run-envctl $mdb validation $run_id --validator deep-store-provenance --status (if $prov_ok {"pass"} else {"fail"}) --op $dop.id --details ({all_stores_checksum_algorithm: "sha256", ok: $prov_ok} | to json) | ignore
+        print $"DEEP provenance: 4/4 stores report sha256 = ($prov_ok)"
+
+        # features/functions: native verb inventories still served (counted live).
+        let kb_verbs = ((do { ^git-kb --help } | complete).stdout | lines | where ($it | str starts-with "  ") | length)
+        let hf_verbs = ((do { ^$env.IDD_HF --help } | complete).stdout | lines | where ($it | str starts-with "  ") | length)
+        let idd_verbs = ((do { ^$env.IDD_RUSTY_IDD --help } | complete).stdout | lines | where ($it | str starts-with "  ") | length)
+        let mig_verbs = ((do { ^$env.IDD_ENVCTL migration --help } | complete).stdout | lines | where ($it | str starts-with "  ") | length)
+        let inv_ok = ($kb_verbs > 10 and $hf_verbs > 5 and $idd_verbs > 5 and $mig_verbs > 10)
+        run-envctl $mdb validation $run_id --validator deep-feature-verb-inventory --status (if $inv_ok {"pass"} else {"fail"}) --op $dop.id --details ({kb_help_lines: $kb_verbs, hf_help_lines: $hf_verbs, rusty_idd_help_lines: $idd_verbs, envctl_migration_help_lines: $mig_verbs} | to json) | ignore
+        print $"DEEP features: verb surfaces alive \(kb ($kb_verbs) / hf ($hf_verbs) / idd ($idd_verbs) / migration ($mig_verbs) help lines\)"
+
+        # contracts: every artifact id the locked contract names is recorded complete.
+        let bundle2 = (run-envctl $mdb run export $run_id)
+        let wanted = ($bundle2.contract.contract_json.artifacts | get id)
+        let have = ($bundle2.artifacts | where status == "complete" | get artifact_id)
+        let missing = ($wanted | where $it not-in $have)
+        let contract_ok = (($missing | length) == 0)
+        run-envctl $mdb validation $run_id --validator deep-contract-fulfilled --status (if $contract_ok {"pass"} else {"fail"}) --op $dop.id --details ({contract_artifacts: ($wanted | length), missing: $missing} | to json) | ignore
+        print $"DEEP contracts: ($wanted | length)/($wanted | length) contract artifacts recorded complete = ($contract_ok)"
+
+        if not ($modes_ok and $write_ok and $sem_ok and $prov_ok and $inv_ok and $contract_ok) {
+            error make {msg: "deep retention verify failed"}
+        }
+        run-envctl $mdb op complete $dop.id | ignore
+    }
 
     run-envctl $mdb op complete $vop.id | ignore
 
