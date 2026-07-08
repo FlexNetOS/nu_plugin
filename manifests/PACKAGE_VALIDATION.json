@@ -1,7 +1,7 @@
 {
   "checks": {
     "checksum_scope_count": 303,
-    "checksum_scope_files_sha256": "7fa7f0c393dae0810961493949de18dd342f32226c2ce4cfcd77e7d371243450",
+    "checksum_scope_files_sha256": "fa5fec10993490fc04de4072e0e4de4106cdbe86969a3e02449515cde8baa56f",
     "checksums_path": "manifests/CHECKSUMS.sha256",
     "generated_paths": [
       "manifests/CHECKSUMS.sha256",
@@ -11,7 +11,7 @@
     "manifest_path": "manifests/PACK_MANIFEST.json",
     "mode": "repo_native"
   },
-  "generated_at_utc": "2026-07-08T08:00:15+00:00",
+  "generated_at_utc": "2026-07-08T10:10:52+00:00",
   "status": "passed",
   "warnings": [
     "This validates the current Git repository, not the sealed Downloads execution package.",

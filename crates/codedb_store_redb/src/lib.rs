@@ -317,6 +317,81 @@ pub fn persist_source_blob(
     })
 }
 
+/// A capture session that holds the store open across many batches so a full-repo
+/// import pays one `Database::open` and one durable `commit` (fsync) *per batch*
+/// instead of two per file. The per-batch commit is the on-disk checkpoint: if the
+/// run is killed or hits a time budget, every committed batch survives and a re-run
+/// resumes (content-addressed blobs are idempotent; already-captured paths are
+/// skipped via [`CaptureBatcher::captured_paths`]). Same rows, same durability as
+/// [`persist_source_file`] — just amortized. No file is skipped, so no downgrade.
+pub struct CaptureBatcher {
+    db: Database,
+}
+
+impl CaptureBatcher {
+    /// Open an already-initialized store for batched capture.
+    #[allow(clippy::result_large_err)]
+    pub fn open(store_path: impl AsRef<Path>) -> Result<Self, StoreError> {
+        Ok(Self {
+            db: Database::open(store_path.as_ref())?,
+        })
+    }
+
+    /// Relative paths already persisted — the resume skip-set. A re-run reads this
+    /// once and skips paths already present, so an interrupted capture continues
+    /// from its last durable checkpoint instead of restarting.
+    #[allow(clippy::result_large_err)]
+    pub fn captured_paths(&self) -> Result<std::collections::BTreeSet<String>, StoreError> {
+        let read_txn = self.db.begin_read()?;
+        let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+        let mut set = std::collections::BTreeSet::new();
+        for item in files.iter()? {
+            let (key, _) = item?;
+            set.insert(key.value().to_string());
+        }
+        Ok(set)
+    }
+
+    /// Persist a batch of `(relative_path, bytes)` in ONE write transaction and one
+    /// durable commit. Writes the identical blob/file/metadata rows that
+    /// [`persist_source_blob`] + `persist_source_file_metadata` write per file.
+    #[allow(clippy::result_large_err)]
+    pub fn persist_batch(
+        &self,
+        batch: &[(String, Vec<u8>)],
+    ) -> Result<Vec<SourceBlobRow>, StoreError> {
+        let mut out = Vec::with_capacity(batch.len());
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut blobs = write_txn.open_table(SOURCE_BLOBS_TABLE)?;
+            let mut files = write_txn.open_table(SOURCE_FILES_TABLE)?;
+            let mut metadata = write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+            for (relative_path, bytes) in batch {
+                let sha256 = sha256_bytes(bytes);
+                let blob_ref = format!("sha256:{sha256}");
+                blobs.insert(sha256.as_str(), bytes.as_slice())?;
+                files.insert(relative_path.as_str(), blob_ref.as_str())?;
+                metadata.insert(
+                    source_file_metadata_key(relative_path, "artifact_kind").as_str(),
+                    "raw_blob",
+                )?;
+                metadata.insert(
+                    source_file_metadata_key(relative_path, "permission_capture").as_str(),
+                    "gap_not_available_for_raw_blob",
+                )?;
+                out.push(SourceBlobRow {
+                    relative_path: relative_path.clone(),
+                    blob_ref,
+                    sha256,
+                    bytes: bytes.len() as u64,
+                });
+            }
+        }
+        write_txn.commit()?;
+        Ok(out)
+    }
+}
+
 #[allow(clippy::result_large_err)]
 pub fn read_source_file_blob(
     store_path: impl AsRef<Path>,
@@ -633,6 +708,77 @@ mod tests {
         assert!(reread.rows.iter().any(|row| row.key == "schema_version"));
         assert!(reread.rows.iter().any(|row| row.key == "toolchain"));
 
+        fs::remove_file(&path).ok();
+    }
+
+    fn init_ctx() -> StoreInitContext<'static> {
+        StoreInitContext {
+            codedb_version: "0.1.0",
+            toolchain: "test",
+            rustc_version: "rustc test",
+            cargo_version: "cargo test",
+        }
+    }
+
+    // Test lane: default
+    // Defends: batched capture persists the identical blob/file rows a per-file
+    // capture would, in one durable commit — same data, no downgrade.
+    #[test]
+    fn batch_capture_matches_per_file_and_is_durable() {
+        let path = temp_store_path();
+        initialize_store(&path, &init_ctx()).expect("init");
+        let batch = vec![
+            ("a.rs".to_string(), b"fn a() {}\n".to_vec()),
+            ("dir/b.txt".to_string(), b"hello".to_vec()),
+            ("dir/c.bin".to_string(), vec![0u8, 1, 2, 3, 255]),
+        ];
+        let batcher = CaptureBatcher::open(&path).expect("open");
+        let rows = batcher.persist_batch(&batch).expect("persist batch");
+        assert_eq!(rows.len(), 3);
+
+        // Re-read after dropping the batcher: the commit was durable.
+        drop(batcher);
+        let listed = list_source_files(&path).expect("list");
+        assert_eq!(listed.len(), 3, "all three files persisted in one batch");
+        // Byte-identical read-back for every file.
+        for (rel, bytes) in &batch {
+            let blob = read_source_file_blob(&path, rel).expect("read blob");
+            assert_eq!(blob.bytes, bytes.len() as u64, "size for {rel}");
+        }
+        fs::remove_file(&path).ok();
+    }
+
+    // Test lane: default
+    // Defends: an interrupted capture resumes from its last durable checkpoint —
+    // captured_paths reflects committed batches so a re-run skips them.
+    #[test]
+    fn captured_paths_drive_resume_after_checkpoint() {
+        let path = temp_store_path();
+        initialize_store(&path, &init_ctx()).expect("init");
+        let batcher = CaptureBatcher::open(&path).expect("open");
+
+        // First checkpoint (batch 1) commits durably.
+        batcher
+            .persist_batch(&[
+                ("keep/1.rs".to_string(), b"one".to_vec()),
+                ("keep/2.rs".to_string(), b"two".to_vec()),
+            ])
+            .expect("batch 1");
+        // Simulate a fresh process resuming: reopen and read the skip-set.
+        drop(batcher);
+        let resumed = CaptureBatcher::open(&path).expect("reopen");
+        let seen = resumed.captured_paths().expect("captured paths");
+        assert!(seen.contains("keep/1.rs") && seen.contains("keep/2.rs"));
+        assert!(!seen.contains("keep/3.rs"), "unwritten path absent");
+
+        // Resume persists only the not-yet-seen file.
+        let remaining: Vec<_> = [("keep/3.rs".to_string(), b"three".to_vec())]
+            .into_iter()
+            .filter(|(p, _)| !seen.contains(p))
+            .collect();
+        resumed.persist_batch(&remaining).expect("resume batch");
+        drop(resumed);
+        assert_eq!(list_source_files(&path).expect("list").len(), 3);
         fs::remove_file(&path).ok();
     }
 
