@@ -9,6 +9,8 @@ use std::process::Command;
 
 use sha2::{Digest, Sha256};
 
+pub mod merge;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowState {
     Planned,
