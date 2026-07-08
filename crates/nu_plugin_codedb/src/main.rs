@@ -62,6 +62,9 @@ impl Plugin for CodeDbPlugin {
             Box::new(ValidationErrors),
             Box::new(Schema),
             Box::new(Doctor),
+            Box::new(EnvctlDbRoots),
+            Box::new(EnvctlDbQuery),
+            Box::new(EnvctlDbRefactor),
         ]
     }
 }
@@ -2706,8 +2709,404 @@ static_table_command!(
     codedb_core::doctor_rows
 );
 
+// ---------------------------------------------------------------------------
+// REQ-061 (GH FlexNetOS/envctl#414): envctl code-graph db surface.
+//
+// The plugin is a CONTROL / VISUAL surface only. It shells out to the `envctl db`
+// CLI — the source of truth — and renders its `--json` output as Nushell-native
+// tables. It owns NO db state and NEVER applies a refactor/deploy: apply is
+// routed through the envctl boundary (confirm + approval), which this plugin
+// surfaces (the fail-closed plan) but does not perform. The envctl binary is
+// resolved from `ENVCTL_BIN` (default `envctl` on PATH).
+// ---------------------------------------------------------------------------
+
+fn envctl_bin() -> String {
+    env::var("ENVCTL_BIN").unwrap_or_else(|_| "envctl".to_string())
+}
+
+/// Build the envctl argv for a db subcommand. Pure, so routing is unit-testable.
+/// Always requests `--json`; NEVER includes apply/confirm — the plugin is
+/// read/plan-only and cannot mutate through the boundary.
+fn envctl_db_argv(repo: Option<&str>, sub: &[&str]) -> Vec<String> {
+    let mut argv = vec!["--json".to_string(), "db".to_string()];
+    if let Some(r) = repo {
+        argv.push("--repo-root".to_string());
+        argv.push(r.to_string());
+    }
+    argv.extend(sub.iter().map(|s| (*s).to_string()));
+    argv
+}
+
+/// Run envctl with `argv` and parse stdout as JSON. Errors (spawn failure,
+/// nonzero exit, invalid JSON) surface as a `LabeledError` — no plugin state.
+fn run_envctl_json(argv: &[String], span: Span) -> Result<JsonValue, LabeledError> {
+    let out = std::process::Command::new(envctl_bin())
+        .args(argv)
+        .output()
+        .map_err(|e| {
+            LabeledError::new("failed to launch envctl")
+                .with_label(format!("{}: {e}", envctl_bin()), span)
+        })?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(LabeledError::new("envctl db command failed")
+            .with_label(stderr.trim().to_string(), span));
+    }
+    serde_json::from_slice(&out.stdout).map_err(|e| {
+        LabeledError::new("envctl returned invalid JSON").with_label(e.to_string(), span)
+    })
+}
+
+/// Render a JSON array of flat objects as a Nushell table Value. Scalars become
+/// typed cells; nested arrays/objects render as compact JSON strings.
+fn json_array_to_table(json: &JsonValue, span: Span) -> Value {
+    let rows = match json.as_array() {
+        Some(a) => a,
+        None => return Value::list(Vec::new(), span),
+    };
+    Value::list(
+        rows.iter()
+            .map(|r| json_object_to_record(r, span))
+            .collect(),
+        span,
+    )
+}
+
+fn json_object_to_record(obj: &JsonValue, span: Span) -> Value {
+    let mut rec = nu_protocol::Record::new();
+    match obj.as_object() {
+        Some(map) => {
+            for (k, v) in map {
+                rec.push(k.clone(), json_scalar_to_value(v, span));
+            }
+        }
+        None => rec.push("value", json_scalar_to_value(obj, span)),
+    }
+    Value::record(rec, span)
+}
+
+fn json_scalar_to_value(v: &JsonValue, span: Span) -> Value {
+    match v {
+        JsonValue::Null => Value::nothing(span),
+        JsonValue::Bool(b) => Value::bool(*b, span),
+        JsonValue::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Value::int(i, span)
+            } else if let Some(f) = n.as_f64() {
+                Value::float(f, span)
+            } else {
+                Value::string(n.to_string(), span)
+            }
+        }
+        JsonValue::String(s) => Value::string(s.clone(), span),
+        JsonValue::Array(_) | JsonValue::Object(_) => Value::string(v.to_string(), span),
+    }
+}
+
+fn repo_flag_or_cwd_string(call: &EvaluatedCall) -> Result<String, LabeledError> {
+    if let Some(repo) = call.get_flag::<String>("repo")? {
+        return Ok(repo);
+    }
+    env::current_dir()
+        .map(|p| p.display().to_string())
+        .map_err(|e| {
+            LabeledError::new("failed to determine repository").with_label(e.to_string(), call.head)
+        })
+}
+
+struct EnvctlDbRoots;
+
+impl SimplePluginCommand for EnvctlDbRoots {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb envctl-db roots"
+    }
+
+    fn description(&self) -> &str {
+        "Render the envctl multi-root model (observed META_ROOT + release-target LIFE_OS_ROOT) as a table via the envctl boundary. Read-only; no plugin-owned state."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .named(
+                "observed",
+                SyntaxShape::String,
+                "Observed current root path",
+                None,
+            )
+            .named(
+                "release",
+                SyntaxShape::String,
+                "Release-target root path",
+                None,
+            )
+            .named(
+                "profile",
+                SyntaxShape::String,
+                "Release profile label",
+                None,
+            )
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let mut argv = envctl_db_argv(None, &["roots"]);
+        if let Some(o) = call.get_flag::<String>("observed")? {
+            argv.push("--observed".into());
+            argv.push(o);
+        }
+        if let Some(r) = call.get_flag::<String>("release")? {
+            argv.push("--release".into());
+            argv.push(r);
+        }
+        if let Some(p) = call.get_flag::<String>("profile")? {
+            argv.push("--profile".into());
+            argv.push(p);
+        }
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_array_to_table(&json, call.head))
+    }
+}
+
+struct EnvctlDbQuery;
+
+impl SimplePluginCommand for EnvctlDbQuery {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb envctl-db query"
+    }
+
+    fn description(&self) -> &str {
+        "Run an envctl agent preset query (root-meta, mutable-unsafe, symbols-rust-cli, …) and render the result rows as a table. Read-only via the envctl boundary."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required("preset", SyntaxShape::String, "Agent preset name")
+            .named(
+                "repo",
+                SyntaxShape::Filepath,
+                "Repository root to index",
+                None,
+            )
+            .switch("explain", "Include the resolved table/filters trace", None)
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let preset: String = call.req(0)?;
+        let repo = repo_flag_or_cwd_string(call)?;
+        let mut argv = envctl_db_argv(Some(&repo), &["query", "--preset", &preset]);
+        if call.has_flag("explain")? {
+            argv.push("--explain".into());
+        }
+        let json = run_envctl_json(&argv, call.head)?;
+        // QueryResult is `{ rows, row_count, explain }`; render the rows table.
+        let rows = json
+            .get("rows")
+            .cloned()
+            .unwrap_or(JsonValue::Array(vec![]));
+        Ok(json_array_to_table(&rows, call.head))
+    }
+}
+
+struct EnvctlDbRefactor;
+
+impl SimplePluginCommand for EnvctlDbRefactor {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb envctl-db refactor"
+    }
+
+    fn description(&self) -> &str {
+        "Render the fail-closed envctl root-alias refactor PLAN (e.g. META_ROOT -> LIFE_OS_ROOT) as a table of proposed changes. The plugin never applies: apply is routed through the envctl boundary (confirm + approval)."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required(
+                "from",
+                SyntaxShape::String,
+                "Source root var, e.g. META_ROOT",
+            )
+            .required(
+                "to",
+                SyntaxShape::String,
+                "Target root var, e.g. LIFE_OS_ROOT",
+            )
+            .named(
+                "repo",
+                SyntaxShape::Filepath,
+                "Repository root to index",
+                None,
+            )
+            .named(
+                "render-out",
+                SyntaxShape::Filepath,
+                "Record a render-out target tree (plan-only here)",
+                None,
+            )
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let from: String = call.req(0)?;
+        let to: String = call.req(1)?;
+        let repo = repo_flag_or_cwd_string(call)?;
+        let mut argv = envctl_db_argv(Some(&repo), &["refactor", "--from", &from, "--to", &to]);
+        if let Some(out) = call.get_flag::<String>("render-out")? {
+            argv.push("--render-out".into());
+            argv.push(out);
+        }
+        let json = run_envctl_json(&argv, call.head)?;
+        // RefactorPlan is `{ mode, changes:[...], ... }`; render the changes table.
+        let changes = json
+            .get("changes")
+            .cloned()
+            .unwrap_or(JsonValue::Array(vec![]));
+        Ok(json_array_to_table(&changes, call.head))
+    }
+}
+
 fn main() {
     serve_plugin(&CodeDbPlugin, MsgPackSerializer)
+}
+
+#[cfg(test)]
+mod envctl_db_tests {
+    use super::*;
+
+    // Defends REQ-061: the plugin routes through the envctl boundary and is
+    // read/plan-only — the argv it builds never carries apply/confirm, so the
+    // plugin cannot mutate through the boundary.
+    #[test]
+    fn envctl_db_argv_routes_read_only_through_boundary() {
+        let argv = envctl_db_argv(Some("/repo"), &["query", "--preset", "root-meta"]);
+        assert_eq!(
+            argv,
+            vec![
+                "--json",
+                "db",
+                "--repo-root",
+                "/repo",
+                "query",
+                "--preset",
+                "root-meta"
+            ]
+        );
+        // Read-only invariant: no mutating flags reach envctl from the plugin.
+        assert!(
+            !argv
+                .iter()
+                .any(|a| a == "apply" || a == "--apply" || a == "--confirm")
+        );
+        // roots needs no repo.
+        assert_eq!(
+            envctl_db_argv(None, &["roots"]),
+            vec!["--json", "db", "roots"]
+        );
+    }
+
+    // Defends REQ-061: `envctl db roots --json` renders as a Nushell table with
+    // typed cells (the multi-root model surfaced without plugin-owned state).
+    #[test]
+    fn roots_json_renders_as_nushell_table() {
+        let json: JsonValue = serde_json::from_str(
+            r#"[
+                {"root_id":"root-meta","kind":"meta_root","role":"observed_current",
+                 "var_names":["META_ROOT"],"precedence":100,"active":true},
+                {"root_id":"root-lifeos","kind":"life_os_root","role":"release_target",
+                 "var_names":["LIFE_OS_ROOT"],"precedence":90,"active":true}
+            ]"#,
+        )
+        .unwrap();
+        let table = json_array_to_table(&json, Span::unknown());
+        let Value::List { vals, .. } = &table else {
+            panic!("expected a table/list, got {table:?}");
+        };
+        assert_eq!(vals.len(), 2);
+        let Value::Record { val, .. } = &vals[0] else {
+            panic!("expected a record row");
+        };
+        // Scalar cells are typed; the nested array renders as a compact string.
+        assert!(matches!(val.get("kind"), Some(Value::String { val, .. }) if val == "meta_root"));
+        assert!(matches!(val.get("precedence"), Some(Value::Int { val, .. }) if *val == 100));
+        assert!(matches!(val.get("active"), Some(Value::Bool { val, .. }) if *val));
+        assert!(
+            matches!(val.get("var_names"), Some(Value::String { val, .. }) if val.contains("META_ROOT"))
+        );
+    }
+
+    // Defends REQ-061: the refactor PLAN's changes render as a table; the plugin
+    // surfaces the fail-closed plan (safe + refused rows) but performs no apply.
+    #[test]
+    fn refactor_plan_changes_render_as_table() {
+        let plan: JsonValue = serde_json::from_str(
+            r#"{
+                "mode":"plan","files_touched":1,"occurrences_total":2,"refused":1,"approved":false,
+                "changes":[
+                    {"absolute_path":"/r/.env","safe":false,"occurrence_count":1,
+                     "refused_reason":"policy Never refuses auto-rewrite","unified_diff":""},
+                    {"absolute_path":"/r/wrapper.sh","safe":true,"occurrence_count":1,
+                     "refused_reason":"","unified_diff":"--- a/wrapper.sh\n+cd $LIFE_OS_ROOT\n"}
+                ]
+            }"#,
+        )
+        .unwrap();
+        // Plan is fail-closed and un-approved — the plugin renders, never applies.
+        assert_eq!(plan["approved"], serde_json::json!(false));
+        let changes = plan.get("changes").cloned().unwrap();
+        let table = json_array_to_table(&changes, Span::unknown());
+        let Value::List { vals, .. } = &table else {
+            panic!("expected changes table");
+        };
+        assert_eq!(vals.len(), 2);
+        let refused = vals.iter().any(|row| {
+            matches!(row, Value::Record { val, .. }
+                if matches!(val.get("safe"), Some(Value::Bool { val, .. }) if !*val))
+        });
+        assert!(
+            refused,
+            "the .env change must surface as refused (safe=false)"
+        );
+    }
+
+    // Defends REQ-061: the plugin registers the three envctl-db commands and none
+    // of them are mutating (no `apply` verb in the plugin's command surface).
+    #[test]
+    fn plugin_registers_envctl_db_commands_read_only() {
+        let plugin = CodeDbPlugin;
+        let names: Vec<String> = plugin
+            .commands()
+            .iter()
+            .map(|c| PluginCommand::name(c.as_ref()).to_string())
+            .collect();
+        assert!(names.iter().any(|n| n == "codedb envctl-db roots"));
+        assert!(names.iter().any(|n| n == "codedb envctl-db query"));
+        assert!(names.iter().any(|n| n == "codedb envctl-db refactor"));
+        assert!(
+            !names.iter().any(|n| n.contains("apply")),
+            "plugin must expose no mutating apply command"
+        );
+    }
 }
 
 #[cfg(test)]
