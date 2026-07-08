@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use codedb_cargo::capture_cargo_metadata;
 use codedb_core::{
@@ -14,8 +14,8 @@ use codedb_core::{
 };
 use codedb_rust_static::capture_rust_items;
 use codedb_store_redb::{
-    StoreInitContext, initialize_store, list_source_files, materialize_source_file,
-    persist_source_file, read_store_report, store_metadata_rows,
+    CaptureBatcher, StoreInitContext, initialize_store, list_source_files, materialize_source_file,
+    read_store_report, store_metadata_rows,
 };
 use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
@@ -89,7 +89,8 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
                 "capture requires <repo_path> or --repo-path <path>",
             )?;
             let format = parse_format(&args)?;
-            let rows = capture_rows(&selection)?;
+            let config = CaptureConfig::from_args(&args)?;
+            let rows = capture_rows(&selection, &config)?;
             print_rows(rows, format)
         }
         // materialize = re-emit captured trees byte-for-byte from the store
@@ -181,11 +182,88 @@ fn probe_tool_version(tool: &str) -> String {
         .unwrap_or_else(|| format!("gap_tool_not_available:{tool}"))
 }
 
+/// Phased-capture tunables. Defaults commit durable batches without any flag;
+/// flags only adjust cadence (batch size, time budget, resume) — never *what* is
+/// captured, so tuning can never downgrade the imported set.
+struct CaptureConfig {
+    batch_files: usize,
+    batch_bytes: u64,
+    time_budget: Option<Duration>,
+    resume: bool,
+}
+
+impl CaptureConfig {
+    fn from_args(args: &[String]) -> Result<Self, CliError> {
+        let batch_files = match option_value(args, "--batch-files") {
+            Some(v) => v
+                .parse::<usize>()
+                .map_err(|_| CliError::Message(format!("invalid --batch-files: {v}")))?
+                .max(1),
+            None => 512,
+        };
+        let batch_bytes = match option_value(args, "--batch-bytes") {
+            Some(v) => parse_byte_size(v)?,
+            None => 64 * 1024 * 1024,
+        };
+        let time_budget = match option_value(args, "--time-budget") {
+            Some(v) => Some(parse_time_budget(v)?),
+            None => None,
+        };
+        Ok(Self {
+            batch_files,
+            batch_bytes,
+            time_budget,
+            resume: has_flag(args, "--resume"),
+        })
+    }
+}
+
+/// Parse a byte size: plain bytes or a K/M/G (binary) suffix, e.g. `64M`.
+fn parse_byte_size(s: &str) -> Result<u64, CliError> {
+    let s = s.trim();
+    let (num, mult) = if let Some(n) = s.strip_suffix(['G', 'g']) {
+        (n, 1024 * 1024 * 1024)
+    } else if let Some(n) = s.strip_suffix(['M', 'm']) {
+        (n, 1024 * 1024)
+    } else if let Some(n) = s.strip_suffix(['K', 'k']) {
+        (n, 1024)
+    } else {
+        (s, 1)
+    };
+    num.trim()
+        .parse::<u64>()
+        .map(|v| v * mult)
+        .map_err(|_| CliError::Message(format!("invalid --batch-bytes: {s}")))
+}
+
+/// Parse a time budget: plain seconds or an s/m/h suffix, e.g. `90s`, `15m`.
+fn parse_time_budget(s: &str) -> Result<Duration, CliError> {
+    let s = s.trim();
+    let (num, mult) = if let Some(n) = s.strip_suffix(['h', 'H']) {
+        (n, 3600)
+    } else if let Some(n) = s.strip_suffix(['m', 'M']) {
+        (n, 60)
+    } else if let Some(n) = s.strip_suffix(['s', 'S']) {
+        (n, 1)
+    } else {
+        (s, 1)
+    };
+    num.trim()
+        .parse::<u64>()
+        .map(|v| Duration::from_secs(v * mult))
+        .map_err(|_| CliError::Message(format!("invalid --time-budget: {s}")))
+}
+
 /// scan + persist: exact bytes of every regular file into the redb store
 /// (content-addressed sha256 blobs + relative-path rows + unix modes); every
 /// non-file, non-directory entry becomes a capture_gaps row. Read-only on the
-/// scanned tree; the ONLY write target is the store path.
-fn capture_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
+/// scanned tree; the ONLY write target is the store path. Persisted in durable
+/// batches (see [`CaptureConfig`]) so a full-repo import is checkpointed and
+/// resumable rather than one fsync per file.
+// `batch_bytes` is a flush-and-reset accumulator; the reset after the final flush
+// is intentionally not read again.
+#[allow(unused_assignments)]
+fn capture_rows(selection: &RepoSelection, config: &CaptureConfig) -> Result<Vec<Row>, CliError> {
     let repo_path = selection.repo_path.as_path();
     let store_path = if selection.store_path.is_empty() {
         repo_path.join(".codedb/store.redb").display().to_string()
@@ -213,6 +291,19 @@ fn capture_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
     }
 
     let entries = scan_filesystem(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
+    // One store open for the whole import; each batch is a durable commit.
+    let batcher = CaptureBatcher::open(&store)
+        .map_err(|e| CliError::Message(format!("opening store for capture: {e}")))?;
+    // Resume: skip paths already durably captured by a prior (possibly interrupted)
+    // run so an import continues from its last checkpoint instead of restarting.
+    let already = if config.resume {
+        batcher
+            .captured_paths()
+            .map_err(|e| CliError::Message(format!("reading resume checkpoint: {e}")))?
+    } else {
+        std::collections::BTreeSet::new()
+    };
+
     let mut rows: Vec<Row> = Vec::new();
     rows.push(row([
         ("table", "meta_repo_selection".to_string()),
@@ -225,10 +316,45 @@ fn capture_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
             "read_only_scan_store_is_only_write_target".to_string(),
         ),
     ]));
+
+    let started = Instant::now();
     let mut captured = 0usize;
     let mut captured_bytes = 0u64;
     let mut directories = 0usize;
     let mut gaps = 0usize;
+    let mut resumed = 0usize;
+    let mut batches = 0usize;
+    let mut stopped_early = false;
+    let mut batch: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut batch_bytes = 0u64;
+
+    // Commit the pending batch as one durable checkpoint (fsync) and emit its rows.
+    // A macro (not a closure) so it can borrow the surrounding mutable state inline.
+    macro_rules! flush_batch {
+        () => {{
+            if !batch.is_empty() {
+                let persisted = batcher
+                    .persist_batch(&batch)
+                    .map_err(|e| CliError::Message(format!("persist batch failed: {e}")))?;
+                batches += 1;
+                for blob in persisted {
+                    captured += 1;
+                    captured_bytes += blob.bytes;
+                    rows.push(row([
+                        ("table", "source_blobs".to_string()),
+                        ("relative_path", blob.relative_path),
+                        ("blob_ref", blob.blob_ref),
+                        ("sha256", blob.sha256),
+                        ("bytes", blob.bytes.to_string()),
+                        ("status", "captured".to_string()),
+                    ]));
+                }
+                batch.clear();
+                batch_bytes = 0;
+            }
+        }};
+    }
+
     for entry in entries {
         let kind = entry.kind.as_str();
         if kind == "directory" && !entry.is_symlink {
@@ -236,20 +362,37 @@ fn capture_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
             continue;
         }
         if kind == "file" && !entry.is_symlink {
+            if config.resume && already.contains(&entry.relative_path) {
+                resumed += 1;
+                continue;
+            }
             let source = repo_path.join(&entry.relative_path);
-            let blob = persist_source_file(&store, &entry.relative_path, &source).map_err(|e| {
-                CliError::Message(format!("persist failed for {}: {e}", entry.relative_path))
+            let bytes = fs::read(&source).map_err(|e| {
+                CliError::Message(format!("read failed for {}: {e}", entry.relative_path))
             })?;
-            captured += 1;
-            captured_bytes += blob.bytes;
-            rows.push(row([
-                ("table", "source_blobs".to_string()),
-                ("relative_path", blob.relative_path),
-                ("blob_ref", blob.blob_ref),
-                ("sha256", blob.sha256),
-                ("bytes", blob.bytes.to_string()),
-                ("status", "captured".to_string()),
-            ]));
+            let len = bytes.len() as u64;
+            // Adaptive: a file at/above the batch-bytes budget gets its own singleton
+            // batch so one large blob can't stall a batch of small files.
+            if len >= config.batch_bytes {
+                flush_batch!();
+                batch.push((entry.relative_path.clone(), bytes));
+                flush_batch!();
+            } else {
+                batch.push((entry.relative_path.clone(), bytes));
+                batch_bytes += len;
+                if batch.len() >= config.batch_files || batch_bytes >= config.batch_bytes {
+                    flush_batch!();
+                }
+            }
+            // Timer: once a checkpoint is durable, stop cleanly if over budget. The
+            // store keeps every committed batch; a re-run resumes from here.
+            if config
+                .time_budget
+                .is_some_and(|budget| started.elapsed() >= budget)
+            {
+                stopped_early = true;
+                break;
+            }
         } else {
             // Symlinks and special files are not raw-blob-persistable yet:
             // recorded as gaps, never silently dropped.
@@ -271,6 +414,17 @@ fn capture_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
             ]));
         }
     }
+    // Final checkpoint for the trailing partial batch (also runs when the timer
+    // fired mid-batch, so buffered files are never lost).
+    flush_batch!();
+
+    let status = if stopped_early {
+        "time_budget_reached_resumable"
+    } else if gaps == 0 {
+        "complete"
+    } else {
+        "complete_with_gaps"
+    };
     rows.push(row([
         ("table", "capture_summary".to_string()),
         ("store_path", store_path),
@@ -278,15 +432,10 @@ fn capture_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
         ("bytes_captured", captured_bytes.to_string()),
         ("directories_walked", directories.to_string()),
         ("capture_gaps", gaps.to_string()),
-        (
-            "status",
-            if gaps == 0 {
-                "complete"
-            } else {
-                "complete_with_gaps"
-            }
-            .to_string(),
-        ),
+        ("files_resumed_skipped", resumed.to_string()),
+        ("batches_committed", batches.to_string()),
+        ("elapsed_ms", started.elapsed().as_millis().to_string()),
+        ("status", status.to_string()),
     ]));
     Ok(rows)
 }
