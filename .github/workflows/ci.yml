@@ -26,10 +26,9 @@ jobs:
     runs-on: ${{ vars.CI_FORCE_HOSTED == '1' && 'ubuntu-latest' || ((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","local","flexnetos"]') || 'ubuntu-latest') }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust stable
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+      # dtolnay/rust-toolchain bootstraps rustup when absent — required on the local
+      # FlexNetOS runners, whose homes ship no preinstalled rustup (hosted images do).
+      - uses: dtolnay/rust-toolchain@stable
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test workspace
