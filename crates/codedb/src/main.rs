@@ -133,6 +133,17 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             let rows = export_rows(table, &selection, harness_home_path.as_deref())?;
             print_rows(rows, format)
         }
+        // merge-plan = classify every source file across two repo roots as
+        // identical / divergent / unique, and flag crate-name collisions — the
+        // surgical worklist for reconciling divergent forks. Source-only: target/
+        // .git/vendor/generated are skipped (they regenerate, they don't merge).
+        "merge-plan" => {
+            let repo_a = positional(&args, 1, "merge-plan requires <repo_a> <repo_b>")?.to_string();
+            let repo_b = positional(&args, 2, "merge-plan requires <repo_a> <repo_b>")?.to_string();
+            let detail = args.iter().any(|a| a == "--files");
+            let rows = merge_plan_rows(Path::new(&repo_a), Path::new(&repo_b), detail)?;
+            print_rows(rows, parse_format(&args)?)
+        }
         "schema" => print_rows(table_rows(schema_rows()), parse_format(&args)?),
         "tables" => print_rows(table_rows(table_inventory()), parse_format(&args)?),
         "gaps" => print_rows(table_rows(capture_gaps()), parse_format(&args)?),
@@ -154,7 +165,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             Ok(())
         }
         _ => Err(CliError::Message(format!(
-            "unsupported command: {command}; supported commands: scan, capture, materialize, store-report, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
+            "unsupported command: {command}; supported commands: scan, capture, materialize, merge-plan, store-report, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
         ))),
     }
 }
@@ -437,6 +448,50 @@ fn capture_rows(selection: &RepoSelection, config: &CaptureConfig) -> Result<Vec
         ("elapsed_ms", started.elapsed().as_millis().to_string()),
         ("status", status.to_string()),
     ]));
+    Ok(rows)
+}
+
+/// Compare two repo roots' source files by content hash and emit the merge plan:
+/// a `merge_summary` row, one `crate_collision` row per shared package name, and
+/// one `divergent` row per conflicting file (the surgical worklist). `--files`
+/// additionally emits a `file` row per path with its per-repo sha.
+fn merge_plan_rows(repo_a: &Path, repo_b: &Path, detail: bool) -> Result<Vec<Row>, CliError> {
+    let plan = codedb_core::merge::merge_plan(repo_a, repo_b)
+        .map_err(|e| CliError::Message(format!("merge-plan scan failed: {e}")))?;
+    let mut rows: Vec<Row> = Vec::new();
+    rows.push(row([
+        ("table", "merge_summary".to_string()),
+        ("repo_a", repo_a.display().to_string()),
+        ("repo_b", repo_b.display().to_string()),
+        ("identical", plan.identical.to_string()),
+        ("divergent", plan.divergent.to_string()),
+        ("unique_a", plan.unique_a.to_string()),
+        ("unique_b", plan.unique_b.to_string()),
+        ("crate_collisions", plan.crate_collisions.len().to_string()),
+    ]));
+    for name in &plan.crate_collisions {
+        rows.push(row([
+            ("table", "crate_collision".to_string()),
+            ("package", name.clone()),
+        ]));
+    }
+    for path in &plan.divergent_paths {
+        rows.push(row([
+            ("table", "divergent".to_string()),
+            ("relative_path", path.clone()),
+        ]));
+    }
+    if detail {
+        for f in &plan.files {
+            rows.push(row([
+                ("table", "file".to_string()),
+                ("relative_path", f.relative_path.clone()),
+                ("status", f.status.as_str().to_string()),
+                ("sha_a", f.sha_a.clone().unwrap_or_default()),
+                ("sha_b", f.sha_b.clone().unwrap_or_default()),
+            ]));
+        }
+    }
     Ok(rows)
 }
 
