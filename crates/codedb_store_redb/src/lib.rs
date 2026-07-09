@@ -7,6 +7,10 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use codedb_core::SchemaVersion;
+use codedb_core::store::{
+    BlobStore, MaterializedFile as CoreMaterializedFile, SourceFileRow as CoreSourceFileRow,
+    StoreError as CoreStoreError, StoreMetadataRow as CoreStoreMetadataRow,
+};
 use redb::{
     CommitError, Database, DatabaseError, ReadableTable, StorageError, TableDefinition, TableError,
     TransactionError,
@@ -213,6 +217,12 @@ pub fn initialize_store(
 pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, StoreError> {
     let path = path.as_ref().to_path_buf();
     let db = Database::open(&path)?;
+    read_store_report_db(&db, path)
+}
+
+/// Shared store-report read against an already-open database.
+#[allow(clippy::result_large_err)]
+fn read_store_report_db(db: &Database, path: PathBuf) -> Result<StoreInitReport, StoreError> {
     let read_txn = db.begin_read()?;
 
     let schema_version = {
@@ -342,14 +352,7 @@ impl CaptureBatcher {
     /// from its last durable checkpoint instead of restarting.
     #[allow(clippy::result_large_err)]
     pub fn captured_paths(&self) -> Result<std::collections::BTreeSet<String>, StoreError> {
-        let read_txn = self.db.begin_read()?;
-        let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
-        let mut set = std::collections::BTreeSet::new();
-        for item in files.iter()? {
-            let (key, _) = item?;
-            set.insert(key.value().to_string());
-        }
-        Ok(set)
+        captured_paths_db(&self.db)
     }
 
     /// Persist a batch of `(relative_path, bytes)` in ONE write transaction and one
@@ -360,36 +363,59 @@ impl CaptureBatcher {
         &self,
         batch: &[(String, Vec<u8>)],
     ) -> Result<Vec<SourceBlobRow>, StoreError> {
-        let mut out = Vec::with_capacity(batch.len());
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut blobs = write_txn.open_table(SOURCE_BLOBS_TABLE)?;
-            let mut files = write_txn.open_table(SOURCE_FILES_TABLE)?;
-            let mut metadata = write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
-            for (relative_path, bytes) in batch {
-                let sha256 = sha256_bytes(bytes);
-                let blob_ref = format!("sha256:{sha256}");
-                blobs.insert(sha256.as_str(), bytes.as_slice())?;
-                files.insert(relative_path.as_str(), blob_ref.as_str())?;
-                metadata.insert(
-                    source_file_metadata_key(relative_path, "artifact_kind").as_str(),
-                    "raw_blob",
-                )?;
-                metadata.insert(
-                    source_file_metadata_key(relative_path, "permission_capture").as_str(),
-                    "gap_not_available_for_raw_blob",
-                )?;
-                out.push(SourceBlobRow {
-                    relative_path: relative_path.clone(),
-                    blob_ref,
-                    sha256,
-                    bytes: bytes.len() as u64,
-                });
-            }
-        }
-        write_txn.commit()?;
-        Ok(out)
+        persist_batch_db(&self.db, batch)
     }
+}
+
+/// Shared read of the resume skip-set from an already-open database.
+#[allow(clippy::result_large_err)]
+fn captured_paths_db(db: &Database) -> Result<std::collections::BTreeSet<String>, StoreError> {
+    let read_txn = db.begin_read()?;
+    let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+    let mut set = std::collections::BTreeSet::new();
+    for item in files.iter()? {
+        let (key, _) = item?;
+        set.insert(key.value().to_string());
+    }
+    Ok(set)
+}
+
+/// Shared batch persist against an already-open database — the exact blob/file/
+/// metadata write both the inherent method and the [`BlobStore`] impl use.
+#[allow(clippy::result_large_err)]
+fn persist_batch_db(
+    db: &Database,
+    batch: &[(String, Vec<u8>)],
+) -> Result<Vec<SourceBlobRow>, StoreError> {
+    let mut out = Vec::with_capacity(batch.len());
+    let write_txn = db.begin_write()?;
+    {
+        let mut blobs = write_txn.open_table(SOURCE_BLOBS_TABLE)?;
+        let mut files = write_txn.open_table(SOURCE_FILES_TABLE)?;
+        let mut metadata = write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+        for (relative_path, bytes) in batch {
+            let sha256 = sha256_bytes(bytes);
+            let blob_ref = format!("sha256:{sha256}");
+            blobs.insert(sha256.as_str(), bytes.as_slice())?;
+            files.insert(relative_path.as_str(), blob_ref.as_str())?;
+            metadata.insert(
+                source_file_metadata_key(relative_path, "artifact_kind").as_str(),
+                "raw_blob",
+            )?;
+            metadata.insert(
+                source_file_metadata_key(relative_path, "permission_capture").as_str(),
+                "gap_not_available_for_raw_blob",
+            )?;
+            out.push(SourceBlobRow {
+                relative_path: relative_path.clone(),
+                blob_ref,
+                sha256,
+                bytes: bytes.len() as u64,
+            });
+        }
+    }
+    write_txn.commit()?;
+    Ok(out)
 }
 
 #[allow(clippy::result_large_err)]
@@ -438,6 +464,12 @@ pub fn read_source_file_blob(
 #[allow(clippy::result_large_err)]
 pub fn list_source_files(store_path: impl AsRef<Path>) -> Result<Vec<SourceBlobRow>, StoreError> {
     let db = Database::open(store_path)?;
+    list_source_files_db(&db)
+}
+
+/// Shared list against an already-open database.
+#[allow(clippy::result_large_err)]
+fn list_source_files_db(db: &Database) -> Result<Vec<SourceBlobRow>, StoreError> {
     let read_txn = db.begin_read()?;
     let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
     let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
@@ -461,6 +493,28 @@ pub fn list_source_files(store_path: impl AsRef<Path>) -> Result<Vec<SourceBlobR
     Ok(rows)
 }
 
+/// Raw bytes for a captured relative path, or `None` if absent — the
+/// [`BlobStore::read_source_file_blob`] read path against an open database.
+#[allow(clippy::result_large_err)]
+fn read_source_blob_bytes_db(
+    db: &Database,
+    relative_path: &str,
+) -> Result<Option<Vec<u8>>, StoreError> {
+    let read_txn = db.begin_read()?;
+    let blob_ref = {
+        let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+        match files.get(relative_path)? {
+            Some(value) => value.value().to_string(),
+            None => return Ok(None),
+        }
+    };
+    let sha256 = blob_ref.trim_start_matches("sha256:").to_string();
+    let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
+    Ok(blobs
+        .get(sha256.as_str())?
+        .map(|blob| blob.value().to_vec()))
+}
+
 #[allow(clippy::result_large_err)]
 pub fn materialize_source_file(
     store_path: impl AsRef<Path>,
@@ -470,6 +524,18 @@ pub fn materialize_source_file(
     let relative_path = relative_path.as_ref();
     let output_path = output_path.as_ref().to_path_buf();
     let db = Database::open(store_path)?;
+    materialize_source_file_db(&db, relative_path, &output_path)
+}
+
+/// Shared materialize against an already-open database — restores the stored
+/// unix mode when present, then re-checksums the written file.
+#[allow(clippy::result_large_err)]
+fn materialize_source_file_db(
+    db: &Database,
+    relative_path: &str,
+    output_path: &Path,
+) -> Result<FileMaterializationReport, StoreError> {
+    let output_path = output_path.to_path_buf();
     let read_txn = db.begin_read()?;
     let blob_ref = {
         let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
@@ -644,6 +710,77 @@ pub fn restore_store_from_backup(
         restored_sha256,
         restored_store,
     })
+}
+
+fn to_core_err(err: StoreError) -> CoreStoreError {
+    CoreStoreError::new(err.to_string())
+}
+
+fn to_core_row(row: SourceBlobRow) -> CoreSourceFileRow {
+    CoreSourceFileRow {
+        relative_path: row.relative_path,
+        blob_ref: row.blob_ref,
+        sha256: row.sha256,
+        bytes: row.bytes,
+    }
+}
+
+/// The redb file store fronted through the backend-agnostic [`BlobStore`]
+/// contract. Every method delegates to the same shared `_db` helpers the
+/// standalone free functions use, so the trait path and the free-function path
+/// share identical semantics — no behavioral fork.
+impl BlobStore for CaptureBatcher {
+    fn persist_batch(
+        &mut self,
+        files: &[(String, Vec<u8>)],
+    ) -> Result<Vec<CoreSourceFileRow>, CoreStoreError> {
+        let rows = persist_batch_db(&self.db, files).map_err(to_core_err)?;
+        Ok(rows.into_iter().map(to_core_row).collect())
+    }
+
+    fn captured_paths(&self) -> Result<std::collections::BTreeSet<String>, CoreStoreError> {
+        captured_paths_db(&self.db).map_err(to_core_err)
+    }
+
+    fn read_source_file_blob(
+        &self,
+        relative_path: &str,
+    ) -> Result<Option<Vec<u8>>, CoreStoreError> {
+        read_source_blob_bytes_db(&self.db, relative_path).map_err(to_core_err)
+    }
+
+    fn list_source_files(&self) -> Result<Vec<CoreSourceFileRow>, CoreStoreError> {
+        let rows = list_source_files_db(&self.db).map_err(to_core_err)?;
+        Ok(rows.into_iter().map(to_core_row).collect())
+    }
+
+    fn materialize_source_file(
+        &self,
+        relative_path: &str,
+        output_path: &Path,
+    ) -> Result<CoreMaterializedFile, CoreStoreError> {
+        let report = materialize_source_file_db(&self.db, relative_path, output_path)
+            .map_err(to_core_err)?;
+        Ok(CoreMaterializedFile {
+            path: report.path,
+            blob_ref: report.blob_ref,
+            sha256: report.sha256,
+            bytes: report.bytes,
+        })
+    }
+
+    fn store_metadata_rows(&self) -> Result<Vec<CoreStoreMetadataRow>, CoreStoreError> {
+        let report = read_store_report_db(&self.db, PathBuf::new()).map_err(to_core_err)?;
+        Ok(report
+            .rows
+            .into_iter()
+            .map(|row| CoreStoreMetadataRow {
+                table: row.table,
+                key: row.key,
+                value: row.value,
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]
