@@ -13,10 +13,8 @@ use codedb_core::{
     validation_errors,
 };
 use codedb_rust_static::capture_rust_items;
-use codedb_store_redb::{
-    CaptureBatcher, StoreInitContext, initialize_store, list_source_files, materialize_source_file,
-    read_store_report, store_metadata_rows,
-};
+use codedb_core::store::BlobStore;
+use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
 use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
 
@@ -90,7 +88,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             )?;
             let format = parse_format(&args)?;
             let config = CaptureConfig::from_args(&args)?;
-            let rows = capture_rows(&selection, &config)?;
+            let rows = capture_rows(&selection, &config, &args)?;
             print_rows(rows, format)
         }
         // materialize = re-emit captured trees byte-for-byte from the store
@@ -105,7 +103,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
                 .ok_or_else(|| CliError::Message("materialize requires --out-dir <path>".into()))?;
             let only = option_value(&args, "--path").map(str::to_string);
             let format = parse_format(&args)?;
-            let rows = materialize_rows(Path::new(&store), &out_dir, only.as_deref())?;
+            let rows = materialize_rows(&store, &out_dir, only.as_deref(), &args)?;
             print_rows(rows, format)
         }
         // store-report = the store's own metadata/toolchain/validation rows.
@@ -113,9 +111,10 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             let store = option_value(&args, "--store")
                 .ok_or_else(|| CliError::Message("store-report requires --store <path>".into()))?
                 .to_string();
-            let report = read_store_report(Path::new(&store))
-                .map_err(|e| CliError::Message(format!("store report failed: {e}")))?;
-            let rows = store_metadata_rows(&report)
+            let backend = open_store_readonly(&store, &args)?;
+            let rows = backend
+                .store_metadata_rows()
+                .map_err(|e| CliError::Message(format!("store report failed: {e}")))?
                 .into_iter()
                 .map(|m| row([("table", m.table), ("key", m.key), ("value", m.value)]))
                 .collect();
@@ -273,42 +272,125 @@ fn parse_time_budget(s: &str) -> Result<Duration, CliError> {
 /// resumable rather than one fsync per file.
 // `batch_bytes` is a flush-and-reset accumulator; the reset after the final flush
 // is intentionally not read again.
+/// True when a `--store` spec selects the PostgreSQL backend rather than a redb
+/// file path. Recognizes the bare selector `pg` and URL schemes.
+fn is_pg_store(spec: &str) -> bool {
+    spec == "pg"
+        || spec.starts_with("pg://")
+        || spec.starts_with("postgres://")
+        || spec.starts_with("postgresql://")
+}
+
+/// Resolve the PostgreSQL connection string for a pg store spec. A full
+/// `postgres(ql)://` URL is used verbatim; `pg://<rest>` is normalized to a URL;
+/// the bare `pg` selector falls back to `--pg-conn`, then `CODEDB_PG_CONN` /
+/// `DATABASE_URL`, then the crate default (live cluster over its unix socket).
+fn pg_conn_string(spec: &str, args: &[String]) -> String {
+    if spec.starts_with("postgres://") || spec.starts_with("postgresql://") {
+        return spec.to_string();
+    }
+    if let Some(rest) = spec.strip_prefix("pg://").filter(|rest| !rest.is_empty()) {
+        return format!("postgres://{rest}");
+    }
+    option_value(args, "--pg-conn")
+        .map(str::to_string)
+        .or_else(|| env::var("CODEDB_PG_CONN").ok())
+        .or_else(|| env::var("DATABASE_URL").ok())
+        .unwrap_or_else(|| codedb_store_pg::DEFAULT_CONN.to_string())
+}
+
+/// Resolve the PostgreSQL table name: `--pg-table`, then `CODEDB_PG_TABLE`, then
+/// the crate default `codebase_codedb` (a dedicated table, never production
+/// `codebase`).
+fn pg_table_name(args: &[String]) -> String {
+    option_value(args, "--pg-table")
+        .map(str::to_string)
+        .or_else(|| env::var("CODEDB_PG_TABLE").ok())
+        .unwrap_or_else(|| codedb_store_pg::DEFAULT_TABLE.to_string())
+}
+
+/// Open the capture-side backend for a store spec, returning the trait object
+/// and the human-facing store label echoed into result rows. redb: create the
+/// parent dir + initialize the file when absent, then open a batcher. pg:
+/// connect (which idempotently ensures the target table).
+fn open_store_for_capture(
+    store_spec: &str,
+    args: &[String],
+) -> Result<(Box<dyn BlobStore>, String), CliError> {
+    if is_pg_store(store_spec) {
+        let conn = pg_conn_string(store_spec, args);
+        let table = pg_table_name(args);
+        let store = codedb_store_pg::PgStore::connect(&conn, &table)
+            .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
+        Ok((Box::new(store), format!("pg:{table}")))
+    } else {
+        let store = PathBuf::from(store_spec);
+        if let Some(parent) = store.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)
+                .map_err(|e| CliError::Message(format!("creating store parent: {e}")))?;
+        }
+        if !store.exists() {
+            let rustc_version = probe_tool_version("rustc");
+            let cargo_version = probe_tool_version("cargo");
+            initialize_store(
+                &store,
+                &StoreInitContext {
+                    codedb_version: codedb_core::VERSION,
+                    toolchain: "host-default",
+                    rustc_version: &rustc_version,
+                    cargo_version: &cargo_version,
+                },
+            )
+            .map_err(|e| CliError::Message(format!("store init failed: {e}")))?;
+        }
+        let batcher = CaptureBatcher::open(&store)
+            .map_err(|e| CliError::Message(format!("opening store for capture: {e}")))?;
+        Ok((Box::new(batcher), store_spec.to_string()))
+    }
+}
+
+/// Open the read-side backend for a store spec (materialize / store-report).
+/// redb: open the existing file (must already exist). pg: connect.
+fn open_store_readonly(
+    store_spec: &str,
+    args: &[String],
+) -> Result<Box<dyn BlobStore>, CliError> {
+    if is_pg_store(store_spec) {
+        let conn = pg_conn_string(store_spec, args);
+        let table = pg_table_name(args);
+        let store = codedb_store_pg::PgStore::connect(&conn, &table)
+            .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
+        Ok(Box::new(store))
+    } else {
+        let batcher = CaptureBatcher::open(Path::new(store_spec))
+            .map_err(|e| CliError::Message(format!("opening store: {e}")))?;
+        Ok(Box::new(batcher))
+    }
+}
+
 #[allow(unused_assignments)]
-fn capture_rows(selection: &RepoSelection, config: &CaptureConfig) -> Result<Vec<Row>, CliError> {
+fn capture_rows(
+    selection: &RepoSelection,
+    config: &CaptureConfig,
+    args: &[String],
+) -> Result<Vec<Row>, CliError> {
     let repo_path = selection.repo_path.as_path();
-    let store_path = if selection.store_path.is_empty() {
+    // Store spec: empty --store defaults to the repo-local redb file (backward
+    // compatible); a `pg`/`pg://`/`postgres://` spec selects the PostgreSQL
+    // backend. `store_path` is the human-facing label echoed into result rows.
+    let store_spec = if selection.store_path.is_empty() {
         repo_path.join(".codedb/store.redb").display().to_string()
     } else {
         selection.store_path.clone()
     };
-    let store = PathBuf::from(&store_path);
-    if let Some(parent) = store.parent().filter(|p| !p.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)
-            .map_err(|e| CliError::Message(format!("creating store parent: {e}")))?;
-    }
-    if !store.exists() {
-        let rustc_version = probe_tool_version("rustc");
-        let cargo_version = probe_tool_version("cargo");
-        initialize_store(
-            &store,
-            &StoreInitContext {
-                codedb_version: codedb_core::VERSION,
-                toolchain: "host-default",
-                rustc_version: &rustc_version,
-                cargo_version: &cargo_version,
-            },
-        )
-        .map_err(|e| CliError::Message(format!("store init failed: {e}")))?;
-    }
 
     let entries = scan_filesystem(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
     // One store open for the whole import; each batch is a durable commit.
-    let batcher = CaptureBatcher::open(&store)
-        .map_err(|e| CliError::Message(format!("opening store for capture: {e}")))?;
+    let (mut store, store_path) = open_store_for_capture(&store_spec, args)?;
     // Resume: skip paths already durably captured by a prior (possibly interrupted)
     // run so an import continues from its last checkpoint instead of restarting.
     let already = if config.resume {
-        batcher
+        store
             .captured_paths()
             .map_err(|e| CliError::Message(format!("reading resume checkpoint: {e}")))?
     } else {
@@ -344,7 +426,7 @@ fn capture_rows(selection: &RepoSelection, config: &CaptureConfig) -> Result<Vec
     macro_rules! flush_batch {
         () => {{
             if !batch.is_empty() {
-                let persisted = batcher
+                let persisted = store
                     .persist_batch(&batch)
                     .map_err(|e| CliError::Message(format!("persist batch failed: {e}")))?;
                 batches += 1;
@@ -498,11 +580,14 @@ fn merge_plan_rows(repo_a: &Path, repo_b: &Path, detail: bool) -> Result<Vec<Row
 /// Re-emit captured files byte-for-byte from the store (whole tree or one
 /// --path), restoring unix modes; every row re-checksums the materialized file.
 fn materialize_rows(
-    store: &Path,
+    store_spec: &str,
     out_dir: &Path,
     only: Option<&str>,
+    args: &[String],
 ) -> Result<Vec<Row>, CliError> {
-    let files = list_source_files(store)
+    let store = open_store_readonly(store_spec, args)?;
+    let files = store
+        .list_source_files()
         .map_err(|e| CliError::Message(format!("listing store files: {e}")))?;
     let mut rows: Vec<Row> = Vec::new();
     let mut count = 0usize;
@@ -512,8 +597,9 @@ fn materialize_rows(
             continue;
         }
         let out_path = out_dir.join(&file.relative_path);
-        let report =
-            materialize_source_file(store, &file.relative_path, &out_path).map_err(|e| {
+        let report = store
+            .materialize_source_file(&file.relative_path, &out_path)
+            .map_err(|e| {
                 CliError::Message(format!(
                     "materialize failed for {}: {e}",
                     file.relative_path
@@ -548,7 +634,7 @@ fn materialize_rows(
     }
     rows.push(row([
         ("table", "materialize_summary".to_string()),
-        ("store_path", store.display().to_string()),
+        ("store_path", store_spec.to_string()),
         ("out_dir", out_dir.display().to_string()),
         ("files_materialized", count.to_string()),
         ("bytes_materialized", bytes.to_string()),

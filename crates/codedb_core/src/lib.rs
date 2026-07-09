@@ -10,6 +10,7 @@ use std::process::Command;
 use sha2::{Digest, Sha256};
 
 pub mod merge;
+pub mod store;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowState {
