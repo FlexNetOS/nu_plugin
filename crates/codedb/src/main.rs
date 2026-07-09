@@ -8,13 +8,13 @@ use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use codedb_cargo::capture_cargo_metadata;
+use codedb_core::store::BlobStore;
 use codedb_core::{
-    TableRow, capture_gaps, prove_no_mutation, scan_filesystem, schema_rows, table_inventory,
-    validation_errors,
+    capture_gaps, prove_no_mutation, scan_filesystem, schema_rows, table_inventory,
+    validation_errors, TableRow,
 };
 use codedb_rust_static::capture_rust_items;
-use codedb_core::store::BlobStore;
-use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
+use codedb_store_redb::{initialize_store, CaptureBatcher, StoreInitContext};
 use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
 
@@ -351,10 +351,7 @@ fn open_store_for_capture(
 
 /// Open the read-side backend for a store spec (materialize / store-report).
 /// redb: open the existing file (must already exist). pg: connect.
-fn open_store_readonly(
-    store_spec: &str,
-    args: &[String],
-) -> Result<Box<dyn BlobStore>, CliError> {
+fn open_store_readonly(store_spec: &str, args: &[String]) -> Result<Box<dyn BlobStore>, CliError> {
     if is_pg_store(store_spec) {
         let conn = pg_conn_string(store_spec, args);
         let table = pg_table_name(args);

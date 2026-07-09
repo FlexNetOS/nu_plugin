@@ -80,8 +80,10 @@ pub trait BlobStore {
     /// Persist a batch of `(relative_path, bytes)` in ONE durable transaction.
     /// Content-addressed: identical bytes dedup on their sha256. Returns one
     /// [`SourceFileRow`] per input, in input order.
-    fn persist_batch(&mut self, files: &[(String, Vec<u8>)])
-    -> Result<Vec<SourceFileRow>, StoreError>;
+    fn persist_batch(
+        &mut self,
+        files: &[(String, Vec<u8>)],
+    ) -> Result<Vec<SourceFileRow>, StoreError>;
 
     /// Relative paths already durably persisted — the resume skip-set. A re-run
     /// reads this once and skips paths already present so an interrupted capture

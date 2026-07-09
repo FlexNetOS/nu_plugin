@@ -21,7 +21,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use codedb_core::store::{BlobStore, MaterializedFile, SourceFileRow, StoreError, StoreMetadataRow};
+use codedb_core::store::{
+    BlobStore, MaterializedFile, SourceFileRow, StoreError, StoreMetadataRow,
+};
 use postgres::{Client, NoTls};
 use sha2::{Digest, Sha256};
 
@@ -85,9 +87,7 @@ fn sanitize_table(table: &str) -> Result<String, StoreError> {
             .chars()
             .next()
             .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && table
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_');
+        && table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     if ok {
         Ok(table.to_string())
     } else {
@@ -134,11 +134,8 @@ impl BlobStore for PgStore {
         for (relative_path, bytes) in files {
             let sha256 = sha256_hex(bytes);
             let content: &[u8] = bytes.as_slice();
-            tx.execute(
-                sql.as_str(),
-                &[relative_path, &content, &sha256, &metadata],
-            )
-            .map_err(|e| StoreError::new(format!("insert {relative_path}: {e}")))?;
+            tx.execute(sql.as_str(), &[relative_path, &content, &sha256, &metadata])
+                .map_err(|e| StoreError::new(format!("insert {relative_path}: {e}")))?;
             out.push(SourceFileRow {
                 relative_path: relative_path.clone(),
                 blob_ref: format!("sha256:{sha256}"),
@@ -162,10 +159,7 @@ impl BlobStore for PgStore {
 
     fn read_source_file_blob(&self, relative_path: &str) -> Result<Option<Vec<u8>>, StoreError> {
         let mut client = self.client.borrow_mut();
-        let sql = format!(
-            "SELECT content FROM {} WHERE module_path = $1",
-            self.table
-        );
+        let sql = format!("SELECT content FROM {} WHERE module_path = $1", self.table);
         let rows = client
             .query(sql.as_str(), &[&relative_path])
             .map_err(|e| StoreError::new(format!("read_source_file_blob {relative_path}: {e}")))?;
@@ -296,7 +290,10 @@ mod tests {
 
     #[test]
     fn sanitize_table_accepts_bare_identifier() {
-        assert_eq!(sanitize_table("codebase_codedb").unwrap(), "codebase_codedb");
+        assert_eq!(
+            sanitize_table("codebase_codedb").unwrap(),
+            "codebase_codedb"
+        );
         assert_eq!(sanitize_table("_x9").unwrap(), "_x9");
     }
 

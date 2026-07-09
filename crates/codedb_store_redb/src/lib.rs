@@ -6,11 +6,11 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use codedb_core::SchemaVersion;
 use codedb_core::store::{
     BlobStore, MaterializedFile as CoreMaterializedFile, SourceFileRow as CoreSourceFileRow,
     StoreError as CoreStoreError, StoreMetadataRow as CoreStoreMetadataRow,
 };
+use codedb_core::SchemaVersion;
 use redb::{
     CommitError, Database, DatabaseError, ReadableTable, StorageError, TableDefinition, TableError,
     TransactionError,
@@ -510,7 +510,9 @@ fn read_source_blob_bytes_db(
     };
     let sha256 = blob_ref.trim_start_matches("sha256:").to_string();
     let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
-    Ok(blobs.get(sha256.as_str())?.map(|blob| blob.value().to_vec()))
+    Ok(blobs
+        .get(sha256.as_str())?
+        .map(|blob| blob.value().to_vec()))
 }
 
 #[allow(clippy::result_large_err)]
@@ -757,8 +759,8 @@ impl BlobStore for CaptureBatcher {
         relative_path: &str,
         output_path: &Path,
     ) -> Result<CoreMaterializedFile, CoreStoreError> {
-        let report =
-            materialize_source_file_db(&self.db, relative_path, output_path).map_err(to_core_err)?;
+        let report = materialize_source_file_db(&self.db, relative_path, output_path)
+            .map_err(to_core_err)?;
         Ok(CoreMaterializedFile {
             path: report.path,
             blob_ref: report.blob_ref,
@@ -785,7 +787,7 @@ impl BlobStore for CaptureBatcher {
 mod tests {
     use super::*;
     use std::fs;
-    use std::sync::{Arc, mpsc};
+    use std::sync::{mpsc, Arc};
     use std::time::Duration;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -817,19 +819,15 @@ mod tests {
         let report = initialize_store(&path, &context).expect("store init");
         assert_eq!(report.schema_version.as_tuple(), (1, 0, 0));
         assert!(report.rows.iter().any(|row| row.key == "codedb_version"));
-        assert!(
-            report
-                .rows
-                .iter()
-                .any(|row| row.key == "single_writer_lock")
-        );
-        assert!(
-            report
-                .rows
-                .iter()
-                .any(|row| row.key == "lock_contention_behavior"
-                    && row.value == "single_writer_blocks_until_release")
-        );
+        assert!(report
+            .rows
+            .iter()
+            .any(|row| row.key == "single_writer_lock"));
+        assert!(report
+            .rows
+            .iter()
+            .any(|row| row.key == "lock_contention_behavior"
+                && row.value == "single_writer_blocks_until_release"));
         assert!(
             report
                 .rows
@@ -1037,21 +1035,17 @@ mod tests {
 
         let restore = restore_store_from_backup(&backup_path, &restored_path).expect("restore");
         assert_eq!(restore.backup.sha256, restore.restored_sha256);
-        assert!(
-            restore
-                .restored_store
-                .rows
-                .iter()
-                .any(|row| row.key == "migration_state"
-                    && row.value == "schema_1_no_migrations_supported")
-        );
-        assert!(
-            restore
-                .restored_store
-                .rows
-                .iter()
-                .any(|row| row.key == "backup_restore" && row.value == "available")
-        );
+        assert!(restore
+            .restored_store
+            .rows
+            .iter()
+            .any(|row| row.key == "migration_state"
+                && row.value == "schema_1_no_migrations_supported"));
+        assert!(restore
+            .restored_store
+            .rows
+            .iter()
+            .any(|row| row.key == "backup_restore" && row.value == "available"));
 
         fs::remove_file(&path).ok();
         fs::remove_file(&backup_path).ok();
