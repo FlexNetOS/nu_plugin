@@ -5,7 +5,7 @@
 //! both). Source-only: vendor/generated/target/.git are skipped — build
 //! artifacts do not merge, only source does.
 
-use crate::{scan_filesystem, FileClassification, ScanError};
+use crate::{FileClassification, ScanError, scan_filesystem};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -269,10 +269,11 @@ mod tests {
         let plan = merge_plan(&a, &b).unwrap();
         assert_eq!(plan.crate_collisions, vec!["shared-cli".to_string()]);
         // the two Cargo.toml at crates/cli diverge (different version) -> divergent
-        assert!(plan
-            .divergent_paths
-            .iter()
-            .any(|p| p == "crates/cli/Cargo.toml"));
+        assert!(
+            plan.divergent_paths
+                .iter()
+                .any(|p| p == "crates/cli/Cargo.toml")
+        );
 
         let _ = fs::remove_dir_all(&a);
         let _ = fs::remove_dir_all(&b);

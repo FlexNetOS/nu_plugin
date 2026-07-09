@@ -10,11 +10,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use codedb_cargo::capture_cargo_metadata;
 use codedb_core::store::BlobStore;
 use codedb_core::{
-    capture_gaps, prove_no_mutation, scan_filesystem, schema_rows, table_inventory,
-    validation_errors, TableRow,
+    TableRow, capture_gaps, prove_no_mutation, scan_filesystem, schema_rows, table_inventory,
+    validation_errors,
 };
 use codedb_rust_static::capture_rust_items;
-use codedb_store_redb::{initialize_store, CaptureBatcher, StoreInitContext};
+use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
 use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
 

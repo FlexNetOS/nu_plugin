@@ -1810,12 +1810,14 @@ mod tests {
         assert_eq!(rows[4].status, "available");
         assert!(rows.iter().any(|row| row.table == "source_blobs"));
         assert!(rows.iter().any(|row| row.table == "blob_policies"));
-        assert!(rows
-            .iter()
-            .any(|row| row.table == "agent_harness_export_manifests"));
-        assert!(rows
-            .iter()
-            .any(|row| row.table == "agent_harness_materialization_plan"));
+        assert!(
+            rows.iter()
+                .any(|row| row.table == "agent_harness_export_manifests")
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.table == "agent_harness_materialization_plan")
+        );
     }
 
     // Test lane: default
