@@ -269,10 +269,11 @@ mod tests {
         let plan = merge_plan(&a, &b).unwrap();
         assert_eq!(plan.crate_collisions, vec!["shared-cli".to_string()]);
         // the two Cargo.toml at crates/cli diverge (different version) -> divergent
-        assert!(plan
-            .divergent_paths
-            .iter()
-            .any(|p| p == "crates/cli/Cargo.toml"));
+        assert!(
+            plan.divergent_paths
+                .iter()
+                .any(|p| p == "crates/cli/Cargo.toml")
+        );
 
         let _ = fs::remove_dir_all(&a);
         let _ = fs::remove_dir_all(&b);
