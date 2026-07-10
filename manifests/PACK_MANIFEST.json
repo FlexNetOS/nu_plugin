@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "481b1ca3db1f61cc65706471eb1f9b1ccaf2df4a30c0cda9a682378e9c1885c1",
+  "checksum_scope_files_sha256": "9efcb020d35ce3cbf2cfa7eb043ea42510115f3fd23c40d41651f9f5d2432796",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 312,
+  "file_count_in_checksum_scope": 313,
   "files": [
     {
       "bytes": 3774,
@@ -344,6 +344,11 @@
       "bytes": 213,
       "path": "crates/codedb_context/Cargo.toml",
       "sha256": "fb85d4e829dc1874a70189ae850f60cd87311cfc656914b1a08794a8feab42d3"
+    },
+    {
+      "bytes": 6724,
+      "path": "crates/codedb_context/tests/runtime_context.rs",
+      "sha256": "d931406a4ba84bf2b6993c4781adc7010fa4ebbd41a2a4607bb8f9377a4fd86e"
     },
     {
       "bytes": 193,
@@ -1571,7 +1576,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-10T23:37:19+00:00",
+  "generated_at_utc": "2026-07-10T23:38:02+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
