@@ -167,6 +167,73 @@ fn missing_lockfile_blocks_capture_before_cargo_resolution() {
     assert!(matches!(error, ContextError::MissingLockfile { .. }));
 }
 
+#[test]
+fn cargo_feature_modes_are_forwarded_and_change_context_identity() {
+    let fixture = Fixture::new();
+    let runner = FakeRunner::default();
+    let base = CargoContextRequest {
+        manifest_path: fixture.root.join("Cargo.toml"),
+        target_triple: "aarch64-unknown-linux-gnu".to_string(),
+        features: vec![],
+        all_features: false,
+        no_default_features: false,
+        profile: "debug".to_string(),
+    };
+    let default_capture = capture_context_with_runner(&base, &runner).unwrap();
+
+    let mut all_request = base.clone();
+    all_request.all_features = true;
+    let all_capture = capture_context_with_runner(&all_request, &runner).unwrap();
+
+    let mut no_default_request = base;
+    no_default_request.no_default_features = true;
+    let no_default_capture = capture_context_with_runner(&no_default_request, &runner).unwrap();
+
+    assert_ne!(default_capture.context_id, all_capture.context_id);
+    assert_ne!(default_capture.context_id, no_default_capture.context_id);
+    assert_ne!(all_capture.context_id, no_default_capture.context_id);
+
+    let invocations = runner.invocations.lock().unwrap();
+    let metadata_args = invocations
+        .iter()
+        .filter(|(program, args, _)| {
+            program == "cargo" && args.first().is_some_and(|arg| arg == "metadata")
+        })
+        .map(|(_, args, _)| args)
+        .collect::<Vec<_>>();
+    assert!(metadata_args.iter().any(|args| args.iter().any(|arg| arg == "--all-features")));
+    assert!(metadata_args
+        .iter()
+        .any(|args| args.iter().any(|arg| arg == "--no-default-features")));
+}
+
+#[test]
+fn workspace_member_uses_nearest_ancestor_lockfile() {
+    let fixture = Fixture::new();
+    let member = fixture.root.join("crates/member");
+    fs::create_dir_all(member.join("src")).unwrap();
+    fs::write(
+        member.join("Cargo.toml"),
+        "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    fs::write(member.join("src/lib.rs"), "pub fn member() {}\n").unwrap();
+
+    let capture = capture_context_with_runner(
+        &CargoContextRequest {
+            manifest_path: member.join("Cargo.toml"),
+            target_triple: "aarch64-unknown-linux-gnu".to_string(),
+            features: vec![],
+            all_features: false,
+            no_default_features: false,
+            profile: "debug".to_string(),
+        },
+        &FakeRunner::default(),
+    )
+    .expect("ancestor Cargo.lock should be accepted");
+    assert_eq!(capture.cargo_lock_sha256.len(), 64);
+}
+
 struct Fixture {
     root: PathBuf,
 }
