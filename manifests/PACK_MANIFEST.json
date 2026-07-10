@@ -6,14 +6,14 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "5fefbfe5d9b1fb79d051b180376977e74c6574e76f827cb0e8d0380bc1efaaca",
+  "checksum_scope_files_sha256": "824916183595ec36322a396356271c2df0f7b219e83229e1372c7b3529711960",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 308,
   "files": [
     {
-      "bytes": 1473,
+      "bytes": 2496,
       "path": ".github/workflows/ci.yml",
-      "sha256": "dbf53972d6e0b756a58d8abc93f569f3d2ab1eaa3c6c6f86891147ef44850cd8"
+      "sha256": "5278e18c7b8fee130e9dd3ad768eeb079b9847dd7c7ce11ce6ffc575b16b6927"
     },
     {
       "bytes": 67,
@@ -1551,7 +1551,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-09T23:36:25+00:00",
+  "generated_at_utc": "2026-07-10T00:03:35+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
