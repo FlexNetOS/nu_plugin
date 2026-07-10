@@ -66,7 +66,7 @@ Generated crates/files = artifacts
 cargo/rustc/runner = proof gates
 ```
 
-Promotion to “database-owned source truth” is blocked until lossless round-trip, stable object identity, semantic hashing, macro/build capture, `cargo check`, tests, rustdoc/API proof where enabled, and provenance gates pass repeatedly.
+Promotion to “database-owned source truth” is blocked until lossless round-trip, stable object identity, semantic hashing, macro/build capture, `cargo check`, tests, rustdoc/API proof, and provenance gates pass repeatedly.
 
 ### 2.3 Relationship to FlexNetOS doctrine
 
@@ -155,6 +155,9 @@ This full PRD incorporates the complete session direction:
 - Cargo metadata capture using `cargo metadata --format-version 1`.
 - Cargo source provenance capture: registry/git/path/source/patch/replace/config facts where observable.
 - `cfg`, feature, target, profile, edition, toolchain context capture.
+- Compiler-facing HIR/MIR semantic capture under a pinned toolchain.
+- rustdoc JSON and public-API equivalence proof under a pinned toolchain.
+- Compiler-observed declarative-macro expansion, resolution, and hygiene evidence.
 - Static Rust item/module/import/macro/build-script inventory.
 - Explicit unsafe execution gate for dynamic build-script and proc-macro capture.
 - `capture_gaps` for unsupported/unobserved facts.
@@ -168,7 +171,6 @@ This full PRD incorporates the complete session direction:
 
 - Database-owned Rust source truth.
 - Automatic code rewriting or source overwrites.
-- Full semantic/HIR/MIR truth as mandatory V1.1 success.
 - Cargo-expand as canonical macro truth.
 - Always-on build-script/proc-macro execution.
 - Unbounded MCP source reads.
@@ -1166,15 +1168,13 @@ V1.1 is acceptable only when:
 
 ## 20. MVP2 expansion backlog
 
-After V1.1 proves capture correctness:
+After every mandatory V1.1 compiler and reproduction gate is implemented and proven:
 
 - DataFusion/Arrow analytical projection.
 - Tantivy full-text search index.
 - SQLite/libSQL export bridge.
 - DuckDB read-only analytical export.
 - Dynamic file access tracing backend.
-- Rust-analyzer/HIR semantic backend.
-- rustdoc JSON API-delta backend with pinned nightly where approved.
 - Change-plan generator without auto-apply.
 - Generated crate artifact tree and equivalence gate expansion.
 - Meta plugin wrapper.
@@ -1405,3 +1405,6 @@ Do not implement CodeDB by:
 - exposing raw source through Codex MCP by default;
 - treating a Yazelix Zellij plugin surface as the CodeDB integration layer.
 
+## 25. Mandatory completion rule
+
+Every compiler, Cargo, macro, build, database, artifact, and reproduction capability named by this PRD is a release-blocking V1.1 deliverable. Nothing is optional. A `GAP`, `QUESTION`, degraded observation, missing test, or missing provenance row is required diagnostic evidence but cannot satisfy implementation acceptance or close a task. Approval-gated execution must remain refused by default and must also have a fully implemented, isolated, provenance-preserving approved path.

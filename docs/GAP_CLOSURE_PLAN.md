@@ -4,12 +4,12 @@ Source: issue 212 V1.1 gap closure list.
 
 | Task | Gap | Closure Direction | Evidence Gate |
 |---|---|---|---|
-| CDB077 | macro expansion beyond static `macro_rules!` inventory | compiler-observed expansion rail or explicit GAP rows | fixture proves dynamic expansion facts or gated refusal |
+| CDB077 | macro expansion beyond static `macro_rules!` inventory | compiler-observed expansion, resolution, and hygiene rail | fixture proves compiler-observed expansion, resolution, and hygiene facts |
 | CDB078 | proc-macro execution gate | unsafe approval and provenance model | default refusal plus approved fixture proof |
 | CDB079 | build-script execution gate | unsafe approval and provenance model | default refusal plus approved fixture proof |
-| CDB080 | generated `OUT_DIR` artifact reproduction | controlled reproduction artifacts | checksum-bound generated artifacts or GAP |
+| CDB080 | generated `OUT_DIR` artifact reproduction | controlled reproduction artifacts | checksum-bound generated artifacts and environment provenance |
 | CDB081 | symlink materialization/platform limitations | platform capability rows | symlink support matrix and safe fallback |
-| CDB082 | native/linker facts requiring dynamic build execution | approved dynamic build capture | native/link rows or GAP |
+| CDB082 | native/linker facts requiring dynamic build execution | approved dynamic build capture | approved dynamic native/link rows with provenance |
 | CDB083 | raw source/blob reads through MCP blocked by default | MCP denial and bounded output tests | no raw source/blob leak proof |
 | CDB084 | stable object identity for anonymous/unstable syntax nodes | identity keys and instability policy | repeat scan identity tests |
 | CDB085 | semantic hashing and public API hashing | documented hash inputs and tests | stable hash fixtures |
@@ -30,28 +30,28 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - Raw blob capture records permission metadata as an explicit gap because no
   filesystem source exists for that API surface.
 
-## Closed By CDB077
+## CDB077 Interim Evidence - Still Active
 
 - Static macro capture now emits explicit `compiler_observed_expansion` gate
   rows with `gap` status for macro definitions and invocations.
 - The focused fixture proves CodeDB does not claim dynamic expansion or hygiene
   facts from syntax-only capture.
 
-## Closed By CDB078
+## CDB078 Interim Evidence - Still Active
 
 - Dynamic capture default refusal now records a dedicated
   `proc_macro_execution` gap with required flag `--unsafe-execute-build`.
 - Approved dynamic capture scaffold records unsafe approval provenance with
   status, flag, and approver.
 
-## Closed By CDB079
+## CDB079 Interim Evidence - Still Active
 
 - Dynamic capture default refusal records `build_script_execution` with
   required flag `--unsafe-execute-build`.
 - Approved fixture capture records approval provenance, build-script run rows,
   raw log rows, and observed Cargo warning output.
 
-## Closed By CDB080
+## CDB080 Interim Evidence - Still Active
 
 - Approved dynamic capture now records `out_dir_artifacts` as an explicit GAP
   until generated artifact manifests include relative paths, sha256 checksums,
@@ -68,7 +68,7 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - Unix fixture coverage proves scans capture symlink targets with
   `symlink_metadata` and emit supported materialization rows.
 
-## Closed By CDB082
+## CDB082 Interim Evidence - Still Active
 
 - Approved dynamic build capture now parses Cargo JSON
   `build-script-executed` messages for native `linked_libs` and `linked_paths`.
@@ -93,7 +93,7 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   `unstable_anonymous` so source-drift-sensitive identity cannot be treated as
   a permanent semantic key.
 
-## Closed By CDB085
+## CDB085 Interim Evidence - Still Active
 
 - Static Rust capture now emits semantic and public API hash reports from
   normalized item rows.
@@ -112,3 +112,7 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   schemas fail closed, and backup/restore remains the recovery proof.
 - Tests mutate a store to a future schema and assert
   `UnsupportedSchemaVersion`.
+
+## Mandatory closure semantics
+
+A GAP proves that CodeDB detected missing truth; it never proves that the capability was delivered. Every task in this plan remains active until its positive implementation path and failure path both have executable, current-head tests. Any remaining GAP blocks CDB090 and release readiness.

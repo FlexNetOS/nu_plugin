@@ -52,3 +52,7 @@ CDB090 reseals the bidirectional package by requiring
 CDB070-CDB090 task graph row. CodeDB also emits a `runner_proof_manifest` row
 with `gate_id = bidirectional_issue_212`, `status = satisfied`,
 `release_without_provenance = forbidden`, and `task_count = 21`.
+
+## Mandatory compiler and reproduction gate
+
+Release is blocked by any unresolved compiler/Cargo/macro/build/generated-artifact/HIR/MIR/rustdoc/database-parity/reproduction GAP. CDB090 cannot be satisfied by documentation, refusal-only tests, or a GAP-compatible validation gate. Every completed task must identify a current-head executable test and provenance artifact.
