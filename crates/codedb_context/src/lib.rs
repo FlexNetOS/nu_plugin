@@ -85,6 +85,8 @@ pub struct CapturedCargoContext {
     pub target_cfgs: Vec<String>,
     pub requested_features: Vec<String>,
     pub resolved_features: BTreeMap<String, Vec<String>>,
+    pub all_features: bool,
+    pub no_default_features: bool,
     pub profile: String,
     pub cargo_lock_sha256: String,
     pub cargo_metadata_json: String,
@@ -186,12 +188,14 @@ pub fn capture_context_with_runner<R: CommandRunner + ?Sized>(
         .ok_or_else(|| ContextError::InvalidManifestPath {
             path: request.manifest_path.clone(),
         })?;
-    let lockfile_path = current_dir.join("Cargo.lock");
-    if !lockfile_path.is_file() {
-        return Err(ContextError::MissingLockfile {
-            path: lockfile_path,
-        });
-    }
+    let expected_lockfile = current_dir.join("Cargo.lock");
+    let lockfile_path = current_dir
+        .ancestors()
+        .map(|directory| directory.join("Cargo.lock"))
+        .find(|path| path.is_file())
+        .ok_or(ContextError::MissingLockfile {
+            path: expected_lockfile,
+        })?;
     let lockfile = fs::read(&lockfile_path).map_err(|source| ContextError::ReadFile {
         path: lockfile_path.clone(),
         source,
@@ -274,6 +278,8 @@ pub fn capture_context_with_runner<R: CommandRunner + ?Sized>(
         &target_cfgs,
         &requested_features,
         &resolved_features,
+        request.all_features,
+        request.no_default_features,
         &request.profile,
         &cargo_lock_sha256,
     );
@@ -286,6 +292,8 @@ pub fn capture_context_with_runner<R: CommandRunner + ?Sized>(
         target_cfgs,
         requested_features,
         resolved_features,
+        all_features: request.all_features,
+        no_default_features: request.no_default_features,
         profile: request.profile.clone(),
         cargo_lock_sha256,
         cargo_metadata_json: metadata_output.stdout,
@@ -371,6 +379,8 @@ fn context_identity(
     target_cfgs: &[String],
     requested_features: &[String],
     resolved_features: &BTreeMap<String, Vec<String>>,
+    all_features: bool,
+    no_default_features: bool,
     profile: &str,
     cargo_lock_sha256: &str,
 ) -> String {
@@ -380,6 +390,15 @@ fn context_identity(
     digest_field(&mut digest, rustc_version);
     digest_field(&mut digest, host_triple);
     digest_field(&mut digest, target_triple);
+    digest_field(&mut digest, if all_features { "all-features" } else { "selected-features" });
+    digest_field(
+        &mut digest,
+        if no_default_features {
+            "no-default-features"
+        } else {
+            "default-features"
+        },
+    );
     digest_field(&mut digest, profile);
     digest_field(&mut digest, cargo_lock_sha256);
     for cfg in target_cfgs {
