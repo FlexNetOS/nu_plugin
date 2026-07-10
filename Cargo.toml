@@ -2,6 +2,7 @@
 members = [
   "crates/codedb",
   "crates/codedb_cargo",
+  "crates/codedb_context",
   "crates/codedb_core",
   "crates/codedb_fixtures",
   "crates/codedb_build_capture",
@@ -20,6 +21,7 @@ license = "MIT"
 rust-version = "1.93.1"
 
 [workspace.dependencies]
+codedb-context = { path = "crates/codedb_context" }
 codedb-core = { path = "crates/codedb_core" }
 nu-plugin = "0.113.1"
 nu-protocol = "0.113.1"
