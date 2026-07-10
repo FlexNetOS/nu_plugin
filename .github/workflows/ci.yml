@@ -8,6 +8,14 @@ on:
       - main
 
 jobs:
+  mandatory_capabilities:
+    name: Mandatory capabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject optional, deferred, or GAP-closed requirements
+        run: python3 -m unittest tests/test_mandatory_capability_policy.py
+
   # Operator directive 2026-07-09: LOCAL-FIRST CI IS MANDATORY for compilation/tests —
   # trusted refs (pushes + same-repo PRs) run on the FlexNetOS self-hosted fleet; GitHub-hosted
   # is FALLBACK ONLY (fork PRs — repo is public — and the vars.CI_FORCE_HOSTED=1 escape hatch).
