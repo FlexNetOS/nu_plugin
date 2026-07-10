@@ -12,8 +12,8 @@ use codedb_core::store::{
     StoreError as CoreStoreError, StoreMetadataRow as CoreStoreMetadataRow,
 };
 use redb::{
-    CommitError, Database, DatabaseError, ReadableTable, StorageError, TableDefinition, TableError,
-    TransactionError,
+    CommitError, Database, DatabaseError, ReadableDatabase, ReadableTable, StorageError,
+    TableDefinition, TableError, TransactionError,
 };
 use sha2::{Digest, Sha256};
 
