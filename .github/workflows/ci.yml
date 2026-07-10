@@ -8,9 +8,14 @@ on:
       - main
 
 jobs:
+  # Operator directive 2026-07-09: LOCAL-FIRST CI IS MANDATORY for compilation/tests —
+  # trusted refs (pushes + same-repo PRs) run on the FlexNetOS self-hosted fleet; GitHub-hosted
+  # is FALLBACK ONLY (fork PRs — repo is public — and the vars.CI_FORCE_HOSTED=1 escape hatch).
+  # The `nu`/`nix` jobs deliberately STAY hosted: nix-installer-action mutates the host's Nix
+  # (systemd daemon install) and must not touch the workstation's lifeos-foundation profile.
   truth_surface:
     name: Truth surface
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_FORCE_HOSTED == '1' && 'ubuntu-latest' || ((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","local","flexnetos"]') || 'ubuntu-latest') }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate repo truth surface
@@ -18,13 +23,12 @@ jobs:
 
   rust:
     name: Rust workspace
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_FORCE_HOSTED == '1' && 'ubuntu-latest' || ((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","local","flexnetos"]') || 'ubuntu-latest') }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust stable
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+      # dtolnay/rust-toolchain bootstraps rustup when absent — required on the local
+      # FlexNetOS runners, whose homes ship no preinstalled rustup (hosted images do).
+      - uses: dtolnay/rust-toolchain@stable
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test workspace
