@@ -6,14 +6,14 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "9560248659c620bf2b5aadb67a846dd99b8a51b3682444c943ab32347501f2c2",
+  "checksum_scope_files_sha256": "f13c4cd05e27c44beb7d3508838f412845c8169f147e701536c0a6fa6b77a2c1",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 307,
+  "file_count_in_checksum_scope": 308,
   "files": [
     {
-      "bytes": 1473,
+      "bytes": 2496,
       "path": ".github/workflows/ci.yml",
-      "sha256": "dbf53972d6e0b756a58d8abc93f569f3d2ab1eaa3c6c6f86891147ef44850cd8"
+      "sha256": "5278e18c7b8fee130e9dd3ad768eeb079b9847dd7c7ce11ce6ffc575b16b6927"
     },
     {
       "bytes": 67,
@@ -251,9 +251,9 @@
       "sha256": "873a3b25f9298b28d2475468929b0c30cb18c988972554da926f403cd3583311"
     },
     {
-      "bytes": 69882,
+      "bytes": 70395,
       "path": "Cargo.lock",
-      "sha256": "bbce94457d6eea8e616e75070159316c6771b67c001a8f04f2ee0eb61177399b"
+      "sha256": "44e96b3365cbb597eb9db522cc788f1ba2c8ce8515d94ef14fd0645e7631bc2d"
     },
     {
       "bytes": 525,
@@ -391,14 +391,19 @@
       "sha256": "c5ebea8999518c7bc962bb1bc950507d0b56a9c8bdfbb9651dfb9f6b1c5dce5a"
     },
     {
-      "bytes": 261,
+      "bytes": 578,
       "path": "crates/codedb_store_pg/Cargo.toml",
-      "sha256": "8d751c3daacf0bf97011f7ca7f487187ee5fa954ecbff0236e8b5992c51f8a66"
+      "sha256": "00392ceae33e73deb1395c462c34c1917f172a7cd8f68ff90647d1fcbb799579"
     },
     {
       "bytes": 12347,
       "path": "crates/codedb_store_pg/src/lib.rs",
       "sha256": "e4274d459b5b5b59cc64cd22e108b8f7d3894b45fef28b81aa3807baa48f929a"
+    },
+    {
+      "bytes": 5549,
+      "path": "crates/codedb_store_pg/tests/blobstore_parity.rs",
+      "sha256": "0923e3141c2a5464a80c4b576c5d10ba59487bd13701b6e4002812a08cfb332b"
     },
     {
       "bytes": 241,
@@ -1546,7 +1551,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-10T00:34:03+00:00",
+  "generated_at_utc": "2026-07-10T00:47:13+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
