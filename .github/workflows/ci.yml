@@ -7,33 +7,29 @@ on:
       - master
       - main
 
-permissions:
-  contents: write
-
 jobs:
   mandatory_capabilities:
     name: Mandatory capabilities
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
-      - name: Apply one-way mandatory governance migration
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        run: python3 scripts/repair_mandatory_governance.py
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
       - name: Regenerate repository truth surface
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: python3 scripts/truth_surface.py --write
-      - name: Commit generated governance repair
+      - name: Commit regenerated truth surface
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: |
           if test -n "$(git status --porcelain)"; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add --all
-            git commit -m "fix(governance): enforce mandatory CodeDB completion [skip ci]"
+            git add manifests/CHECKSUMS.sha256 manifests/PACKAGE_VALIDATION.json manifests/PACK_MANIFEST.json
+            git commit -m "chore(manifests): reseal mandatory capability truth surface [skip ci]"
             git push origin HEAD:${{ github.head_ref }}
           fi
 
