@@ -93,12 +93,15 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
-      - name: Syntax gate
-        run: nix develop .#ci -c nu tests/test_nushell_syntax_gate.nu
-      - name: Transient plugin smoke
-        run: nix develop .#ci -c nu tests/test_transient_plugin.nu
-      - name: Plugin registry smoke
-        run: nix develop .#ci -c nu tests/test_plugin_registry.nu
+      - name: Run every mandatory Nu behavior gate
+        run: |
+          nix develop .#ci -c bash -lc '
+            set -euo pipefail
+            for test in tests/*.nu; do
+              echo "=== $test ==="
+              nu "$test"
+            done
+          '
 
   nix:
     name: Nix checks

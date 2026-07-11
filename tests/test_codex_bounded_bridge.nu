@@ -109,6 +109,13 @@ def main [] {
         let temp_root = (mktemp -d)
         let fixture = ([$temp_root secret_like] | path join)
         cp -r $source_fixture $fixture
+        let fixture_manifest = ([$fixture Cargo.toml] | path join)
+        run_cargo_checked [
+            generate-lockfile
+            --manifest-path
+            $fixture_manifest
+            --offline
+        ] | ignore
 
         let doctor_result = (run_cargo_checked [run --quiet -p codedb -- doctor --codex --format json])
         let scan_result = (run_cargo_checked [run --quiet -p codedb -- scan $fixture --format json])

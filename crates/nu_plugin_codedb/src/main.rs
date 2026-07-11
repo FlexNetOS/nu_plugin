@@ -188,18 +188,57 @@ fn paged_signature(name: &str) -> Signature {
         .named("cursor", SyntaxShape::Int, "Zero-based row cursor", None)
 }
 
-fn repo_from_positional(call: &EvaluatedCall, index: usize) -> Result<PathBuf, LabeledError> {
+fn path_from_positional(
+    engine: &EngineInterface,
+    call: &EvaluatedCall,
+    index: usize,
+) -> Result<PathBuf, LabeledError> {
     let repo: String = call.req(index)?;
-    Ok(PathBuf::from(repo))
+    path_from_engine_cwd(Path::new(&repo), engine, call.head)
 }
 
-fn repo_from_flag_or_cwd(call: &EvaluatedCall) -> Result<PathBuf, LabeledError> {
+fn repo_from_positional(
+    engine: &EngineInterface,
+    call: &EvaluatedCall,
+    index: usize,
+) -> Result<PathBuf, LabeledError> {
+    let path = path_from_positional(engine, call, index)?;
+    canonical_repo_path(&path, call.head)
+}
+
+fn repo_from_flag_or_cwd(
+    engine: &EngineInterface,
+    call: &EvaluatedCall,
+) -> Result<PathBuf, LabeledError> {
     if let Some(repo) = call.get_flag::<String>("repo")? {
-        return Ok(PathBuf::from(repo));
+        let path = path_from_engine_cwd(Path::new(&repo), engine, call.head)?;
+        return canonical_repo_path(&path, call.head);
     }
-    env::current_dir().map_err(|source| {
-        LabeledError::new("failed to determine current repository")
+    let current_dir = engine.get_current_dir().map_err(|source| {
+        LabeledError::new("failed to determine Nushell repository directory")
             .with_label(source.to_string(), call.head)
+    })?;
+    canonical_repo_path(Path::new(&current_dir), call.head)
+}
+
+fn path_from_engine_cwd(
+    requested: &Path,
+    engine: &EngineInterface,
+    span: Span,
+) -> Result<PathBuf, LabeledError> {
+    if requested.is_absolute() {
+        return Ok(requested.to_path_buf());
+    }
+    let current_dir = engine.get_current_dir().map_err(|source| {
+        LabeledError::new("failed to determine Nushell current directory")
+            .with_label(source.to_string(), span)
+    })?;
+    Ok(PathBuf::from(current_dir).join(requested))
+}
+
+fn canonical_repo_path(repo_path: &Path, span: Span) -> Result<PathBuf, LabeledError> {
+    fs::canonicalize(repo_path).map_err(|source| {
+        LabeledError::new("failed to resolve repository path").with_label(source.to_string(), span)
     })
 }
 
@@ -2984,11 +3023,11 @@ macro_rules! repo_table_command {
             fn run(
                 &self,
                 _plugin: &CodeDbPlugin,
-                _engine: &EngineInterface,
+                engine: &EngineInterface,
                 call: &EvaluatedCall,
                 _input: &Value,
             ) -> Result<Value, LabeledError> {
-                let repo_path = repo_from_flag_or_cwd(call)?;
+                let repo_path = repo_from_flag_or_cwd(engine, call)?;
                 let rows = $rows(&repo_path, call.head)?;
                 let rows = if $paged { page_rows(rows, call)? } else { rows };
                 Ok(rows_to_value(rows, call.head))
@@ -3022,11 +3061,11 @@ impl SimplePluginCommand for Scan {
     fn run(
         &self,
         _plugin: &CodeDbPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, LabeledError> {
-        let repo_path = repo_from_positional(call, 0)?;
+        let repo_path = repo_from_positional(engine, call, 0)?;
         Ok(rows_to_value(
             scan_summary_rows(&repo_path, call.head)?,
             call.head,
@@ -3078,11 +3117,11 @@ impl SimplePluginCommand for Capture {
     fn run(
         &self,
         _plugin: &CodeDbPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, LabeledError> {
-        let repo = repo_from_positional(call, 0)?;
+        let repo = repo_from_positional(engine, call, 0)?;
         let mut argv = vec![
             "capture".to_string(),
             repo.display().to_string(),
@@ -3138,11 +3177,11 @@ impl SimplePluginCommand for Materialize {
     fn run(
         &self,
         _plugin: &CodeDbPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, LabeledError> {
-        let out_dir = repo_from_positional(call, 0)?;
+        let out_dir = path_from_positional(engine, call, 0)?;
         required_store(call)?;
         let mut argv = vec![
             "materialize".to_string(),
@@ -3219,12 +3258,12 @@ impl SimplePluginCommand for Export {
     fn run(
         &self,
         _plugin: &CodeDbPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, LabeledError> {
         let table: String = call.req(0)?;
-        let repo_path = repo_from_flag_or_cwd(call)?;
+        let repo_path = repo_from_flag_or_cwd(engine, call)?;
         Ok(rows_to_value(
             page_rows(export_rows(&table, &repo_path, call.head)?, call)?,
             call.head,
@@ -3264,12 +3303,12 @@ impl SimplePluginCommand for AgentHarnessImport {
     fn run(
         &self,
         _plugin: &CodeDbPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, LabeledError> {
         let home_path: String = call.req(0)?;
-        let repo_path = repo_from_flag_or_cwd(call)?;
+        let repo_path = repo_from_flag_or_cwd(engine, call)?;
         let rows = agent_harness_import_rows(&repo_path, Path::new(&home_path), call.head)?;
         Ok(rows_to_value(page_rows(rows, call)?, call.head))
     }

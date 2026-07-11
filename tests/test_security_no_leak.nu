@@ -48,6 +48,12 @@ def main [] {
         let fixture = ([$temp_root secret_like] | path join)
 
         cp -r $source_fixture $fixture
+        run_checked [
+            generate-lockfile
+            --manifest-path
+            ([$fixture Cargo.toml] | path join)
+            --offline
+        ] | ignore
 
         let mcp_tests = (run_checked [
             test

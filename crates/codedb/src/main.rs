@@ -3201,10 +3201,12 @@ fn repo_selection(
     } else {
         "default_repo_path"
     };
+    let canonical_repo_path =
+        fs::canonicalize(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
 
     Ok(RepoSelection {
         repo_id,
-        repo_path: PathBuf::from(repo_path),
+        repo_path: canonical_repo_path,
         store_path,
         selection_source: selection_source.to_string(),
     })

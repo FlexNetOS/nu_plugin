@@ -195,7 +195,7 @@ impl BlobStore for PgStore {
             self.tables.blobs
         );
         let path_sql = format!(
-            "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::jsonb) \
+            "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::text::jsonb) \
              ON CONFLICT (module_path) DO UPDATE SET \
                  sha256 = EXCLUDED.sha256, metadata = EXCLUDED.metadata",
             self.tables.path_refs
@@ -627,7 +627,7 @@ fn migrate_legacy_content_rows(
         tables.blobs
     );
     let path_sql = format!(
-        "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::jsonb)",
+        "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::text::jsonb)",
         tables.path_refs
     );
     for row in legacy_rows {

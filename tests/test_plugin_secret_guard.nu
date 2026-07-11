@@ -79,6 +79,12 @@ def main [] {
         let temp_root = (mktemp -d)
         let fixture = ([$temp_root secret_like] | path join)
         cp -r $source_fixture $fixture
+        run_cargo_checked [
+            generate-lockfile
+            --manifest-path
+            ([$fixture Cargo.toml] | path join)
+            --offline
+        ] | ignore
 
         let temp_home = (mktemp -d)
         let scan = (run_nu_plugin_checked $plugin $"codedb scan '($fixture)' | to json" $temp_home)

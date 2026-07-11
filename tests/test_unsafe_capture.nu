@@ -62,6 +62,12 @@ def main [] {
         let temp_root = (mktemp -d)
         let fixture = ([$temp_root build_script] | path join)
         cp -r $source_fixture $fixture
+        run_checked cargo [
+            generate-lockfile
+            --manifest-path
+            ([$fixture Cargo.toml] | path join)
+            --offline
+        ] | ignore
 
         let source_lock = ([$source_fixture Cargo.lock] | path join)
         if ($source_lock | path exists) {
