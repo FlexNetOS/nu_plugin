@@ -306,18 +306,21 @@ fn is_pg_store(spec: &str) -> bool {
 /// `postgres(ql)://` URL is used verbatim; `pg://<rest>` is normalized to a URL;
 /// the bare `pg` selector falls back to `--pg-conn`, then `CODEDB_PG_CONN` /
 /// `DATABASE_URL`, then the crate default (live cluster over its unix socket).
-fn pg_conn_string(spec: &str, args: &[String]) -> String {
+fn pg_conn_string(spec: &str, args: &[String]) -> Result<String, CliError> {
     if spec.starts_with("postgres://") || spec.starts_with("postgresql://") {
-        return spec.to_string();
+        return Ok(spec.to_string());
     }
     if let Some(rest) = spec.strip_prefix("pg://").filter(|rest| !rest.is_empty()) {
-        return format!("postgres://{rest}");
+        return Ok(format!("postgres://{rest}"));
     }
     option_value(args, "--pg-conn")
         .map(str::to_string)
         .or_else(|| env::var("CODEDB_PG_CONN").ok())
         .or_else(|| env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| codedb_store_pg::DEFAULT_CONN.to_string())
+        .filter(|dsn| !dsn.trim().is_empty())
+        .ok_or_else(|| CliError::Message(
+            "PostgreSQL DSN is required: pass --pg-conn, CODEDB_PG_CONN, DATABASE_URL, or a postgres:// store URL".to_string()
+        ))
 }
 
 /// Resolve the PostgreSQL table name: `--pg-table`, then `CODEDB_PG_TABLE`, then
@@ -339,9 +342,9 @@ fn open_store_for_capture(
     args: &[String],
 ) -> Result<(Box<dyn BlobStore>, String), CliError> {
     if is_pg_store(store_spec) {
-        let conn = pg_conn_string(store_spec, args);
+        let conn = pg_conn_string(store_spec, args)?;
         let table = pg_table_name(args);
-        let store = codedb_store_pg::PgStore::connect(&conn, &table)
+        let store = codedb_store_pg::PgStore::initialize(&conn, &table)
             .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
         Ok((Box::new(store), format!("pg:{table}")))
     } else {
@@ -374,9 +377,9 @@ fn open_store_for_capture(
 /// redb: open the existing file (must already exist). pg: connect.
 fn open_store_readonly(store_spec: &str, args: &[String]) -> Result<Box<dyn BlobStore>, CliError> {
     if is_pg_store(store_spec) {
-        let conn = pg_conn_string(store_spec, args);
+        let conn = pg_conn_string(store_spec, args)?;
         let table = pg_table_name(args);
-        let store = codedb_store_pg::PgStore::connect(&conn, &table)
+        let store = codedb_store_pg::PgStore::open_existing(&conn, &table)
             .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
         Ok(Box::new(store))
     } else {
