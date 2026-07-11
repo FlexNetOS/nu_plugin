@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 
 pub mod merge;
 pub mod store;
+pub mod store_spec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowState {
