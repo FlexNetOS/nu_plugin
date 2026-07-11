@@ -5,8 +5,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use codedb_context::{
-    CargoContextRequest, CommandOutput, CommandRunner, ContextError,
-    capture_context_with_runner,
+    CargoContextRequest, CommandOutput, CommandRunner, ContextError, capture_context_with_runner,
 };
 
 #[derive(Default)]
@@ -27,10 +26,9 @@ impl CommandRunner for FakeRunner {
             current_dir.to_path_buf(),
         ));
         match (program, args.as_ref()) {
-            ("cargo", [arg]) if arg == "--version" => Ok(CommandOutput::success(
-                "cargo 1.93.1 (fixture)\n",
-                "",
-            )),
+            ("cargo", [arg]) if arg == "--version" => {
+                Ok(CommandOutput::success("cargo 1.93.1 (fixture)\n", ""))
+            }
             ("rustc", [arg]) if arg == "-vV" => Ok(CommandOutput::success(
                 "rustc 1.93.1 (fixture)\nbinary: rustc\ncommit-hash: fixture\nhost: x86_64-unknown-linux-gnu\nrelease: 1.93.1\nLLVM version: 20.1.0\n",
                 "",
@@ -119,10 +117,18 @@ fn captures_locked_target_feature_and_toolchain_context() {
         })
         .expect("cargo metadata invocation");
     assert!(metadata.1.windows(1).any(|arg| arg == ["--locked"]));
-    assert!(metadata.1.windows(2).any(|args| {
-        args == ["--filter-platform", "aarch64-unknown-linux-gnu"]
-    }));
-    assert!(metadata.1.windows(2).any(|args| args == ["--features", "serde"]));
+    assert!(
+        metadata
+            .1
+            .windows(2)
+            .any(|args| { args == ["--filter-platform", "aarch64-unknown-linux-gnu"] })
+    );
+    assert!(
+        metadata
+            .1
+            .windows(2)
+            .any(|args| args == ["--features", "serde"])
+    );
 }
 
 #[test]
@@ -201,10 +207,16 @@ fn cargo_feature_modes_are_forwarded_and_change_context_identity() {
         })
         .map(|(_, args, _)| args)
         .collect::<Vec<_>>();
-    assert!(metadata_args.iter().any(|args| args.iter().any(|arg| arg == "--all-features")));
-    assert!(metadata_args
-        .iter()
-        .any(|args| args.iter().any(|arg| arg == "--no-default-features")));
+    assert!(
+        metadata_args
+            .iter()
+            .any(|args| args.iter().any(|arg| arg == "--all-features"))
+    );
+    assert!(
+        metadata_args
+            .iter()
+            .any(|args| args.iter().any(|arg| arg == "--no-default-features"))
+    );
 }
 
 #[test]

@@ -12,43 +12,16 @@ jobs:
     name: Mandatory capabilities
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
-      - name: Apply deterministic tested migrations
-        run: |
-          python3 scripts/run_context_integration.py
-          python3 scripts/patch_pg_open.py
-      - name: Format migrated Rust sources
-        run: cargo fmt --all
       - name: Prove locked context, path safety, and PostgreSQL policy
         run: python3 -m unittest tests/test_locked_context_integration.py tests/test_materialization_safety.py tests/test_postgres_open_policy.py tests/test_mandatory_pg_parity.py
       - name: Test affected crates and frontdoors
         run: cargo test -p codedb-core -p codedb-context -p codedb-cargo -p codedb -p nu_plugin_codedb -p codedb-mcp -p codedb-store-pg
-      - name: Regenerate stale repository truth surface
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        run: python3 scripts/truth_surface.py --check || python3 scripts/truth_surface.py --write
-      - name: Commit tested migration and regenerated truth surface
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        run: |
-          if test -n "$(git status --porcelain)"; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add Cargo.lock \
-              crates/codedb/Cargo.toml crates/codedb/src/main.rs \
-              crates/codedb_cargo/Cargo.toml crates/codedb_cargo/src/lib.rs \
-              crates/codedb_context/src/lib.rs \
-              crates/codedb_mcp/Cargo.toml crates/codedb_mcp/src/lib.rs \
-              crates/nu_plugin_codedb/Cargo.toml crates/nu_plugin_codedb/src/main.rs \
-              manifests/CHECKSUMS.sha256 manifests/PACKAGE_VALIDATION.json manifests/PACK_MANIFEST.json
-            git commit -m "feat(safety): apply tested mandatory migration and reseal truth surface"
-            git push origin HEAD:${{ github.head_ref }}
-          fi
 
   postgres_parity:
     name: PostgreSQL/redb mandatory parity

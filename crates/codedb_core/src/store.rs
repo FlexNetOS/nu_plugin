@@ -170,9 +170,7 @@ pub fn prepare_materialization_path(
         }
     }
     let output = canonical_root.join(relative);
-    if fs::symlink_metadata(&output)
-        .is_ok_and(|metadata| metadata.file_type().is_symlink())
-    {
+    if fs::symlink_metadata(&output).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err(StoreError::new(format!(
             "symlink output is forbidden during materialization: {}",
             output.display()

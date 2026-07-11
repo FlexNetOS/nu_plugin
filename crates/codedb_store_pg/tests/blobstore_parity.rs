@@ -12,9 +12,15 @@ use postgres::{Client, NoTls};
 fn fixture_batch() -> Vec<(String, Vec<u8>)> {
     vec![
         ("src/main.rs".to_string(), b"fn main() {}\n".to_vec()),
-        ("src/lib.rs".to_string(), b"pub fn add(a: i32, b: i32) -> i32 { a + b }\n".to_vec()),
+        (
+            "src/lib.rs".to_string(),
+            b"pub fn add(a: i32, b: i32) -> i32 { a + b }\n".to_vec(),
+        ),
         ("README.md".to_string(), b"# codedb\n".to_vec()),
-        ("nested/deep/notes.txt".to_string(), b"deep content\n".to_vec()),
+        (
+            "nested/deep/notes.txt".to_string(),
+            b"deep content\n".to_vec(),
+        ),
         ("empty.txt".to_string(), Vec::new()),
     ]
 }

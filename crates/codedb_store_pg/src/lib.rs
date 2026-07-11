@@ -278,7 +278,10 @@ mod tests {
 
     #[test]
     fn sanitize_table_accepts_bare_identifier() {
-        assert_eq!(sanitize_table("codebase_codedb").unwrap(), "codebase_codedb");
+        assert_eq!(
+            sanitize_table("codebase_codedb").unwrap(),
+            "codebase_codedb"
+        );
         assert_eq!(sanitize_table("_x9").unwrap(), "_x9");
     }
 
