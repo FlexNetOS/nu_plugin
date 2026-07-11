@@ -14,8 +14,8 @@ use codedb_context::{
 use codedb_core::store::{BlobStore, prepare_materialization_path};
 use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
-    TableRow, capture_gaps, capture_source_metadata, prove_no_mutation, scan_filesystem,
-    schema_rows, table_inventory, validation_errors,
+    TableRow, capture_gaps, capture_source_metadata, classify_source_secret, prove_no_mutation,
+    scan_filesystem, schema_rows, table_inventory, validation_errors,
 };
 use codedb_rust_static::capture_rust_items;
 use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
@@ -91,6 +91,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
     };
 
     match command {
+        "mcp" => run_mcp_frontdoor(&args),
         "scan" => {
             let selection =
                 repo_selection(&args, 1, "scan requires <repo_path> or --repo-path <path>")?;
@@ -186,8 +187,87 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             Ok(())
         }
         _ => Err(CliError::Message(format!(
-            "unsupported command: {command}; supported commands: scan, capture, materialize, merge-plan, store-report, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
+            "unsupported command: {command}; supported commands: mcp serve, scan, capture, materialize, merge-plan, store-report, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
         ))),
+    }
+}
+
+fn run_mcp_frontdoor(args: &[String]) -> Result<(), CliError> {
+    if args.get(1).map(String::as_str) != Some("serve") {
+        return Err(CliError::Message(
+            "mcp requires the read-only serve subcommand".to_string(),
+        ));
+    }
+    let repo_path = option_value(args, "--repo-path")
+        .map(PathBuf::from)
+        .ok_or_else(|| CliError::Message("mcp serve requires --repo-path <path>".to_string()))?;
+    let allowed_root =
+        fs::canonicalize(&repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
+    if !allowed_root.is_dir() {
+        return Err(CliError::Message(
+            "mcp serve repository path must be a directory".to_string(),
+        ));
+    }
+    let store = option_value(args, "--store")
+        .ok_or_else(|| CliError::Message("mcp serve requires --store <selector>".to_string()))?;
+    if store.starts_with("postgres://") || store.starts_with("postgresql://") {
+        return Err(CliError::Message(
+            "mcp serve rejects PostgreSQL URLs in argv; use --store pg with inherited CODEDB_PG_CONN"
+                .to_string(),
+        ));
+    }
+    if store == "pg"
+        && env::var("CODEDB_PG_CONN")
+            .ok()
+            .is_none_or(|value| value.trim().is_empty())
+    {
+        return Err(CliError::Message(
+            "mcp serve --store pg requires inherited CODEDB_PG_CONN".to_string(),
+        ));
+    }
+    let current_exe = env::current_exe().map_err(|source| CliError::Core(Box::new(source)))?;
+    let sibling_server =
+        current_exe.with_file_name(format!("codedb-mcp{}", env::consts::EXE_SUFFIX));
+    let server = env::var_os("CODEDB_MCP_SERVER_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            if sibling_server.is_file() {
+                sibling_server
+            } else {
+                PathBuf::from("codedb-mcp")
+            }
+        });
+
+    let mut command = Command::new(server);
+    command
+        .env("CODEDB_MCP_ALLOWED_ROOT", &allowed_root)
+        .env("CODEDB_MCP_STORE", store)
+        .env("CODEDB_MCP_CODEDB_BIN", &current_exe)
+        .env("CODEDB_MCP_RAW_SOURCE_ENABLED", "false");
+    if let Some(default_limit) = option_value(args, "--default-limit") {
+        command.env("CODEDB_MCP_DEFAULT_ROW_LIMIT", default_limit);
+    }
+    if let Some(max_bytes) = option_value(args, "--max-bytes") {
+        command
+            .env("CODEDB_MCP_DEFAULT_MAX_BYTES", max_bytes)
+            .env("CODEDB_MCP_MAX_RESPONSE_BYTES", max_bytes);
+    }
+    if let Some(max_requests) = option_value(args, "--max-requests") {
+        command.env("CODEDB_MCP_MAX_REQUESTS", max_requests);
+    }
+    if let Some(pg_table) = option_value(args, "--pg-table") {
+        command.env("CODEDB_MCP_PG_TABLE", pg_table);
+    }
+
+    let status = command
+        .status()
+        .map_err(|_| CliError::Message("failed to launch codedb-mcp server".to_string()))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(CliError::Message(
+            "codedb-mcp server exited unsuccessfully".to_string(),
+        ))
     }
 }
 
@@ -383,6 +463,13 @@ fn open_store_for_capture(
 /// redb: open the existing file (must already exist). pg: connect.
 fn open_store_readonly(store_spec: &str, args: &[String]) -> Result<Box<dyn BlobStore>, CliError> {
     let store_spec = parse_store_spec(store_spec, args)?;
+    open_parsed_store_readonly(&store_spec, args)
+}
+
+fn open_parsed_store_readonly(
+    store_spec: &StoreSpec,
+    args: &[String],
+) -> Result<Box<dyn BlobStore>, CliError> {
     match store_spec.backend() {
         StoreBackend::PostgreSql => {
             let conn = store_spec
@@ -401,6 +488,13 @@ fn open_store_readonly(store_spec: &str, args: &[String]) -> Result<Box<dyn Blob
                 .map_err(|e| CliError::Message(format!("opening store: {e}")))?;
             Ok(Box::new(batcher))
         }
+    }
+}
+
+fn materialize_store_identity(store_spec: &StoreSpec, args: &[String]) -> String {
+    match store_spec.backend() {
+        StoreBackend::PostgreSql => format!("postgresql:{}", pg_table_name(args)),
+        StoreBackend::Redb => store_spec.redacted(),
     }
 }
 
@@ -496,16 +590,24 @@ fn capture_rows(
                 continue;
             }
             let source = repo_path.join(&entry.relative_path);
+            let bytes = fs::read(&source).map_err(|e| {
+                CliError::Message(format!("read failed for {}: {e}", entry.relative_path))
+            })?;
+            let classification = classify_source_secret(&entry.relative_path, &bytes);
             let source_metadata = capture_source_metadata(repo_path, &source).map_err(|error| {
                 CliError::Message(format!(
                     "source policy capture failed for {}: {error}",
                     entry.relative_path
                 ))
             })?;
-            if source_metadata.has_secret_like_material
-                || sensitive_source_path(&entry.relative_path)
-            {
+            if !classification.raw_persistence_safe() {
                 gaps += 1;
+                let evidence = classification
+                    .evidence
+                    .iter()
+                    .map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",");
                 rows.push(row([
                     ("table", "source_policy".to_string()),
                     ("relative_path", entry.relative_path),
@@ -514,23 +616,25 @@ fn capture_rows(
                     ("mode", source_metadata.default_mode.as_str().to_string()),
                     (
                         "has_secret_like_material",
-                        source_metadata.has_secret_like_material.to_string(),
+                        classification.has_secret().to_string(),
                     ),
-                    ("raw_blob_persisted", "false".to_string()),
                     (
-                        "reason",
-                        if source_metadata.has_secret_like_material {
-                            source_metadata.policy_reason
+                        "classification_status",
+                        classification.status.as_str().to_string(),
+                    ),
+                    (
+                        "classification_evidence",
+                        if evidence.is_empty() {
+                            "none".to_string()
                         } else {
-                            "sensitive path class is metadata-only by default".to_string()
+                            evidence
                         },
                     ),
+                    ("raw_blob_persisted", "false".to_string()),
+                    ("reason", source_metadata.policy_reason),
                 ]));
                 continue;
             }
-            let bytes = fs::read(&source).map_err(|e| {
-                CliError::Message(format!("read failed for {}: {e}", entry.relative_path))
-            })?;
             let len = bytes.len() as u64;
             // Adaptive: a file at/above the batch-bytes budget gets its own singleton
             // batch so one large blob can't stall a batch of small files.
@@ -601,38 +705,6 @@ fn capture_rows(
     Ok(rows)
 }
 
-fn sensitive_source_path(relative_path: &str) -> bool {
-    let normalized = relative_path.replace('\\', "/").to_ascii_lowercase();
-    let file_name = normalized.rsplit('/').next().unwrap_or_default();
-    normalized == ".git"
-        || normalized.starts_with(".git/")
-        || file_name == ".env"
-        || file_name.starts_with(".env.")
-        || matches!(
-            file_name,
-            "auth.json"
-                | "credentials"
-                | "credentials.json"
-                | "credentials.toml"
-                | "cookies.json"
-                | "id_rsa"
-                | "id_ed25519"
-                | "private_key"
-                | "session.json"
-        )
-        || [
-            "access_token",
-            "api_key",
-            "auth_token",
-            "client_secret",
-            "connection_string",
-            "database_url",
-            "private_key",
-        ]
-        .iter()
-        .any(|needle| file_name.contains(needle))
-}
-
 /// Compare two repo roots' source files by content hash and emit the merge plan:
 /// a `merge_summary` row, one `crate_collision` row per shared package name, and
 /// one `divergent` row per conflicting file (the surgical worklist). `--files`
@@ -685,7 +757,9 @@ fn materialize_rows(
     only: Option<&str>,
     args: &[String],
 ) -> Result<Vec<Row>, CliError> {
-    let store = open_store_readonly(store_spec, args)?;
+    let parsed_store = parse_store_spec(store_spec, args)?;
+    let store_identity = materialize_store_identity(&parsed_store, args);
+    let store = open_parsed_store_readonly(&parsed_store, args)?;
     let files = store
         .list_source_files()
         .map_err(|e| CliError::Message(format!("listing store files: {e}")))?;
@@ -740,7 +814,7 @@ fn materialize_rows(
     }
     rows.push(row([
         ("table", "materialize_summary".to_string()),
-        ("store_path", store_spec.to_string()),
+        ("store_path", store_identity),
         ("out_dir", out_dir.display().to_string()),
         ("files_materialized", count.to_string()),
         ("bytes_materialized", bytes.to_string()),
@@ -3240,6 +3314,90 @@ fn _repo_path(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn materialize_postgresql_identity_hides_url_credentials() {
+        let sentinel = "CODEDB_CREDENTIAL_SENTINEL";
+        let spec = parse_store_spec(
+            &format!("postgresql://codedb:{sentinel}@db.example.test/codedb"),
+            &[],
+        )
+        .expect("parse PostgreSQL selector");
+        let identity = materialize_store_identity(&spec, &[]);
+
+        assert_eq!(identity, "postgresql:codebase_codedb");
+        assert!(!identity.contains(sentinel));
+        assert!(!identity.contains('@'));
+    }
+
+    #[test]
+    fn materialize_postgresql_identity_hides_query_values() {
+        let sentinel = "CODEDB_QUERY_SENTINEL";
+        let spec = parse_store_spec(
+            &format!(
+                "postgresql://codedb@db.example.test/codedb?application_name={sentinel}&sslpassword=hidden"
+            ),
+            &[],
+        )
+        .expect("parse PostgreSQL selector");
+        let identity = materialize_store_identity(&spec, &[]);
+
+        assert_eq!(identity, "postgresql:codebase_codedb");
+        assert!(!identity.contains(sentinel));
+        assert!(!identity.contains('?'));
+    }
+
+    #[test]
+    fn materialize_postgresql_identity_hides_percent_encoded_sentinels() {
+        let sentinel = "%43%4f%44%45%44%42%5f%53%45%4e%54%49%4e%45%4c";
+        let spec = parse_store_spec(
+            &format!("postgresql://codedb@db.example.test/codedb?options={sentinel}"),
+            &[],
+        )
+        .expect("parse PostgreSQL selector");
+        let identity = materialize_store_identity(&spec, &[]);
+
+        assert_eq!(identity, "postgresql:codebase_codedb");
+        assert!(!identity.contains(sentinel));
+        assert!(!identity.contains('%'));
+    }
+
+    #[test]
+    fn mcp_frontdoor_rejects_postgresql_argv_sentinels_without_echoing_them() {
+        let root = env::temp_dir().join(format!(
+            "codedb_mcp_argv_guard_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create MCP root");
+        let credential_sentinel = "CODEDB_ARGV_CREDENTIAL_SENTINEL";
+        let query_sentinel = "CODEDB_ARGV_QUERY_SENTINEL";
+        let percent_sentinel = "%43%4f%44%45%44%42";
+        let selector = format!(
+            "postgresql://codedb:{credential_sentinel}@db.example.test/codedb?password={query_sentinel}&options={percent_sentinel}"
+        );
+        let error = run_mcp_frontdoor(&[
+            "mcp".to_string(),
+            "serve".to_string(),
+            "--repo-path".to_string(),
+            root.display().to_string(),
+            "--store".to_string(),
+            selector,
+        ])
+        .expect_err("PostgreSQL URL selectors must be rejected before launch");
+        let diagnostic = error.to_string();
+
+        assert!(diagnostic.contains("use --store pg"));
+        assert!(!diagnostic.contains(credential_sentinel));
+        assert!(!diagnostic.contains(query_sentinel));
+        assert!(!diagnostic.contains(percent_sentinel));
+        assert!(!diagnostic.contains("postgresql://codedb:"));
+
+        fs::remove_dir_all(root).expect("remove MCP root");
+    }
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEMP_REPO_ID: AtomicU64 = AtomicU64::new(0);

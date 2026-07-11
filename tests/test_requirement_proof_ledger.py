@@ -36,7 +36,7 @@ REQUIRED_COLUMNS = [
 ]
 
 
-def complete_row(requirement_id: str, head: str) -> dict[str, str]:
+def complete_row(requirement_id: str, head: str = "") -> dict[str, str]:
     return {
         "requirement_id": requirement_id,
         "parent_id": requirement_id.split("-", 1)[0],
@@ -46,7 +46,7 @@ def complete_row(requirement_id: str, head: str) -> dict[str, str]:
         "implementation_paths": "src/implementation.rs",
         "test_paths": "tests/proof_test.py",
         "verification_command": "python3 tests/proof_test.py",
-        "proof_artifacts": "execution/proofs/proof.json",
+        "proof_artifacts": "cargo-metadata-output",
         "proof_head_sha": head,
         "evidence_status": "verified",
         "task_status": "complete",
@@ -54,8 +54,27 @@ def complete_row(requirement_id: str, head: str) -> dict[str, str]:
     }
 
 
+def receipt_row(requirement_id: str) -> dict:
+    digest = "1" * 64
+    return {
+        "requirement_id": requirement_id,
+        "status": "verified",
+        "verification_command": "python3 tests/proof_test.py",
+        "exit_code": 0,
+        "stdout_sha256": digest,
+        "stderr_sha256": digest,
+        "evidence": [
+            {
+                "logical_name": "cargo-metadata-output",
+                "sha256": digest,
+                "kind": "command-output",
+            }
+        ],
+    }
+
+
 class RequirementProofLedgerUnitTest(unittest.TestCase):
-    def test_verified_row_requires_direct_current_head_executable_proof(self) -> None:
+    def test_verified_row_requires_direct_external_current_head_attestation(self) -> None:
         head = "a" * 40
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -67,16 +86,14 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
                 target = root / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text("proof\n", encoding="utf-8")
-            proof = root / "execution/proofs/proof.json"
-            proof.parent.mkdir(parents=True, exist_ok=True)
-            proof.write_text(f'{{"head":"{head}"}}\n', encoding="utf-8")
 
             violations = validate_rows(
                 root,
-                [complete_row("CDB013", head)],
+                [complete_row("CDB013")],
                 expected_ids={"CDB013"},
                 current_head=head,
                 require_all_verified=True,
+                receipt_rows={"CDB013": receipt_row("CDB013")},
             )
             self.assertEqual([], violations, "\n" + "\n".join(map(str, violations)))
 
@@ -90,7 +107,9 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
         )
         self.assertTrue(any(v.rule == "missing requirement row" for v in violations))
 
-    def test_stale_head_and_documentation_only_proof_are_rejected(self) -> None:
+    def test_self_referential_legacy_head_and_documentation_only_proof_are_rejected(
+        self,
+    ) -> None:
         head = "a" * 40
         row = complete_row("CDB013", "b" * 40)
         row["implementation_paths"] = "docs/implementation.md"
@@ -102,13 +121,15 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
             require_all_verified=True,
         )
         rules = {v.rule for v in violations}
-        self.assertIn("stale proof revision", rules)
+        self.assertIn("self-referential legacy proof revision", rules)
         self.assertIn("documentation-only implementation proof", rules)
+        self.assertIn("missing external current-head attestation", rules)
 
     def test_missing_files_and_non_executable_command_are_rejected(self) -> None:
         head = "a" * 40
         row = complete_row("CDB013", head)
         row["verification_command"] = "see docs/RELEASE_GATE.md"
+        row["proof_artifacts"] = ""
         violations = validate_rows(
             Path("."),
             [row],
@@ -119,7 +140,7 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
         rules = {v.rule for v in violations}
         self.assertIn("missing implementation path", rules)
         self.assertIn("missing test path", rules)
-        self.assertIn("missing proof artifact", rules)
+        self.assertIn("missing logical proof artifact", rules)
         self.assertIn("non-executable verification command", rules)
 
     def test_missing_local_authoritative_source_is_rejected(self) -> None:
@@ -162,6 +183,23 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
             require_all_verified=False,
         )
         self.assertTrue(any(v.rule == "task complete without verified proof" for v in violations))
+
+    def test_receipt_evidence_is_bound_to_the_specific_requirement_row(self) -> None:
+        head = "a" * 40
+        row = complete_row("CDB013")
+        wrong = receipt_row("CDB013")
+        wrong["evidence"][0]["logical_name"] = "different-proof"
+        violations = validate_rows(
+            Path("."),
+            [row],
+            expected_ids={"CDB013"},
+            current_head=head,
+            require_all_verified=True,
+            receipt_rows={"CDB013": wrong},
+        )
+        self.assertTrue(
+            any(v.rule == "receipt missing logical proof artifact" for v in violations)
+        )
 
 
 class RepositoryRequirementProofLedgerTest(unittest.TestCase):

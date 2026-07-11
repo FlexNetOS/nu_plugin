@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::fs;
 use std::io;
 use std::path::Component;
@@ -15,7 +15,7 @@ pub const UNSAFE_FLAG: &str = "--unsafe-execute-build";
 
 pub type Row = BTreeMap<String, String>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BuildCaptureRequest {
     pub repo_path: PathBuf,
     pub store_path: Option<PathBuf>,
@@ -27,7 +27,7 @@ pub struct BuildCaptureRequest {
     pub cleanup_plan: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BuildCaptureOutcome {
     pub status: BuildCaptureStatus,
     pub unsafe_execution_approval: Vec<Row>,
@@ -66,12 +66,93 @@ impl BuildCaptureStatus {
     }
 }
 
-#[derive(Debug)]
 pub enum BuildCaptureError {
     CreateLogDir { path: PathBuf, source: io::Error },
     WriteLog { path: PathBuf, source: io::Error },
     SpawnCargo { path: PathBuf, source: io::Error },
     DisallowedEnvironment { key: String },
+}
+
+impl Debug for BuildCaptureRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BuildCaptureRequest")
+            .field(
+                "repo_path",
+                &redact_text(&self.repo_path.display().to_string()),
+            )
+            .field(
+                "store_path",
+                &self
+                    .store_path
+                    .as_ref()
+                    .map(|path| redact_text(&path.display().to_string())),
+            )
+            .field(
+                "raw_log_path",
+                &redact_text(&self.raw_log_path.display().to_string()),
+            )
+            .field("unsafe_execute_build", &self.unsafe_execute_build)
+            .field("approver", &self.approver.as_deref().map(redact_text))
+            .field("task_id", &self.task_id.as_deref().map(redact_text))
+            .field(
+                "before_state",
+                &self.before_state.as_deref().map(redact_text),
+            )
+            .field(
+                "cleanup_plan",
+                &self.cleanup_plan.as_deref().map(redact_text),
+            )
+            .finish()
+    }
+}
+
+impl Debug for BuildCaptureOutcome {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BuildCaptureOutcome")
+            .field("status", &self.status)
+            .field(
+                "unsafe_execution_approval_rows",
+                &self.unsafe_execution_approval.len(),
+            )
+            .field("build_script_run_rows", &self.build_script_runs.len())
+            .field("build_script_env_rows", &self.build_script_env.len())
+            .field("build_script_stdout_rows", &self.build_script_stdout.len())
+            .field("build_script_stderr_rows", &self.build_script_stderr.len())
+            .field(
+                "build_script_cargo_instruction_rows",
+                &self.build_script_cargo_instructions.len(),
+            )
+            .field(
+                "proc_macro_invocation_rows",
+                &self.proc_macro_invocations.len(),
+            )
+            .field(
+                "proc_macro_input_rows",
+                &self.proc_macro_input_token_streams.len(),
+            )
+            .field(
+                "proc_macro_output_rows",
+                &self.proc_macro_output_token_streams.len(),
+            )
+            .field("native_link_fact_rows", &self.native_link_facts.len())
+            .field("out_dir_artifact_rows", &self.out_dir_artifacts.len())
+            .field(
+                "toolchain_provenance_rows",
+                &self.toolchain_provenance.len(),
+            )
+            .field("validation_error_rows", &self.validation_errors.len())
+            .field("capture_gap_rows", &self.capture_gaps.len())
+            .field("raw_log_path_rows", &self.raw_log_paths.len())
+            .finish()
+    }
+}
+
+impl Debug for BuildCaptureError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("BuildCaptureError")
+            .field(&self.to_string())
+            .finish()
+    }
 }
 
 impl Display for BuildCaptureError {
@@ -80,28 +161,32 @@ impl Display for BuildCaptureError {
             Self::CreateLogDir { path, source } => {
                 write!(
                     f,
-                    "failed to create log directory {}: {source}",
-                    path.display()
+                    "failed to create log directory {}: {}",
+                    redact_text(&path.display().to_string()),
+                    io_error_summary(source)
                 )
             }
             Self::WriteLog { path, source } => {
                 write!(
                     f,
-                    "failed to write raw capture log {}: {source}",
-                    path.display()
+                    "failed to write raw capture log {}: {}",
+                    redact_text(&path.display().to_string()),
+                    io_error_summary(source)
                 )
             }
             Self::SpawnCargo { path, source } => {
                 write!(
                     f,
-                    "failed to run cargo check in {}: {source}",
-                    path.display()
+                    "failed to run cargo check in {}: {}",
+                    redact_text(&path.display().to_string()),
+                    io_error_summary(source)
                 )
             }
             Self::DisallowedEnvironment { key } => {
                 write!(
                     f,
-                    "approved build capture environment key is not allowlisted: {key}"
+                    "approved build capture environment key is not allowlisted: {}",
+                    redact_text(key)
                 )
             }
         }
@@ -110,7 +195,11 @@ impl Display for BuildCaptureError {
 
 impl StdError for BuildCaptureError {}
 
-#[derive(Debug, Clone)]
+fn io_error_summary(error: &io::Error) -> String {
+    format!("[io-error kind={:?}]", error.kind())
+}
+
+#[derive(Clone)]
 struct BuildScriptObservation {
     package_id: String,
     out_dir: Option<PathBuf>,
@@ -119,7 +208,7 @@ struct BuildScriptObservation {
     linked_paths: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct CapturedStream {
     package_id: String,
     out_dir: PathBuf,
@@ -296,7 +385,7 @@ pub fn capture_approved_fixture_build_with_env(
                     ("code", "dynamic_build_capture_failed".to_string()),
                     (
                         "message",
-                        first_non_empty_line(&redact_text(&stderr))
+                        first_non_empty_line(&redact_compiler_stream(&stderr))
                             .unwrap_or("cargo check failed")
                             .to_string(),
                     ),
@@ -616,6 +705,11 @@ const APPROVED_CAPTURE_ENVIRONMENT: &[&str] = &[
     "CODEDB_PROC_MACRO_LOG_PATH",
 ];
 
+const SAFE_OBSERVED_ENVIRONMENT_VALUES: &[&str] = &[
+    "CODEDB_FIXTURE_BUILD_SCRIPT",
+    "CODEDB_FIXTURE_EMIT_NATIVE_LINK",
+];
+
 fn validate_approved_environment(environment: &[(&str, &str)]) -> Result<(), BuildCaptureError> {
     for (key, _) in environment {
         if !APPROVED_CAPTURE_ENVIRONMENT.contains(key) {
@@ -625,6 +719,26 @@ fn validate_approved_environment(environment: &[(&str, &str)]) -> Result<(), Bui
         }
     }
     Ok(())
+}
+
+fn observed_environment_value(key: &str, value: &str) -> String {
+    if is_sensitive_key(key) {
+        return "[REDACTED]".to_string();
+    }
+    if SAFE_OBSERVED_ENVIRONMENT_VALUES.contains(&key) {
+        return redact_text(value);
+    }
+    metadata_summary("environment-value", value.as_bytes())
+}
+
+fn approved_environment_value(key: &str, value: &str) -> String {
+    if is_sensitive_key(key) {
+        return "[REDACTED]".to_string();
+    }
+    if key == "CODEDB_FIXTURE_EMIT_NATIVE_LINK" {
+        return redact_text(value);
+    }
+    metadata_summary("approved-environment-value", value.as_bytes())
 }
 
 fn copy_allowlisted_host_environment(command: &mut Command) {
@@ -776,7 +890,7 @@ fn build_script_env_rows(
                     ("status", "observed".to_string()),
                     ("package_id", observation.package_id.clone()),
                     ("key", key.clone()),
-                    ("value", redact_value_for_key(key, value)),
+                    ("value", observed_environment_value(key, value)),
                     (
                         "out_dir",
                         observation
@@ -806,7 +920,7 @@ fn approved_environment_rows(
                 ("approval_id", approval_id(request)),
                 ("status", "provided".to_string()),
                 ("key", (*key).to_string()),
-                ("value", redact_value_for_key(key, value)),
+                ("value", approved_environment_value(key, value)),
                 (
                     "provenance",
                     "approved capture environment allowlist".to_string(),
@@ -838,7 +952,7 @@ fn capture_build_script_streams(observations: &[BuildScriptObservation]) -> Vec<
                 out_dir: out_dir.to_path_buf(),
                 stream,
                 source_path,
-                redacted: redact_text(&raw),
+                redacted: redact_build_script_stream(&raw),
                 raw,
             });
         }
@@ -1081,6 +1195,7 @@ fn capture_out_dir_artifacts_from(
         } else {
             artifact.insert("file_kind".to_string(), "other".to_string());
         }
+        sanitize_row_values(&mut artifact);
         artifacts.push(artifact);
     }
     Ok(())
@@ -1354,11 +1469,19 @@ fn capture_proc_macro_evidence(
         }
     }
     let summary = if evidence.log_summary.is_empty() {
-        "proc_macro_evidence=unrecognized\n".to_string()
+        format!(
+            "proc_macro_evidence={}\n",
+            metadata_summary("unrecognized-proc-macro-stream", content.as_bytes())
+        )
     } else {
-        format!("{}\n", evidence.log_summary.join("\n"))
+        format!(
+            "{}\nproc_macro_source={}\n",
+            evidence.log_summary.join("\n"),
+            metadata_summary("proc-macro-stream", content.as_bytes())
+        )
     };
     if fs::write(&path, summary).is_err() {
+        let _ = fs::remove_file(&path);
         return ProcMacroEvidence::default();
     }
     evidence
@@ -1374,6 +1497,7 @@ fn push_proc_macro_evidence(
     let (Some(macro_name), Some(input), Some(output)) = (macro_name, input, output) else {
         return;
     };
+    let macro_name = safe_label_or_summary("proc-macro-name", &macro_name);
     let input_sha256 = sha256_hex(input.as_bytes());
     let output_sha256 = sha256_hex(output.as_bytes());
     evidence.invocations.push(row([
@@ -1498,6 +1622,7 @@ fn toolchain_provenance(target_dir: &Path, request: &BuildCaptureRequest) -> Row
         "environment_policy".to_string(),
         "cleared_then_allowlisted".to_string(),
     );
+    sanitize_row_values(&mut row);
     row
 }
 
@@ -1524,12 +1649,14 @@ fn write_redacted_raw_log(
         redact_text(request.before_state.as_deref().unwrap_or_default()),
         redact_text(request.cleanup_plan.as_deref().unwrap_or_default()),
         redact_cargo_json_output(&String::from_utf8_lossy(&output.stdout)),
-        redact_text(&String::from_utf8_lossy(&output.stderr))
+        redact_compiler_stream(&String::from_utf8_lossy(&output.stderr))
     );
     for stream in streams {
         body.push_str(&format!(
             "--- build script {} ({}) ---\n{}\n",
-            stream.stream, stream.package_id, stream.redacted
+            stream.stream,
+            redact_text(&stream.package_id),
+            stream.redacted
         ));
     }
     if !proc_macro_log_summary.is_empty() {
@@ -1720,17 +1847,130 @@ fn redact_value_for_key(key: &str, value: &str) -> String {
     }
 }
 
+fn metadata_summary(kind: &str, bytes: &[u8]) -> String {
+    format!(
+        "[metadata-only kind={kind} bytes={} sha256={}]",
+        bytes.len(),
+        sha256_hex(bytes)
+    )
+}
+
+fn safe_label_or_summary(kind: &str, value: &str) -> String {
+    let trimmed = value.trim();
+    if !trimmed.is_empty()
+        && trimmed.len() <= 128
+        && trimmed
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "_:-.".contains(character))
+        && !looks_like_bare_secret(trimmed)
+        && !looks_like_jwt(trimmed)
+        && !looks_like_aws_access_key(trimmed)
+        && !looks_like_npm_token(trimmed)
+        && !contains_database_uri(trimmed)
+        && !looks_percent_encoded_credential(trimmed)
+    {
+        trimmed.to_string()
+    } else {
+        metadata_summary(kind, value.as_bytes())
+    }
+}
+
 fn redact_text(value: &str) -> String {
-    value
-        .lines()
-        .map(|line| {
-            line.split_whitespace()
-                .map(redact_token)
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut output = Vec::new();
+    let mut private_key_block = None::<String>;
+    for line in value.lines() {
+        if let Some(block) = private_key_block.as_mut() {
+            block.push('\n');
+            block.push_str(line);
+            if is_private_key_end(line) {
+                let block = private_key_block.take().expect("private key block");
+                output.push(metadata_summary("private-key", block.as_bytes()));
+            }
+            continue;
+        }
+        if is_private_key_begin(line) {
+            private_key_block = Some(line.to_string());
+            if is_private_key_end(line) {
+                let block = private_key_block.take().expect("private key block");
+                output.push(metadata_summary("private-key", block.as_bytes()));
+            }
+            continue;
+        }
+        output.push(redact_line(line));
+    }
+    if let Some(block) = private_key_block {
+        output.push(metadata_summary(
+            "unterminated-private-key",
+            block.as_bytes(),
+        ));
+    }
+    output.join("\n")
+}
+
+fn is_private_key_begin(line: &str) -> bool {
+    let upper = line.to_ascii_uppercase();
+    upper.contains("-----BEGIN ") && upper.contains("PRIVATE KEY-----")
+}
+
+fn is_private_key_end(line: &str) -> bool {
+    let upper = line.to_ascii_uppercase();
+    upper.contains("-----END ") && upper.contains("PRIVATE KEY-----")
+}
+
+fn redact_line(line: &str) -> String {
+    let mut output = Vec::new();
+    let mut redact_next_value = false;
+    let mut database_value = false;
+    let mut bearer_value = false;
+
+    for token in line.split_whitespace() {
+        let normalized = normalized_token(token);
+        if bearer_value {
+            output.push("[REDACTED]".to_string());
+            bearer_value = false;
+            continue;
+        }
+        if redact_next_value {
+            if matches!(token, "=" | ":") {
+                output.push(token.to_string());
+                continue;
+            }
+            output.push(if database_value && contains_database_uri(token) {
+                redact_database_uri_token(token)
+            } else {
+                "[REDACTED]".to_string()
+            });
+            redact_next_value = false;
+            database_value = false;
+            continue;
+        }
+        if normalized.eq_ignore_ascii_case("bearer") {
+            output.push(token.to_string());
+            bearer_value = true;
+            continue;
+        }
+        if is_sensitive_key(&normalized)
+            && !token.contains('=')
+            && !token.contains(':')
+            && !token.contains('%')
+            && (is_database_key(&normalized)
+                || token
+                    .trim_matches(|character: char| {
+                        !character.is_ascii_alphanumeric() && character != '_'
+                    })
+                    .chars()
+                    .all(|character| {
+                        !character.is_ascii_alphabetic() || character.is_ascii_uppercase()
+                    }))
+        {
+            output.push(token.to_string());
+            redact_next_value = true;
+            database_value = is_database_key(&normalized);
+            continue;
+        }
+        output.push(redact_token(token));
+    }
+    output.join(" ")
 }
 
 fn redact_token(token: &str) -> String {
@@ -1740,11 +1980,24 @@ fn redact_token(token: &str) -> String {
             '"' | '\'' | '`' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}'
         )
     });
-    if looks_like_bare_secret(unquoted) {
+    if looks_percent_encoded_credential(unquoted) {
+        return "[REDACTED]".to_string();
+    }
+    if contains_database_uri(unquoted) {
+        return redact_database_uri_token(token);
+    }
+    if looks_like_bare_secret(unquoted)
+        || looks_like_jwt(unquoted)
+        || looks_like_aws_access_key(unquoted)
+        || looks_like_npm_token(unquoted)
+    {
         return "[REDACTED]".to_string();
     }
     if let Some((key, value)) = token.split_once('=') {
         if is_sensitive_key(key) {
+            if is_database_key(key) && contains_database_uri(value) {
+                return format!("{key}={}", redact_database_uri_token(value));
+            }
             return format!("{key}=[REDACTED]");
         }
         if let Some((nested_key, _nested_value)) = value.split_once('=')
@@ -1758,7 +2011,20 @@ fn redact_token(token: &str) -> String {
     {
         return format!("{key}:[REDACTED]");
     }
+    if let Some((prefix, _value)) = token.split_once(':')
+        && prefix.eq_ignore_ascii_case("bearer")
+    {
+        return format!("{prefix}:[REDACTED]");
+    }
     token.to_string()
+}
+
+fn normalized_token(value: &str) -> String {
+    value
+        .trim_matches(|character: char| {
+            !character.is_ascii_alphanumeric() && !matches!(character, '_' | '-')
+        })
+        .to_string()
 }
 
 fn looks_like_bare_secret(token: &str) -> bool {
@@ -1777,13 +2043,177 @@ fn looks_like_bare_secret(token: &str) -> bool {
         .any(|prefix| token.starts_with(prefix) && token.len() >= prefix.len() + 12)
 }
 
+fn looks_like_jwt(token: &str) -> bool {
+    let parts = token.split('.').collect::<Vec<_>>();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            part.len() >= 8
+                && part
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character))
+        })
+}
+
+fn looks_like_aws_access_key(token: &str) -> bool {
+    (token.starts_with("AKIA") || token.starts_with("ASIA"))
+        && token.len() == 20
+        && token
+            .chars()
+            .all(|character| character.is_ascii_uppercase() || character.is_ascii_digit())
+}
+
+fn looks_like_npm_token(token: &str) -> bool {
+    token.starts_with("npm_") && token.len() >= 16
+}
+
+fn looks_percent_encoded_credential(token: &str) -> bool {
+    let lower = token.to_ascii_lowercase();
+    [
+        "database_url%3d",
+        "dsn%3d",
+        "connection_string%3d",
+        "password%3d",
+        "passwd%3d",
+        "token%3d",
+        "secret%3d",
+        "authorization%3a",
+        "private_key%3d",
+        "npm_token%3d",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+        || ((lower.contains("postgres%3a%2f%2f") || lower.contains("postgresql%3a%2f%2f"))
+            && (lower.contains("%3a") || lower.contains("%40")))
+}
+
+fn contains_database_uri(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("postgres://") || lower.contains("postgresql://")
+}
+
+fn redact_database_uri_token(token: &str) -> String {
+    let lower = token.to_ascii_lowercase();
+    let Some(start) = ["postgresql://", "postgres://"]
+        .iter()
+        .filter_map(|scheme| lower.find(scheme))
+        .min()
+    else {
+        return if looks_percent_encoded_credential(token) {
+            "[REDACTED]".to_string()
+        } else {
+            token.to_string()
+        };
+    };
+    let end = token[start..]
+        .char_indices()
+        .find_map(|(index, character)| {
+            (index > 0 && matches!(character, '"' | '\'' | ')' | ']' | '}' | ',' | ';'))
+                .then_some(start + index)
+        })
+        .unwrap_or(token.len());
+    let prefix = &token[..start];
+    let suffix = &token[end..];
+    let uri = &token[start..end];
+    format!("{prefix}{}{suffix}", redact_database_uri(uri))
+}
+
+fn redact_database_uri(uri: &str) -> String {
+    let Some(scheme_end) = uri.find("://").map(|index| index + 3) else {
+        return metadata_summary("malformed-database-uri", uri.as_bytes());
+    };
+    let authority_end = uri[scheme_end..]
+        .find(['/', '?', '#'])
+        .map(|index| scheme_end + index)
+        .unwrap_or(uri.len());
+    let authority = &uri[scheme_end..authority_end];
+    let safe_authority = if let Some(at) = authority.rfind('@') {
+        format!("[REDACTED]@{}", &authority[at + 1..])
+    } else if let Some(at) = authority.to_ascii_lowercase().rfind("%40") {
+        format!("[REDACTED]@{}", &authority[at + 3..])
+    } else if let Some((host_or_user, port_or_password)) = authority.rsplit_once(':') {
+        if port_or_password.parse::<u16>().is_ok() {
+            format!("{host_or_user}:{port_or_password}")
+        } else {
+            "[REDACTED]".to_string()
+        }
+    } else {
+        authority.to_string()
+    };
+
+    let remainder = &uri[authority_end..];
+    let redacted_remainder = if let Some(query_start) = remainder.find('?') {
+        let (path, query_and_fragment) = remainder.split_at(query_start + 1);
+        let (query, fragment) = query_and_fragment
+            .split_once('#')
+            .map_or((query_and_fragment, ""), |(query, fragment)| {
+                (query, fragment)
+            });
+        let query = query
+            .split('&')
+            .map(|parameter| {
+                let Some((key, value)) = parameter.split_once('=') else {
+                    return if is_sensitive_query_key(parameter) {
+                        format!("{parameter}=[REDACTED]")
+                    } else {
+                        parameter.to_string()
+                    };
+                };
+                if is_sensitive_query_key(key)
+                    || looks_like_bare_secret(value)
+                    || looks_like_jwt(value)
+                    || looks_like_aws_access_key(value)
+                    || looks_like_npm_token(value)
+                    || looks_percent_encoded_credential(value)
+                {
+                    format!("{key}=[REDACTED]")
+                } else {
+                    format!("{key}={value}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+        if fragment.is_empty() {
+            format!("{path}{query}")
+        } else {
+            format!("{path}{query}#{}", redact_text(fragment))
+        }
+    } else {
+        remainder.to_string()
+    };
+    format!("{}{safe_authority}{redacted_remainder}", &uri[..scheme_end])
+}
+
+fn is_sensitive_query_key(key: &str) -> bool {
+    let decoded_shape = key
+        .to_ascii_lowercase()
+        .replace("%5f", "_")
+        .replace("%2d", "-");
+    is_sensitive_key(&decoded_shape)
+        || matches!(
+            normalized_sensitive_key(&decoded_shape).as_str(),
+            "auth" | "_auth" | "user" | "username" | "sslkey" | "passphrase"
+        )
+}
+
 fn redact_cargo_json_output(value: &str) -> String {
     value
         .lines()
         .map(|line| {
             let Ok(mut message) = serde_json::from_str::<serde_json::Value>(line) else {
-                return redact_text(line);
+                return metadata_summary("unrecognized-cargo-output", line.as_bytes());
             };
+            let Some(reason) = message.get("reason").and_then(serde_json::Value::as_str) else {
+                return metadata_summary("unrecognized-cargo-json", line.as_bytes());
+            };
+            if !matches!(
+                reason,
+                "compiler-artifact"
+                    | "compiler-message"
+                    | "build-script-executed"
+                    | "build-finished"
+            ) {
+                return metadata_summary("unrecognized-cargo-json", line.as_bytes());
+            }
             if let Some(environment) = message
                 .get_mut("env")
                 .and_then(serde_json::Value::as_array_mut)
@@ -1792,18 +2222,30 @@ fn redact_cargo_json_output(value: &str) -> String {
                     let Some(values) = entry.as_array_mut() else {
                         continue;
                     };
-                    let Some(key) = values.first().and_then(serde_json::Value::as_str) else {
+                    let Some(key) = values
+                        .first()
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                    else {
                         continue;
                     };
-                    if is_sensitive_key(key)
-                        && let Some(value) = values.get_mut(1)
+                    if let Some(value) = values.get_mut(1)
+                        && let Some(text) = value.as_str()
                     {
-                        *value = serde_json::Value::String("[REDACTED]".to_string());
+                        let redacted = if is_sensitive_key(&key) {
+                            "[REDACTED]".to_string()
+                        } else if SAFE_OBSERVED_ENVIRONMENT_VALUES.contains(&key.as_str()) {
+                            redact_text(text)
+                        } else {
+                            metadata_summary("environment-value", text.as_bytes())
+                        };
+                        *value = serde_json::Value::String(redacted);
                     }
                 }
             }
             redact_json_strings(&mut message);
-            serde_json::to_string(&message).unwrap_or_else(|_| redact_text(line))
+            serde_json::to_string(&message)
+                .unwrap_or_else(|_| metadata_summary("cargo-json-serialization", line.as_bytes()))
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -1818,27 +2260,183 @@ fn redact_json_strings(value: &mut serde_json::Value) {
             }
         }
         serde_json::Value::Object(values) => {
-            for value in values.values_mut() {
-                redact_json_strings(value);
+            for (key, value) in values {
+                if is_sensitive_key(key) {
+                    *value = serde_json::Value::String("[REDACTED]".to_string());
+                } else {
+                    redact_json_value_for_key(key, value);
+                }
             }
         }
         serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
     }
 }
 
-fn is_sensitive_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
+fn redact_json_value_for_key(key: &str, value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => {
+            *text = match key {
+                "stdout" => redact_build_script_stream(text),
+                "stderr" => redact_compiler_stream(text),
+                _ if is_allowlisted_cargo_json_string_key(key) => redact_text(text),
+                _ => metadata_summary("unrecognized-cargo-json-string", text.as_bytes()),
+            };
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                match value {
+                    serde_json::Value::String(text) => {
+                        *text = if is_allowlisted_cargo_json_string_key(key) {
+                            redact_text(text)
+                        } else {
+                            metadata_summary("unrecognized-cargo-json-string", text.as_bytes())
+                        };
+                    }
+                    _ => redact_json_strings(value),
+                }
+            }
+        }
+        serde_json::Value::Object(_)
+        | serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_) => redact_json_strings(value),
+    }
+}
+
+fn is_allowlisted_cargo_json_string_key(key: &str) -> bool {
     [
-        "secret",
-        "token",
-        "password",
-        "credential",
-        "authorization",
-        "api_key",
-        "private_key",
+        "reason",
+        "package_id",
+        "manifest_path",
+        "message",
+        "rendered",
+        "level",
+        "code",
+        "name",
+        "kind",
+        "crate_types",
+        "src_path",
+        "edition",
+        "features",
+        "filenames",
+        "executable",
+        "out_dir",
+        "env",
+        "linked_libs",
+        "linked_paths",
+        "text",
+        "label",
+        "suggested_replacement",
+        "suggestion_applicability",
+        "macro_decl_name",
+        "emit",
+        "debuginfo",
+        "opt_level",
     ]
-    .iter()
-    .any(|marker| key.contains(marker))
+    .contains(&key)
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let key = normalized_sensitive_key(key);
+    if key.is_empty()
+        || key == "token_count"
+        || key.ends_with("_sha256")
+        || matches!(key.as_str(), "sha256" | "approval_id")
+    {
+        return false;
+    }
+    is_database_key(&key)
+        || key == "dsn"
+        || key.ends_with("_dsn")
+        || matches!(key.as_str(), "auth" | "_auth")
+        || [
+            "secret",
+            "token",
+            "password",
+            "passwd",
+            "credential",
+            "authorization",
+            "api_key",
+            "private_key",
+            "access_key_id",
+            "auth_token",
+            "jwt",
+            "passphrase",
+            "sslkey",
+        ]
+        .iter()
+        .any(|marker| key.contains(marker))
+}
+
+fn is_database_key(key: &str) -> bool {
+    let key = normalized_sensitive_key(key);
+    key == "database_url"
+        || key.ends_with("_database_url")
+        || key == "connection_string"
+        || key.ends_with("_connection_string")
+        || key == "dsn"
+        || key.ends_with("_dsn")
+}
+
+fn normalized_sensitive_key(key: &str) -> String {
+    let key = key.rsplit(['/', '\\', '?', '&']).next().unwrap_or(key);
+    key.trim_matches(|character: char| {
+        !character.is_ascii_alphanumeric() && !matches!(character, '_' | '-')
+    })
+    .to_ascii_lowercase()
+    .replace('-', "_")
+}
+
+fn redact_build_script_stream(value: &str) -> String {
+    redact_stream(value, "unrecognized-build-script-output", |line| {
+        let line = line.trim_start();
+        line.starts_with("cargo:") || line.starts_with("cargo::")
+    })
+}
+
+fn redact_compiler_stream(value: &str) -> String {
+    redact_stream(value, "unrecognized-compiler-output", |line| {
+        let line = line.trim_start();
+        [
+            "warning:",
+            "error:",
+            "note:",
+            "help:",
+            "Caused by:",
+            "Compiling ",
+            "Checking ",
+            "Finished ",
+            "Updating ",
+            "Locking ",
+            "Downloaded ",
+            "Downloading ",
+        ]
+        .iter()
+        .any(|prefix| line.starts_with(prefix))
+    })
+}
+
+fn redact_stream(
+    value: &str,
+    unknown_kind: &str,
+    allowlisted_line: impl Fn(&str) -> bool,
+) -> String {
+    value
+        .lines()
+        .map(|line| {
+            let redacted = redact_text(line);
+            if line.trim().is_empty()
+                || allowlisted_line(line)
+                || redacted.contains("[REDACTED]")
+                || redacted.contains("[metadata-only")
+            {
+                redacted
+            } else {
+                metadata_summary(unknown_kind, line.as_bytes())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn first_non_empty_line(value: &str) -> Option<&str> {
@@ -1846,10 +2444,18 @@ fn first_non_empty_line(value: &str) -> Option<&str> {
 }
 
 fn row<const N: usize>(pairs: [(&str, String); N]) -> Row {
-    pairs
+    let mut row = pairs
         .into_iter()
         .map(|(key, value)| (key.to_string(), value))
-        .collect()
+        .collect();
+    sanitize_row_values(&mut row);
+    row
+}
+
+fn sanitize_row_values(row: &mut Row) {
+    for (key, value) in row {
+        *value = redact_value_for_key(key, value);
+    }
 }
 
 #[cfg(test)]
@@ -2774,6 +3380,354 @@ edition = "2024"
         assert!(!redacted.contains("nested-json-secret"));
         assert!(!redacted.contains("ghp_"));
         assert!(redacted.contains("[REDACTED]"));
+    }
+
+    // Test lane: redaction
+    // Defends: database credentials and common CI/package credential families
+    // never survive build/compiler stream sanitization, including encoded forms.
+    #[test]
+    fn redaction_covers_database_uri_and_ci_token_families() {
+        let input = concat!(
+            "DATABASE_URL=postgresql://dbuser:db-password-sentinel@db.example/app?sslmode=require&token=query-token-sentinel\n",
+            "DSN = postgres://encoded:p%40ss-encoded-sentinel@db.example/app?password=query-password-sentinel\n",
+            "dsn = opaque-dsn-sentinel\n",
+            "connection_string: host=db.example password=connection-password-sentinel\n",
+            "Authorization: Bearer bearer-token-sentinel\n",
+            "jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqd3Qtc2VudGluZWwifQ.jwt-signature-sentinel\n",
+            "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE AWS_SECRET_ACCESS_KEY=aws-secret-sentinel\n",
+            "npm_token=npm_npm-token-sentinel\n",
+            "DATABASE_URL%3Dpostgresql%3A%2F%2Fencoded%3Apercent-credential-sentinel%40db.example%2Fapp\n",
+            "-----BEGIN PRIVATE KEY-----\nprivate-key-sentinel\n-----END PRIVATE KEY-----\n",
+        );
+
+        let redacted = redact_text(input);
+
+        assert_no_sentinels(&redacted);
+        assert!(redacted.contains("db.example"));
+        assert!(redacted.contains("[REDACTED]"));
+    }
+
+    // Test lane: redaction
+    // Defends: valid Cargo JSON is recursively key-aware while malformed or
+    // unrecognized lines are represented only by non-reversible metadata.
+    #[test]
+    fn cargo_json_redaction_is_key_aware_and_malformed_lines_are_metadata_only() {
+        let valid = serde_json::json!({
+            "reason": "compiler-message",
+            "DATABASE_URL": "postgresql://user:json-database-sentinel@db.example/app",
+            "message": {
+                "rendered": "warning: Authorization: Bearer json-bearer-sentinel",
+                "children": [{
+                    "message": "linker -Wl,-rpath,postgresql://user:json-linker-sentinel@db.example/app"
+                }]
+            },
+            "env": [
+                ["DSN", "postgres://user:json-dsn-sentinel@db.example/app"],
+                ["CODEDB_FIXTURE_BUILD_SCRIPT", "observed"],
+                ["UNRECOGNIZED_BUILD_VALUE", "json-env-opaque-sentinel"]
+            ]
+        })
+        .to_string();
+        let malformed =
+            r#"{"reason":"compiler-message","message":"DATABASE_URL=malformed-json-sentinel""#;
+        let input = format!("{valid}\n{malformed}");
+
+        let redacted = redact_cargo_json_output(&input);
+
+        assert_no_sentinels(&redacted);
+        assert!(redacted.contains("observed"));
+        assert!(redacted.contains("metadata-only"));
+        assert!(redacted.contains("sha256="));
+    }
+
+    // Test lane: redaction
+    // Defends: Cargo warnings plus build-script stdout/compiler stderr retain
+    // recognized safe evidence, redact credential forms, and hash unknown lines.
+    #[test]
+    fn cargo_warning_stdout_stderr_and_unknown_streams_are_fail_closed() {
+        let stdout = redact_build_script_stream(concat!(
+            "cargo:warning=safe-build-warning\n",
+            "cargo:warning=DATABASE_URL=postgresql://user:stdout-database-sentinel@db.example/app\n",
+            "opaque-build-output-sentinel\n",
+        ));
+        let stderr = redact_compiler_stream(concat!(
+            "warning: safe-compiler-warning\n",
+            "error: Authorization: Bearer stderr-bearer-sentinel\n",
+            "opaque-compiler-output-sentinel\n",
+        ));
+        let json = redact_cargo_json_output(
+            &serde_json::json!({
+                "reason": "compiler-message",
+                "mystery_stream": "opaque-json-stream-sentinel"
+            })
+            .to_string(),
+        );
+        let rendered = format!("{stdout}\n{stderr}\n{json}");
+
+        assert_no_sentinels(&rendered);
+        assert!(rendered.contains("safe-build-warning"));
+        assert!(rendered.contains("safe-compiler-warning"));
+        assert!(rendered.contains("metadata-only"));
+        assert!(rendered.contains("sha256="));
+    }
+
+    // Test lane: redaction
+    // Defends: only explicitly safe observed environment values retain their
+    // value; unknown values become metadata-only and credential keys redact.
+    #[test]
+    fn environment_rows_preserve_allowlisted_safe_values_and_summarize_unknown_values() {
+        let observations = vec![BuildScriptObservation {
+            package_id: "fixture 0.1.0".to_string(),
+            out_dir: None,
+            environment: vec![
+                (
+                    "CODEDB_FIXTURE_BUILD_SCRIPT".to_string(),
+                    "observed".to_string(),
+                ),
+                (
+                    "DATABASE_URL".to_string(),
+                    "postgresql://user:env-database-sentinel@db.example/app".to_string(),
+                ),
+                (
+                    "UNRECOGNIZED_BUILD_VALUE".to_string(),
+                    "opaque-env-sentinel".to_string(),
+                ),
+            ],
+            linked_libs: Vec::new(),
+            linked_paths: Vec::new(),
+        }];
+
+        let rows = build_script_env_rows(&observations, &request(true));
+        let rendered = format!("{rows:?}");
+
+        assert_no_sentinels(&rendered);
+        assert!(rows.iter().any(|row| {
+            row.get("key").map(String::as_str) == Some("CODEDB_FIXTURE_BUILD_SCRIPT")
+                && row.get("value").map(String::as_str) == Some("observed")
+        }));
+        assert!(rows.iter().any(|row| {
+            row.get("key").map(String::as_str) == Some("DATABASE_URL")
+                && row.get("value").map(String::as_str) == Some("[REDACTED]")
+        }));
+        assert!(rows.iter().any(|row| {
+            row.get("key").map(String::as_str) == Some("UNRECOGNIZED_BUILD_VALUE")
+                && row
+                    .get("value")
+                    .is_some_and(|value| value.contains("metadata-only"))
+        }));
+    }
+
+    // Test lane: redaction
+    // Defends: linker evidence keeps benign positive facts while credentials
+    // embedded in Cargo linker observations or rustc-link-arg values disappear.
+    #[test]
+    fn linker_rows_preserve_safe_evidence_without_embedded_credentials() {
+        let request = request(true);
+        let observations = vec![BuildScriptObservation {
+            package_id: "fixture 0.1.0".to_string(),
+            out_dir: None,
+            environment: Vec::new(),
+            linked_libs: vec![
+                "static=codedb_fixture_native".to_string(),
+                "postgresql://user:linked-lib-sentinel@db.example/app".to_string(),
+            ],
+            linked_paths: Vec::new(),
+        }];
+        let instructions = vec![row([
+            ("instruction", "rustc-link-arg".to_string()),
+            (
+                "value",
+                "-Wl,-rpath,postgresql://user:link-arg-sentinel@db.example/app?token=link-query-sentinel"
+                    .to_string(),
+            ),
+            ("package_id", "fixture 0.1.0".to_string()),
+            ("out_dir", String::new()),
+        ])];
+
+        let facts = native_link_facts_from_observations_and_instructions(
+            &observations,
+            &instructions,
+            &request,
+        );
+        let rendered = format!("{facts:?}");
+
+        assert_no_sentinels(&rendered);
+        assert!(facts.iter().any(|fact| {
+            fact.get("value").map(String::as_str) == Some("static=codedb_fixture_native")
+        }));
+    }
+
+    // Test lane: redaction
+    // Defends: operator-controlled approval fields and public Debug/Error
+    // formatting cannot become a side channel for sentinels.
+    #[test]
+    fn approval_rows_and_debug_error_formatting_never_expose_sentinels() {
+        let mut request = request(true);
+        request.approver = Some("Bearer approval-bearer-sentinel".to_string());
+        request.task_id = Some("DATABASE_URL=approval-task-sentinel".to_string());
+        request.before_state = Some("npm_approval-before-sentinel".to_string());
+        request.cleanup_plan =
+            Some("postgresql://user:approval-cleanup-sentinel@db.example/app".to_string());
+
+        let request_debug = format!("{request:?}");
+        let outcome = capture_build(request);
+        let outcome_debug = format!("{outcome:?}");
+        let outcome_rows = format!("{:?}", outcome.unsafe_execution_approval);
+        let error = BuildCaptureError::DisallowedEnvironment {
+            key: "DATABASE_URL=error-format-sentinel".to_string(),
+        };
+        let io_error = BuildCaptureError::SpawnCargo {
+            path: PathBuf::from("/tmp/DATABASE_URL=path-error-sentinel"),
+            source: io::Error::other("opaque-io-error-sentinel"),
+        };
+        let error_rendered = format!("{error} {error:?} {io_error} {io_error:?}");
+
+        assert_no_sentinels(&request_debug);
+        assert_no_sentinels(&outcome_debug);
+        assert_no_sentinels(&outcome_rows);
+        assert_no_sentinels(&error_rendered);
+        assert_eq!(outcome.status, BuildCaptureStatus::ApprovedScaffold);
+        assert_eq!(
+            outcome.unsafe_execution_approval[0]
+                .get("status")
+                .map(String::as_str),
+            Some("approved")
+        );
+    }
+
+    // Test lane: redaction
+    // Defends: the persisted raw evidence log applies the same policy to
+    // approval provenance, Cargo output, and captured build-script streams.
+    #[test]
+    fn raw_log_never_exposes_approval_or_stream_sentinels() {
+        let directory = temp_dir("codedb_raw_log_redaction");
+        let raw_log_path = directory.join("capture.log");
+        let mut request = request(true);
+        request.raw_log_path = raw_log_path.clone();
+        request.approver = Some("Bearer approval-bearer-sentinel".to_string());
+        request.task_id = Some("DATABASE_URL=approval-task-sentinel".to_string());
+        request.before_state = Some("npm_approval-before-sentinel".to_string());
+        request.cleanup_plan =
+            Some("postgresql://user:approval-cleanup-sentinel@db.example/app".to_string());
+        let output = Command::new("rustc")
+            .arg("--version")
+            .output()
+            .expect("rustc output for raw-log redaction fixture");
+        let stream_raw = concat!(
+            "cargo:warning=Authorization: Bearer stdout-stream-bearer-sentinel\n",
+            "opaque-raw-stream-sentinel\n",
+        )
+        .to_string();
+        let streams = vec![CapturedStream {
+            package_id: "fixture 0.1.0".to_string(),
+            out_dir: directory.join("out"),
+            stream: "stdout",
+            source_path: directory.join("output"),
+            redacted: redact_build_script_stream(&stream_raw),
+            raw: stream_raw,
+        }];
+
+        write_redacted_raw_log(&raw_log_path, &request, &output, &streams, &[])
+            .expect("write redacted raw log");
+        let log = fs::read_to_string(&raw_log_path).expect("read redacted raw log");
+
+        assert_no_sentinels(&log);
+        assert!(log.contains("metadata-only"));
+        assert!(log.contains("[REDACTED]"));
+
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    // Test lane: redaction
+    // Defends: proc-macro evidence remains hash-only when names or token
+    // streams contain credentials, while safe macro names remain useful.
+    #[test]
+    fn proc_macro_rows_and_rewritten_logs_never_expose_sentinels() {
+        let directory = temp_dir("codedb_proc_macro_redaction");
+        fs::create_dir_all(&directory).expect("create proc-macro redaction fixture");
+        let log_path = directory.join("proc-macro.log");
+        fs::write(
+            &log_path,
+            concat!(
+                "macro_name=Bearer proc-macro-name-sentinel\n",
+                "input=DATABASE_URL=proc-macro-input-sentinel\n",
+                "output=npm_proc-macro-output-sentinel\n",
+                "---\n",
+                "malformed=private-key-malformed-sentinel\n",
+            ),
+        )
+        .expect("write proc-macro evidence");
+        let log_value = log_path.display().to_string();
+
+        let evidence = capture_proc_macro_evidence(
+            &[("CODEDB_PROC_MACRO_LOG_PATH", log_value.as_str())],
+            &request(true),
+        );
+        let rendered = format!("{evidence:?}");
+        let rewritten = fs::read_to_string(&log_path).expect("read rewritten proc-macro log");
+
+        assert_no_sentinels(&rendered);
+        assert_no_sentinels(&rewritten);
+        assert!(
+            evidence
+                .inputs
+                .iter()
+                .all(|row| row.get("capture").map(String::as_str) == Some("hash-only"))
+        );
+        assert!(rewritten.contains("sha256="));
+
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    fn assert_no_sentinels(value: &str) {
+        for sentinel in [
+            "db-password-sentinel",
+            "p%40ss-encoded-sentinel",
+            "query-token-sentinel",
+            "query-password-sentinel",
+            "opaque-dsn-sentinel",
+            "connection-password-sentinel",
+            "bearer-token-sentinel",
+            "jwt-signature-sentinel",
+            "aws-secret-sentinel",
+            "npm-token-sentinel",
+            "percent-credential-sentinel",
+            "private-key-sentinel",
+            "json-database-sentinel",
+            "json-bearer-sentinel",
+            "json-linker-sentinel",
+            "json-dsn-sentinel",
+            "json-env-opaque-sentinel",
+            "malformed-json-sentinel",
+            "stdout-database-sentinel",
+            "opaque-build-output-sentinel",
+            "stderr-bearer-sentinel",
+            "opaque-compiler-output-sentinel",
+            "opaque-json-stream-sentinel",
+            "env-database-sentinel",
+            "opaque-env-sentinel",
+            "linked-lib-sentinel",
+            "link-arg-sentinel",
+            "link-query-sentinel",
+            "approval-bearer-sentinel",
+            "approval-task-sentinel",
+            "approval-before-sentinel",
+            "approval-cleanup-sentinel",
+            "error-format-sentinel",
+            "path-error-sentinel",
+            "opaque-io-error-sentinel",
+            "stdout-stream-bearer-sentinel",
+            "opaque-raw-stream-sentinel",
+            "proc-macro-name-sentinel",
+            "proc-macro-input-sentinel",
+            "proc-macro-output-sentinel",
+            "private-key-malformed-sentinel",
+        ] {
+            assert!(
+                !value.contains(sentinel),
+                "redaction leaked sentinel {sentinel}: {value}"
+            );
+        }
     }
 
     fn copy_fixture_tree(source: &Path, destination: &Path, files: &[&str]) {

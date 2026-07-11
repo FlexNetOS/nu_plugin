@@ -12,11 +12,19 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import hashlib
+import os
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+
+from requirement_proof_attestation import (
+    CheckoutIdentity,
+    load_receipt,
+    validate_receipt,
+)
 
 
 LEDGER_PATH = Path("execution/REQUIREMENT_PROOF_LEDGER.csv")
@@ -95,15 +103,36 @@ def _resolve_paths(root: Path, value: str) -> list[Path]:
     return resolved
 
 
-def _current_head(root: Path) -> str:
+def _git_output(root: Path, *args: str) -> str:
     completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+        ["git", *args],
         cwd=root,
         check=True,
         capture_output=True,
         text=True,
     )
     return completed.stdout.strip()
+
+
+def _current_head(root: Path) -> str:
+    return _git_output(root, "rev-parse", "HEAD")
+
+
+def _current_tree(root: Path) -> str:
+    return _git_output(root, "rev-parse", "HEAD^{tree}")
+
+
+def _worktree_clean(root: Path) -> bool:
+    return not _git_output(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _graph_statuses(root: Path) -> dict[str, str]:
@@ -131,6 +160,7 @@ def validate_rows(
     current_head: str,
     require_all_verified: bool,
     graph_statuses: dict[str, str] | None = None,
+    receipt_rows: dict[str, dict] | None = None,
 ) -> list[Violation]:
     violations: list[Violation] = []
     ids = [row.get("requirement_id", "") for row in rows]
@@ -240,7 +270,6 @@ def validate_rows(
         for field, rule in [
             ("implementation_paths", "missing implementation path"),
             ("test_paths", "missing test path"),
-            ("proof_artifacts", "missing proof artifact"),
         ]:
             items = _split_paths(row.get(field, ""))
             paths = _resolve_paths(root, row.get(field, ""))
@@ -256,28 +285,48 @@ def validate_rows(
             )
 
         proof_head = row.get("proof_head_sha", "").strip()
-        if proof_head != current_head:
+        if proof_head:
             violations.append(
                 Violation(
                     requirement_id,
-                    "stale proof revision",
-                    f"proof={proof_head or '<empty>'}, current={current_head}",
+                    "self-referential legacy proof revision",
+                    "proof_head_sha must be empty; exact commit identity belongs in the external attestation",
                 )
             )
 
-        proof_paths = _resolve_paths(root, row.get("proof_artifacts", ""))
-        if proof_paths and not any(
-            current_head in path.read_text(encoding="utf-8", errors="ignore")
-            for path in proof_paths
-            if path.is_file()
-        ):
+        logical_artifacts = _split_paths(row.get("proof_artifacts", ""))
+        if not logical_artifacts:
             violations.append(
                 Violation(
                     requirement_id,
-                    "proof artifact not bound to current head",
+                    "missing logical proof artifact",
+                    "proof_artifacts must name receipt evidence, not committed generated files",
+                )
+            )
+        receipt_row = (receipt_rows or {}).get(requirement_id)
+        if receipt_row is None:
+            violations.append(
+                Violation(
+                    requirement_id,
+                    "missing external current-head attestation",
                     current_head,
                 )
             )
+        else:
+            receipt_evidence = {
+                item.get("logical_name", "")
+                for item in receipt_row.get("evidence", [])
+                if isinstance(item, dict)
+            }
+            for logical_artifact in logical_artifacts:
+                if logical_artifact not in receipt_evidence:
+                    violations.append(
+                        Violation(
+                            requirement_id,
+                            "receipt missing logical proof artifact",
+                            logical_artifact,
+                        )
+                    )
 
     return sorted(
         violations,
@@ -285,8 +334,18 @@ def validate_rows(
     )
 
 
-def audit_ledger(root: Path, *, require_all_verified: bool) -> list[Violation]:
+def audit_ledger(
+    root: Path,
+    *,
+    require_all_verified: bool,
+    receipt_path: Path | None = None,
+    require_trusted_ci: bool = True,
+) -> list[Violation]:
     root = root.resolve()
+    if receipt_path is None:
+        configured_receipt = os.environ.get("CODEDB_REQUIREMENT_PROOF_RECEIPT")
+        if configured_receipt:
+            receipt_path = Path(configured_receipt)
     path = root / LEDGER_PATH
     if not path.is_file():
         return [Violation("*", "missing ledger", str(LEDGER_PATH))]
@@ -295,14 +354,60 @@ def audit_ledger(root: Path, *, require_all_verified: bool) -> list[Violation]:
     except (OSError, ValueError) as error:
         return [Violation("*", "invalid ledger", str(error))]
 
-    return validate_rows(
+    current_head = _current_head(root)
+    receipt_rows: dict[str, dict] = {}
+    receipt_violations: list[Violation] = []
+    verified_rows = [row for row in rows if row.get("evidence_status") == "verified"]
+    if require_all_verified and verified_rows:
+        if receipt_path is None:
+            receipt_violations.append(
+                Violation(
+                    "*",
+                    "missing external proof receipt",
+                    "pass --receipt or CODEDB_REQUIREMENT_PROOF_RECEIPT",
+                )
+            )
+        else:
+            resolved_receipt = (
+                receipt_path
+                if receipt_path.is_absolute()
+                else (Path.cwd() / receipt_path).resolve()
+            )
+            try:
+                receipt = load_receipt(resolved_receipt)
+                receipt_rows, failures = validate_receipt(
+                    receipt,
+                    identity=CheckoutIdentity(
+                        commit_sha=current_head,
+                        tree_sha=_current_tree(root),
+                        ledger_sha256=_sha256_file(path),
+                        validator_sha256=_sha256_file(Path(__file__).resolve()),
+                        clean=_worktree_clean(root),
+                    ),
+                    ledger_rows=rows,
+                    require_trusted_ci=require_trusted_ci,
+                )
+                receipt_violations.extend(
+                    Violation("*", failure.rule, failure.detail)
+                    for failure in failures
+                )
+            except (OSError, ValueError) as error:
+                receipt_violations.append(
+                    Violation("*", "invalid external proof receipt", str(error))
+                )
+
+    return [
+        *receipt_violations,
+        *validate_rows(
         root,
         rows,
         expected_ids=EXPECTED_REQUIREMENT_IDS,
-        current_head=_current_head(root),
+        current_head=current_head,
         require_all_verified=require_all_verified,
         graph_statuses=_graph_statuses(root),
-    )
+        receipt_rows=receipt_rows,
+        ),
+    ]
 
 
 def _print_violations(violations: Iterable[Violation]) -> None:
@@ -318,9 +423,29 @@ def main() -> int:
         action="store_true",
         help="Validate inventory/schema/contradictions without asserting release readiness",
     )
+    parser.add_argument(
+        "--receipt",
+        type=Path,
+        default=(
+            Path(value)
+            if (value := os.environ.get("CODEDB_REQUIREMENT_PROOF_RECEIPT"))
+            else None
+        ),
+        help="External receipt generated after checkout; never committed into the attested tree",
+    )
+    parser.add_argument(
+        "--allow-local-receipt",
+        action="store_true",
+        help="Development only: do not require GitHub Actions generator/attestation fields",
+    )
     args = parser.parse_args()
 
-    violations = audit_ledger(args.root, require_all_verified=not args.structure_only)
+    violations = audit_ledger(
+        args.root,
+        require_all_verified=not args.structure_only,
+        receipt_path=args.receipt,
+        require_trusted_ci=not args.allow_local_receipt,
+    )
     if violations:
         print("requirement proof ledger: FAILED")
         _print_violations(violations)

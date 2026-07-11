@@ -246,42 +246,48 @@ fn codedb_bin() -> String {
     env::var("CODEDB_BIN").unwrap_or_else(|_| "codedb".to_string())
 }
 
-fn store_option_argv(
+struct StoreInvocation {
+    argv: Vec<String>,
+    env: Vec<(String, String)>,
+}
+
+fn store_option_invocation(
     store: Option<&str>,
-    pg_conn: Option<&str>,
     pg_table: Option<&str>,
-) -> Vec<String> {
+) -> Result<StoreInvocation, String> {
     let mut argv = Vec::new();
     if let Some(store) = store {
+        if store.starts_with("postgres://") || store.starts_with("postgresql://") {
+            return Err(
+                "credential-bearing PostgreSQL store URLs are forbidden in Nushell arguments; use --store pg with CODEDB_PG_CONN"
+                    .to_string(),
+            );
+        }
         argv.push("--store".to_string());
         argv.push(store.to_string());
-    }
-    if let Some(pg_conn) = pg_conn {
-        argv.push("--pg-conn".to_string());
-        argv.push(pg_conn.to_string());
     }
     if let Some(pg_table) = pg_table {
         argv.push("--pg-table".to_string());
         argv.push(pg_table.to_string());
     }
-    argv
+    Ok(StoreInvocation {
+        argv,
+        env: Vec::new(),
+    })
 }
 
-fn codedb_store_args(call: &EvaluatedCall) -> Result<Vec<String>, LabeledError> {
+fn codedb_store_invocation(call: &EvaluatedCall) -> Result<StoreInvocation, LabeledError> {
     let store = call.get_flag::<String>("store")?;
-    let pg_conn = call.get_flag::<String>("pg-conn")?;
     let pg_table = call.get_flag::<String>("pg-table")?;
-    Ok(store_option_argv(
-        store.as_deref(),
-        pg_conn.as_deref(),
-        pg_table.as_deref(),
-    ))
+    store_option_invocation(store.as_deref(), pg_table.as_deref()).map_err(|message| {
+        LabeledError::new("invalid CodeDB store selection").with_label(message, call.head)
+    })
 }
 
 fn required_store(call: &EvaluatedCall) -> Result<String, LabeledError> {
     call.get_flag::<String>("store")?.ok_or_else(|| {
         LabeledError::new("missing CodeDB store selector").with_label(
-            "pass --store <path|redb://path|postgres://dsn|postgresql://dsn|pg>",
+            "pass --store <path|redb://path|pg>; PostgreSQL DSNs belong only in CODEDB_PG_CONN",
             call.head,
         )
     })
@@ -292,13 +298,7 @@ fn store_signature(signature: Signature) -> Signature {
         .named(
             "store",
             SyntaxShape::String,
-            "Dynamic store selector: path, redb://, postgres://, postgresql://, or pg",
-            None,
-        )
-        .named(
-            "pg-conn",
-            SyntaxShape::String,
-            "Explicit PostgreSQL DSN used only with --store pg",
+            "Dynamic store selector: path, redb://, or pg; PostgreSQL DSNs use CODEDB_PG_CONN",
             None,
         )
         .named(
@@ -309,22 +309,24 @@ fn store_signature(signature: Signature) -> Signature {
         )
 }
 
-fn redact_codedb_diagnostic(stderr: &str, argv: &[String]) -> String {
+fn redact_codedb_diagnostic(stderr: &str, secrets: &[String]) -> String {
     let mut redacted = stderr.to_string();
-    for pair in argv.windows(2) {
-        if pair[0] == "--pg-conn"
-            || (pair[0] == "--store"
-                && (pair[1].starts_with("postgres://") || pair[1].starts_with("postgresql://")))
-        {
-            redacted = redacted.replace(&pair[1], REDACTED_VALUE);
+    for secret in secrets {
+        if !secret.is_empty() {
+            redacted = redacted.replace(secret, REDACTED_VALUE);
         }
     }
     redacted
 }
 
-fn run_codedb_json(argv: &[String], span: Span) -> Result<JsonValue, LabeledError> {
+fn run_codedb_json(
+    argv: &[String],
+    env_vars: &[(String, String)],
+    span: Span,
+) -> Result<JsonValue, LabeledError> {
     let out = std::process::Command::new(codedb_bin())
         .args(argv)
+        .envs(env_vars.iter().map(|(key, value)| (key, value)))
         .output()
         .map_err(|e| {
             LabeledError::new("failed to launch codedb")
@@ -332,8 +334,12 @@ fn run_codedb_json(argv: &[String], span: Span) -> Result<JsonValue, LabeledErro
         })?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
+        let secrets = env_vars
+            .iter()
+            .map(|(_, value)| value.clone())
+            .collect::<Vec<_>>();
         return Err(LabeledError::new("codedb command failed")
-            .with_label(redact_codedb_diagnostic(stderr.trim(), argv), span));
+            .with_label(redact_codedb_diagnostic(stderr.trim(), &secrets), span));
     }
     serde_json::from_slice(&out.stdout).map_err(|e| {
         LabeledError::new("codedb returned invalid JSON").with_label(e.to_string(), span)
@@ -3128,7 +3134,8 @@ impl SimplePluginCommand for Capture {
             "--format".to_string(),
             "json".to_string(),
         ];
-        argv.extend(codedb_store_args(call)?);
+        let store = codedb_store_invocation(call)?;
+        argv.extend(store.argv.iter().cloned());
         if let Some(value) = call.get_flag::<i64>("batch-files")? {
             argv.extend(["--batch-files".to_string(), value.to_string()]);
         }
@@ -3141,7 +3148,7 @@ impl SimplePluginCommand for Capture {
         if call.has_flag("resume")? {
             argv.push("--resume".to_string());
         }
-        let json = run_codedb_json(&argv, call.head)?;
+        let json = run_codedb_json(&argv, &store.env, call.head)?;
         Ok(json_array_to_table(&json, call.head))
     }
 }
@@ -3190,11 +3197,12 @@ impl SimplePluginCommand for Materialize {
             "--format".to_string(),
             "json".to_string(),
         ];
-        argv.extend(codedb_store_args(call)?);
+        let store = codedb_store_invocation(call)?;
+        argv.extend(store.argv.iter().cloned());
         if let Some(path) = call.get_flag::<String>("path")? {
             argv.extend(["--path".to_string(), path]);
         }
-        let json = run_codedb_json(&argv, call.head)?;
+        let json = run_codedb_json(&argv, &store.env, call.head)?;
         Ok(json_array_to_table(&json, call.head))
     }
 }
@@ -3227,8 +3235,9 @@ impl SimplePluginCommand for StoreReport {
             "--format".to_string(),
             "json".to_string(),
         ];
-        argv.extend(codedb_store_args(call)?);
-        let json = run_codedb_json(&argv, call.head)?;
+        let store = codedb_store_invocation(call)?;
+        argv.extend(store.argv.iter().cloned());
+        let json = run_codedb_json(&argv, &store.env, call.head)?;
         Ok(json_array_to_table(&json, call.head))
     }
 }
@@ -3910,41 +3919,57 @@ mod tests {
     }
 
     #[test]
-    fn dynamic_store_options_preserve_redb_and_postgresql_selectors() {
+    fn dynamic_store_options_keep_postgresql_credentials_out_of_argv() {
         assert_eq!(
-            store_option_argv(Some("redb:///tmp/code.redb"), None, None),
+            store_option_invocation(Some("redb:///tmp/code.redb"), None)
+                .expect("redb invocation")
+                .argv,
             vec!["--store", "redb:///tmp/code.redb"]
         );
+        let postgresql =
+            store_option_invocation(Some("pg"), Some("repo_a")).expect("PostgreSQL invocation");
         assert_eq!(
-            store_option_argv(
-                Some("pg"),
-                Some("postgresql://user:secret@db/code"),
-                Some("repo_a"),
-            ),
-            vec![
-                "--store",
-                "pg",
-                "--pg-conn",
-                "postgresql://user:secret@db/code",
-                "--pg-table",
-                "repo_a",
-            ]
+            postgresql.argv,
+            vec!["--store", "pg", "--pg-table", "repo_a"]
         );
+        assert!(postgresql.env.is_empty());
+        assert!(
+            !postgresql
+                .argv
+                .iter()
+                .any(|argument| argument.contains("secret")),
+            "credential-bearing DSNs must never enter child argv"
+        );
+
+        assert!(
+            store_option_invocation(
+                Some("postgres://user:p%40ss@db/code?sslmode=require"),
+                Some("repo_b"),
+            )
+            .is_err()
+        );
+        assert!(store_option_invocation(Some("postgresql://user:secret@db/code"), None).is_err());
     }
 
     #[test]
     fn codedb_diagnostics_redact_postgresql_credentials() {
-        let argv = store_option_argv(
-            Some("postgresql://user:secret@db/code"),
-            Some("postgresql://other:password@db/code"),
-            None,
-        );
-        let stderr =
-            "failed postgresql://user:secret@db/code via postgresql://other:password@db/code";
-        let diagnostic = redact_codedb_diagnostic(stderr, &argv);
+        let secrets = vec!["postgresql://user:secret@db/code".to_string()];
+        let stderr = "failed postgresql://user:secret@db/code";
+        let diagnostic = redact_codedb_diagnostic(stderr, &secrets);
         assert!(!diagnostic.contains("secret"));
-        assert!(!diagnostic.contains("password"));
-        assert_eq!(diagnostic.matches(REDACTED_VALUE).count(), 2);
+        assert_eq!(diagnostic.matches(REDACTED_VALUE).count(), 1);
+    }
+
+    #[test]
+    fn child_argv_snapshot_never_contains_postgresql_dsn() {
+        let invocation = store_option_invocation(Some("pg"), Some("repo_a"))
+            .expect("safe PostgreSQL invocation");
+        let rendered = invocation.argv.join("\0");
+        assert!(!rendered.contains("secret"));
+        assert!(!rendered.contains("p%40ss"));
+        assert!(!rendered.contains("sentinel"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("postgresql://"));
     }
 
     #[test]

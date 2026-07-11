@@ -148,7 +148,11 @@ python3 scripts/validate_requirement_proof_ledger.py
 ```
 
 A `verified` row must name an existing non-documentation implementation path,
-an existing direct test, an executable verification command, an existing proof
-artifact containing the exact current Git HEAD, and the same revision in
-`proof_head_sha`. Missing rows, stale revisions, documentation-only evidence,
+an existing direct test, an executable verification command, and logical proof
+artifacts present in an external current-head attestation. The attestation is
+generated after checkout outside the repository and binds the exact commit,
+tree, ledger, validator, command, output digests, evidence names, and clean
+worktree state. `proof_head_sha` is a deprecated self-referential field and must
+remain empty; exact revision identity lives in the external receipt. Missing
+rows, stale receipts, dirty checkouts, documentation-only evidence,
 GAP-compatible closure, and task-graph contradictions fail closed.

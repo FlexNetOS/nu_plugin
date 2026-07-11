@@ -3,13 +3,14 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use codedb_mcp::{
     ALLOWED_TOOLS, BLOCKED_TOOLS, DEFAULT_MAX_BYTES, MAX_RESPONSE_BYTES, MAX_ROW_LIMIT, McpError,
-    McpRequest, McpServerConfig, ReadOnlyBackend, Row, WorkLimits, ensure_tool_allowed,
-    handle_request, handle_request_with_backend, serve_json_rpc,
+    McpRequest, McpServerConfig, PersistedStoreConfig, ReadOnlyBackend, Row, WorkLimits,
+    ensure_tool_allowed, handle_request, handle_request_with_backend, serve_json_rpc,
+    serve_json_rpc_with_backend,
 };
 
 #[test]
@@ -231,6 +232,196 @@ fn backend_boundary_is_read_only_and_backend_neutral() {
 }
 
 #[test]
+fn redb_snapshot_is_queried_after_live_source_is_removed_without_store_mutation() {
+    let root = temp_dir("persisted-redb");
+    let repo = root.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("create repository");
+    fs::write(
+        repo.join("src/lib.rs"),
+        "pub fn persisted_only() -> &'static str { \"redb\" }\n",
+    )
+    .expect("write source");
+    fs::write(repo.join("opaque.bin"), [0xff, 0xfe, b'a'])
+        .expect("write invalid UTF-8 uncertainty fixture");
+    fs::write(
+        repo.join("config.txt"),
+        "DATABASE_URL=postgresql://codedb:swordfish@db.example/codedb\n",
+    )
+    .expect("write detected credential fixture");
+    let store = repo.join(".codedb/store.redb");
+    let capture_stdout = capture_store(&repo, store.to_str().expect("utf-8 store"), None);
+    let capture_rows: Vec<Row> =
+        serde_json::from_str(&capture_stdout).expect("parse capture policy rows");
+    assert!(capture_rows.iter().any(|row| {
+        row.get("relative_path").map(String::as_str) == Some("opaque.bin")
+            && row.get("classification_status").map(String::as_str) == Some("uncertain")
+            && row.get("classification_evidence").map(String::as_str) == Some("non_text_content")
+            && row.get("raw_blob_persisted").map(String::as_str) == Some("false")
+    }));
+    assert!(capture_rows.iter().any(|row| {
+        row.get("relative_path").map(String::as_str) == Some("config.txt")
+            && row.get("classification_status").map(String::as_str) == Some("secret_detected")
+            && row
+                .get("classification_evidence")
+                .is_some_and(|value| value.contains("database_uri_credentials"))
+            && row.get("raw_blob_persisted").map(String::as_str) == Some("false")
+    }));
+    let before = fs::read(&store).expect("read redb snapshot before MCP");
+    fs::remove_file(repo.join("src/lib.rs")).expect("remove live source after persistence");
+
+    let mut config = McpServerConfig::new(root.clone());
+    config.persisted_store = Some(PersistedStoreConfig {
+        selector: store.display().to_string(),
+        pg_table: "unused_for_redb".to_string(),
+        codedb_command: codedb_binary().clone(),
+    });
+    let response = handle_request(
+        &config,
+        McpRequest {
+            max_bytes: Some(4_096),
+            ..request("codedb_get_store_summary", None, None)
+        },
+    )
+    .expect("query persisted redb snapshot");
+
+    assert_eq!(
+        response.rows[0].get("backend").map(String::as_str),
+        Some("redb")
+    );
+    assert_eq!(
+        response.rows[0].get("source_files").map(String::as_str),
+        Some("1")
+    );
+    assert!(
+        !serde_json::to_string(&response)
+            .expect("serialize response")
+            .contains("persisted_only")
+    );
+    assert!(
+        fs::read(&store).expect("read redb snapshot after MCP") == before,
+        "MCP snapshot query must not mutate the persisted store"
+    );
+
+    let blocked_output = root.join("blocked-materialize");
+    let output = Command::new(codedb_binary())
+        .args([
+            "materialize",
+            "--store",
+            store.to_str().expect("utf-8 store"),
+            "--out-dir",
+            blocked_output.to_str().expect("utf-8 output"),
+            "--path",
+            "opaque.bin",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("attempt blocked-file materialization");
+    assert!(
+        output.status.success(),
+        "materialize stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !blocked_output.join("opaque.bin").exists(),
+        "invalid UTF-8 uncertainty must be absent from redb"
+    );
+
+    remove_dir(root);
+}
+
+#[test]
+fn postgresql_snapshot_and_materialize_summary_are_secret_safe_when_explicitly_enabled() {
+    let Ok(conn) = std::env::var("CODEDB_PG_CONN") else {
+        eprintln!("SKIP: set explicit CODEDB_PG_CONN to run the codedb-mcp PostgreSQL integration");
+        return;
+    };
+    assert!(
+        !conn.trim().is_empty(),
+        "CODEDB_PG_CONN must not be empty when explicitly set"
+    );
+
+    let root = temp_dir("persisted-postgresql");
+    let repo = root.join("repo");
+    fs::create_dir_all(&repo).expect("create repository");
+    fs::write(repo.join("README.md"), "persisted PostgreSQL snapshot\n").expect("write source");
+    let table = format!("cm_{}_{}", std::process::id(), unique_suffix());
+    assert!(table.len() <= 40);
+    let tables = PgTestTables::new(conn.clone(), table.clone());
+    capture_store(&repo, "pg", Some(&table));
+
+    let mut config = McpServerConfig::new(root.clone());
+    config.persisted_store = Some(PersistedStoreConfig {
+        selector: "pg".to_string(),
+        pg_table: table.clone(),
+        codedb_command: codedb_binary().clone(),
+    });
+    let response = handle_request(
+        &config,
+        McpRequest {
+            max_bytes: Some(4_096),
+            ..request("codedb_get_store_summary", None, None)
+        },
+    )
+    .expect("query persisted PostgreSQL snapshot");
+    assert_eq!(
+        response.rows[0].get("backend").map(String::as_str),
+        Some("postgresql")
+    );
+    assert_eq!(
+        response.rows[0].get("source_files").map(String::as_str),
+        Some("1")
+    );
+
+    let query_sentinel = "CODEDB_QUERY_SENTINEL_%43%44%42";
+    let selector = format!(
+        "{}{}application_name={query_sentinel}",
+        conn,
+        if conn.contains('?') { "&" } else { "?" }
+    );
+    let output_dir = root.join("materialized");
+    let output = Command::new(codedb_binary())
+        .args([
+            "materialize",
+            "--store",
+            &selector,
+            "--pg-table",
+            &table,
+            "--out-dir",
+            output_dir.to_str().expect("utf-8 output path"),
+            "--format",
+            "json",
+        ])
+        .env("CODEDB_PG_CONN", &conn)
+        .output()
+        .expect("run PostgreSQL materialize");
+    assert!(
+        output.status.success(),
+        "materialize stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 materialize output");
+    assert!(stdout.contains("\"table\": \"materialize_summary\""));
+    assert!(stdout.contains(&format!("postgresql:{table}")));
+    assert!(!stdout.contains(&conn));
+    assert!(!stdout.contains("CODEDB_QUERY_SENTINEL"));
+    assert!(!stdout.contains("%43%44%42"));
+    if let Some(credentials) = connection_credentials(&conn) {
+        assert!(
+            !stdout.contains(credentials),
+            "materialize summary leaked URL credentials"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(output_dir.join("README.md")).expect("read materialized source"),
+        "persisted PostgreSQL snapshot\n"
+    );
+
+    drop(tables);
+    remove_dir(root);
+}
+
+#[test]
 // Defends CDB090 and REQ-061: pagination is finite, lossless, and byte bounded.
 fn pagination_is_contiguous_bounded_non_overlapping_and_terminal() {
     let root = temp_dir("pagination");
@@ -371,6 +562,65 @@ fn in_process_stdio_lifecycle_emits_only_json_rpc_messages_and_shuts_down_on_eof
         assert!(!message.contains("codedb-mcp:"));
     }
     assert!(messages[3].contains("requested operation is disabled by policy"));
+
+    remove_dir(root);
+}
+
+#[test]
+fn complete_json_rpc_wire_lines_include_envelope_wrapper_and_utf8_in_max_bytes() {
+    let root = temp_dir("wire-byte-budget");
+    let config = McpServerConfig::new(root.clone());
+    let backend = EscapingBackend;
+    let budget = 1_024usize;
+    let input = format!(
+        concat!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{{}}}}\n",
+            "{{\"jsonrpc\":\"2.0\",\"id\":\"escaped-id-\\u2603\",\"method\":\"tools/call\",",
+            "\"params\":{{\"name\":\"codedb_list_tables\",\"arguments\":",
+            "{{\"limit\":20,\"max_bytes\":{}}}}}}}\n"
+        ),
+        budget
+    );
+    let mut output = Vec::new();
+
+    let report = serve_json_rpc_with_backend(
+        &config,
+        &backend,
+        &mut Cursor::new(input.as_bytes()),
+        &mut output,
+    )
+    .expect("serve bounded protocol");
+    assert_eq!(report.status, "eof_shutdown");
+
+    let stdout = String::from_utf8(output).expect("UTF-8 JSON-RPC output");
+    let messages = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(messages.len(), 2);
+    for message in &messages {
+        let wire_bytes = message.len().saturating_add(1);
+        assert!(
+            wire_bytes <= budget,
+            "complete newline-delimited wire message exceeded {budget} bytes: {}",
+            wire_bytes
+        );
+        let value: serde_json::Value = serde_json::from_str(message).expect("valid JSON-RPC");
+        assert_eq!(value["jsonrpc"], "2.0");
+    }
+    let call: serde_json::Value = serde_json::from_str(messages[1]).expect("tool response");
+    assert!(call.get("result").is_some(), "bounded result: {call}");
+    assert_eq!(
+        call["result"]["structuredContent"]["max_bytes"],
+        budget as u64
+    );
+    assert!(
+        call["result"]["structuredContent"]["truncated"]
+            .as_bool()
+            .expect("truncated bool"),
+        "escaping fixture must exercise final-envelope truncation"
+    );
+    assert!(
+        messages[1].contains("\\n") && messages[1].contains("\\\""),
+        "fixture must exercise JSON escaping in byte accounting"
+    );
 
     remove_dir(root);
 }
@@ -519,6 +769,93 @@ fn packaged_binary_rejects_non_stdio_transport_without_writing_stdout() {
     remove_dir(root);
 }
 
+#[test]
+fn exact_checked_in_codex_sample_launches_codedb_mcp_serve_frontdoor() {
+    let root = temp_dir("exact-sample-frontdoor");
+    fs::write(root.join("README.md"), "exact checked-in MCP sample\n").expect("write source");
+    let store = root.join(".codedb/store.redb");
+    capture_store(&root, store.to_str().expect("utf-8 store"), None);
+
+    let sample_path = workspace_root().join("examples/codex/codedb_mcp_config.json");
+    let sample: serde_json::Value =
+        serde_json::from_slice(&fs::read(&sample_path).expect("read exact sample"))
+            .expect("parse exact sample");
+    let server = &sample["mcpServers"]["codedb"];
+    assert_eq!(server["command"], "codedb");
+    let command = server["command"].as_str().expect("sample command");
+    let args = server["args"]
+        .as_array()
+        .expect("sample args")
+        .iter()
+        .map(|value| value.as_str().expect("string arg"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        args,
+        [
+            "mcp",
+            "serve",
+            "--repo-path",
+            ".",
+            "--store",
+            ".codedb/store.redb",
+            "--default-limit",
+            "50",
+            "--max-bytes",
+            "65536",
+        ]
+    );
+
+    let path = format!(
+        "{}:{}",
+        codedb_binary()
+            .parent()
+            .expect("codedb binary parent")
+            .display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut child = Command::new(command)
+        .args(&args)
+        .current_dir(&root)
+        .env("PATH", path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("launch exact checked-in MCP config");
+    let input = concat!(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"codedb_get_store_summary\",\"arguments\":{\"limit\":1,\"max_bytes\":4096}}}\n"
+    );
+    child
+        .stdin
+        .take()
+        .expect("sample stdin")
+        .write_all(input.as_bytes())
+        .expect("write sample request stream");
+    let output = child.wait_with_output().expect("wait for sample EOF");
+    assert!(
+        output.status.success(),
+        "sample stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty(), "sample must keep stderr clean");
+    let stdout = String::from_utf8(output.stdout).expect("sample UTF-8 stdout");
+    let messages = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(messages.len(), 2);
+    let response: serde_json::Value =
+        serde_json::from_str(messages[1]).expect("sample store response");
+    assert_eq!(
+        response["result"]["structuredContent"]["rows"][0]["backend"],
+        "redb"
+    );
+    assert_eq!(
+        response["result"]["structuredContent"]["rows"][0]["source_files"],
+        "1"
+    );
+
+    remove_dir(root);
+}
+
 #[derive(Default)]
 struct FixtureBackend {
     calls: Mutex<Vec<String>>,
@@ -561,6 +898,30 @@ impl ReadOnlyBackend for PagedBackend {
     }
 }
 
+struct EscapingBackend;
+
+impl ReadOnlyBackend for EscapingBackend {
+    fn read(
+        &self,
+        _tool: &str,
+        _table: Option<&str>,
+        _repo_path: Option<&Path>,
+        _limits: WorkLimits,
+    ) -> Result<Vec<Row>, McpError> {
+        Ok((0..20)
+            .map(|index| {
+                BTreeMap::from([
+                    ("index".to_string(), index.to_string()),
+                    (
+                        "payload".to_string(),
+                        format!("snowman=\u{2603}; quote=\"; slash=\\\\; line=\\n-{index}-"),
+                    ),
+                ])
+            })
+            .collect())
+    }
+}
+
 #[derive(Default)]
 struct FlushCountingWriter {
     bytes: Vec<u8>,
@@ -591,10 +952,7 @@ fn request(tool: &str, repo_path: Option<PathBuf>, table: Option<String>) -> Mcp
 }
 
 fn temp_dir(label: &str) -> PathBuf {
-    let suffix = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time")
-        .as_nanos();
+    let suffix = unique_suffix();
     let path = std::env::temp_dir().join(format!("codedb_mcp_{label}_{suffix}"));
     fs::create_dir_all(&path).expect("create temp directory");
     path
@@ -602,4 +960,128 @@ fn temp_dir(label: &str) -> PathBuf {
 
 fn remove_dir(path: PathBuf) {
     fs::remove_dir_all(path).expect("remove temp directory");
+}
+
+fn unique_suffix() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time")
+        .as_nanos()
+}
+
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("canonical workspace root")
+}
+
+fn codedb_binary() -> &'static PathBuf {
+    static CODEDB: OnceLock<PathBuf> = OnceLock::new();
+    CODEDB.get_or_init(|| {
+        let root = workspace_root();
+        let status = Command::new("cargo")
+            .args(["build", "--locked", "-p", "codedb"])
+            .current_dir(&root)
+            .status()
+            .expect("build codedb frontdoor");
+        assert!(status.success(), "codedb frontdoor build failed");
+        let target = std::env::var_os("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .map(|path| {
+                if path.is_absolute() {
+                    path
+                } else {
+                    root.join(path)
+                }
+            })
+            .unwrap_or_else(|| root.join("target"));
+        target
+            .join("debug")
+            .join(format!("codedb{}", std::env::consts::EXE_SUFFIX))
+    })
+}
+
+fn capture_store(repo: &Path, store: &str, pg_table: Option<&str>) -> String {
+    let mut command = Command::new(codedb_binary());
+    command.args([
+        "capture",
+        "--repo-path",
+        repo.to_str().expect("utf-8 repo"),
+        "--store",
+        store,
+        "--batch-files",
+        "16",
+        "--format",
+        "json",
+    ]);
+    if let Some(table) = pg_table {
+        command.args(["--pg-table", table]);
+    }
+    let output = command.output().expect("capture persisted snapshot");
+    assert!(
+        output.status.success(),
+        "capture stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("capture UTF-8 output")
+}
+
+fn connection_credentials(conn: &str) -> Option<&str> {
+    conn.split_once("://")?
+        .1
+        .split_once('@')
+        .map(|(credentials, _)| credentials)
+}
+
+struct PgTestTables {
+    conn: String,
+    base: String,
+}
+
+impl PgTestTables {
+    fn new(conn: String, base: String) -> Self {
+        let tables = Self { conn, base };
+        if let Err(error) = tables.drop_all() {
+            panic!("PostgreSQL pre-test cleanup failed: {error}");
+        }
+        tables
+    }
+
+    fn drop_all(&self) -> Result<(), String> {
+        let sql = format!(
+            "DROP TABLE IF EXISTS {base}_path_refs CASCADE;\
+             DROP TABLE IF EXISTS {base}_blobs CASCADE;\
+             DROP TABLE IF EXISTS {base}_schema_metadata CASCADE;\
+             DROP TABLE IF EXISTS {base} CASCADE;",
+            base = self.base
+        );
+        let output = Command::new("psql")
+            .args([
+                "-X",
+                "--dbname",
+                &self.conn,
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-c",
+                &sql,
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("psql is required when CODEDB_PG_CONN enables this integration");
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).into_owned())
+        }
+    }
+}
+
+impl Drop for PgTestTables {
+    fn drop(&mut self) {
+        if let Err(error) = self.drop_all() {
+            eprintln!("PostgreSQL cleanup failed during Drop: {error}");
+        }
+    }
 }

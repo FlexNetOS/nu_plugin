@@ -212,6 +212,84 @@ impl TextEncodingStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretClassificationStatus {
+    NoSecretDetected,
+    SecretDetected,
+    Uncertain,
+}
+
+impl SecretClassificationStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NoSecretDetected => "no_secret_detected",
+            Self::SecretDetected => "secret_detected",
+            Self::Uncertain => "uncertain",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretEvidenceKind {
+    SensitivePath,
+    BearerToken,
+    JsonWebToken,
+    AwsAccessKeyId,
+    AwsSecretAccessKey,
+    NpmAuthToken,
+    DatabaseUriCredentials,
+    PrivateKeyHeader,
+    CredentialAssignment,
+    GenericSecretToken,
+    NonTextContent,
+    NonUtf8Path,
+}
+
+impl SecretEvidenceKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SensitivePath => "sensitive_path",
+            Self::BearerToken => "bearer_token",
+            Self::JsonWebToken => "json_web_token",
+            Self::AwsAccessKeyId => "aws_access_key_id",
+            Self::AwsSecretAccessKey => "aws_secret_access_key",
+            Self::NpmAuthToken => "npm_auth_token",
+            Self::DatabaseUriCredentials => "database_uri_credentials",
+            Self::PrivateKeyHeader => "private_key_header",
+            Self::CredentialAssignment => "credential_assignment",
+            Self::GenericSecretToken => "generic_secret_token",
+            Self::NonTextContent => "non_text_content",
+            Self::NonUtf8Path => "non_utf8_path",
+        }
+    }
+
+    const fn is_uncertainty(self) -> bool {
+        matches!(self, Self::NonTextContent | Self::NonUtf8Path)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretClassification {
+    pub status: SecretClassificationStatus,
+    pub evidence: Vec<SecretEvidenceKind>,
+}
+
+impl SecretClassification {
+    pub fn has_secret(&self) -> bool {
+        self.status == SecretClassificationStatus::SecretDetected
+    }
+
+    pub fn is_uncertain(&self) -> bool {
+        self.status == SecretClassificationStatus::Uncertain
+    }
+
+    /// Raw persistence is permitted only when the classifier observed valid UTF-8
+    /// and found neither a sensitive path nor a supported secret form.
+    pub fn raw_persistence_safe(&self) -> bool {
+        self.status == SecretClassificationStatus::NoSecretDetected
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NewlineStyle {
     None,
     Lf,
@@ -1095,20 +1173,28 @@ pub fn capture_source_metadata(
         source,
     })?;
     let relative_path = source_relative_path(root, path)?;
+    let secret_classification = classify_source_secret(&relative_path, &bytes);
     let sha256 = format!("{:x}", Sha256::digest(&bytes));
     let encoding_status = detect_encoding_status(&bytes);
     let newline_style = detect_newline_style(&bytes);
     let has_utf8_bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
-    let has_secret_like_material = contains_secret_like_material(&bytes);
+    let has_secret_like_material = secret_classification.has_secret();
     let default_mode = if has_secret_like_material {
         SourceBlobMode::RedactedExport
     } else {
         SourceBlobMode::MetadataOnly
     };
-    let policy_reason = if has_secret_like_material {
-        "secret-looking material detected; raw source export disabled".to_string()
-    } else {
-        "metadata-only source capture; raw source export disabled by default".to_string()
+    let policy_reason = match secret_classification.status {
+        SecretClassificationStatus::SecretDetected => {
+            "secret-looking path or content detected; raw source export disabled".to_string()
+        }
+        SecretClassificationStatus::Uncertain => {
+            "secret classification uncertain for non-text input; metadata-only capture required and raw persistence disabled"
+                .to_string()
+        }
+        SecretClassificationStatus::NoSecretDetected => {
+            "metadata-only source capture; raw source export disabled by default".to_string()
+        }
     };
 
     Ok(SourceBlobMetadata {
@@ -1510,22 +1596,377 @@ fn detect_newline_style(bytes: &[u8]) -> NewlineStyle {
     }
 }
 
-fn contains_secret_like_material(bytes: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(bytes).to_ascii_lowercase();
-    [
-        "api_key",
-        "apikey",
-        "access_token",
-        "auth_token",
-        "secret=",
-        "secret:",
-        "password=",
-        "private_key",
-        "-----begin private key-----",
-        "sk-",
-    ]
-    .iter()
-    .any(|needle| text.contains(needle))
+pub fn classify_source_secret(
+    relative_path: impl AsRef<Path>,
+    bytes: &[u8],
+) -> SecretClassification {
+    let mut evidence = Vec::new();
+
+    match relative_path.as_ref().to_str() {
+        Some(path) if path_has_secret_form(path) => {
+            push_secret_evidence(&mut evidence, SecretEvidenceKind::SensitivePath);
+        }
+        Some(_) => {}
+        None => push_secret_evidence(&mut evidence, SecretEvidenceKind::NonUtf8Path),
+    }
+
+    if detect_encoding_status(bytes) != TextEncodingStatus::Utf8 {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::NonTextContent);
+    }
+
+    let text = String::from_utf8_lossy(bytes);
+    if contains_bearer_token(&text) {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::BearerToken);
+    }
+    if contains_json_web_token(&text) {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::JsonWebToken);
+    }
+    if contains_aws_access_key_id(&text) {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::AwsAccessKeyId);
+    }
+    if contains_named_assignment(&text, &["awssecretaccesskey"]) {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::AwsSecretAccessKey);
+    }
+    if contains_named_assignment(&text, &["authtoken"]) {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::NpmAuthToken);
+    }
+    if contains_database_uri_credentials(&text) {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::DatabaseUriCredentials);
+    }
+    if contains_private_key_header(&text) {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::PrivateKeyHeader);
+    }
+    if contains_named_assignment(
+        &text,
+        &[
+            "password",
+            "passwd",
+            "pwd",
+            "passphrase",
+            "secret",
+            "secretkey",
+            "apikey",
+            "token",
+            "accesstoken",
+            "authtoken",
+            "refreshtoken",
+            "clientsecret",
+            "privatekey",
+            "signingkey",
+            "encryptionkey",
+        ],
+    ) {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::CredentialAssignment);
+    }
+    if contains_generic_secret_token(&text) {
+        push_secret_evidence(&mut evidence, SecretEvidenceKind::GenericSecretToken);
+    }
+
+    let status = if evidence.iter().any(|kind| !kind.is_uncertainty()) {
+        SecretClassificationStatus::SecretDetected
+    } else if evidence.is_empty() {
+        SecretClassificationStatus::NoSecretDetected
+    } else {
+        SecretClassificationStatus::Uncertain
+    };
+
+    SecretClassification { status, evidence }
+}
+
+fn push_secret_evidence(evidence: &mut Vec<SecretEvidenceKind>, kind: SecretEvidenceKind) {
+    if !evidence.contains(&kind) {
+        evidence.push(kind);
+    }
+}
+
+fn path_has_secret_form(path: &str) -> bool {
+    path.replace('\\', "/")
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .any(|component| {
+            let name = component.to_ascii_lowercase();
+            if matches!(name.as_str(), ".git" | ".ssh" | ".gnupg" | ".aws")
+                || name == ".env"
+                || name.starts_with(".env.")
+                || matches!(
+                    name.as_str(),
+                    ".npmrc"
+                        | ".pgpass"
+                        | ".netrc"
+                        | ".htpasswd"
+                        | "credentials"
+                        | ".credentials"
+                        | "secrets"
+                        | ".secrets"
+                        | "id_rsa"
+                        | "id_dsa"
+                        | "id_ecdsa"
+                        | "id_ed25519"
+                )
+                || name.ends_with(".key")
+                || name.ends_with(".p12")
+                || name.ends_with(".pfx")
+            {
+                return true;
+            }
+
+            let stem = name.split('.').next().unwrap_or(&name);
+            matches!(
+                stem,
+                "secret" | "secrets" | "credential" | "credentials" | "private_key"
+            )
+        })
+}
+
+fn contains_bearer_token(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    for (index, _) in lower.match_indices("bearer") {
+        let before_is_boundary = index == 0
+            || !lower.as_bytes()[index - 1].is_ascii_alphanumeric()
+                && lower.as_bytes()[index - 1] != b'_';
+        let after_index = index + "bearer".len();
+        let after_is_space = lower
+            .as_bytes()
+            .get(after_index)
+            .is_some_and(u8::is_ascii_whitespace);
+        if !before_is_boundary || !after_is_space {
+            continue;
+        }
+
+        let candidate = text[after_index..]
+            .trim_start()
+            .trim_start_matches([':', '=', '"', '\''])
+            .split(|character: char| {
+                character.is_ascii_whitespace()
+                    || matches!(character, '"' | '\'' | ',' | ';' | ')' | ']' | '}')
+            })
+            .next()
+            .unwrap_or_default()
+            .trim();
+        let lower_candidate = candidate.to_ascii_lowercase();
+        let prose_word = matches!(
+            lower_candidate.as_str(),
+            "auth"
+                | "authentication"
+                | "authorization"
+                | "credential"
+                | "credentials"
+                | "token"
+                | "tokens"
+                | "is"
+                | "requires"
+                | "required"
+                | "supported"
+        );
+        if !candidate.is_empty()
+            && !prose_word
+            && candidate.chars().all(|character| {
+                character.is_ascii_alphanumeric()
+                    || matches!(character, '-' | '_' | '.' | '~' | '+' | '/' | '=')
+            })
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn contains_json_web_token(text: &str) -> bool {
+    text.split(|character: char| {
+        !(character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | '='))
+    })
+    .any(looks_like_json_web_token)
+}
+
+fn looks_like_json_web_token(candidate: &str) -> bool {
+    let mut segments = candidate.split('.');
+    let Some(header) = segments.next() else {
+        return false;
+    };
+    let Some(payload) = segments.next() else {
+        return false;
+    };
+    let Some(signature) = segments.next() else {
+        return false;
+    };
+    segments.next().is_none()
+        && header.starts_with("eyJ")
+        && header.len() >= 8
+        && payload.len() >= 8
+        && signature.len() >= 8
+        && [header, payload, signature].iter().all(|segment| {
+            segment.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_')
+            })
+        })
+}
+
+fn contains_aws_access_key_id(text: &str) -> bool {
+    const AWS_ACCESS_KEY_PREFIXES: [&str; 8] = [
+        "AKIA", "ASIA", "AIDA", "AROA", "AIPA", "ANPA", "ANVA", "ASCA",
+    ];
+
+    text.split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|candidate| {
+            candidate.len() == 20
+                && candidate
+                    .chars()
+                    .all(|character| character.is_ascii_uppercase() || character.is_ascii_digit())
+                && AWS_ACCESS_KEY_PREFIXES
+                    .iter()
+                    .any(|prefix| candidate.starts_with(prefix))
+        })
+}
+
+fn contains_named_assignment(text: &str, accepted_keys: &[&str]) -> bool {
+    text.lines().any(|line| {
+        let separator = line.find('=').or_else(|| line.find(':'));
+        let Some(separator) = separator else {
+            return false;
+        };
+        let (left, right_with_separator) = line.split_at(separator);
+        let value = right_with_separator[1..]
+            .trim()
+            .trim_matches(['"', '\'', ',', ';', '}', ']']);
+        if value.is_empty() || matches!(value.to_ascii_lowercase().as_str(), "null" | "none") {
+            return false;
+        }
+
+        left.split(|character: char| {
+            !(character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+        })
+        .map(canonical_secret_key)
+        .any(|key| accepted_keys.contains(&key.as_str()))
+    })
+}
+
+fn canonical_secret_key(key: &str) -> String {
+    key.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn contains_database_uri_credentials(text: &str) -> bool {
+    const DATABASE_SCHEMES: [&str; 9] = [
+        "postgresql://",
+        "postgres://",
+        "cockroachdb://",
+        "mongodb+srv://",
+        "mongodb://",
+        "mariadb://",
+        "mysql://",
+        "rediss://",
+        "redis://",
+    ];
+
+    let lower = text.to_ascii_lowercase();
+    for scheme in DATABASE_SCHEMES {
+        let mut search_start = 0;
+        while let Some(relative_index) = lower[search_start..].find(scheme) {
+            let uri_start = search_start + relative_index;
+            let uri_end = text[uri_start..]
+                .find(|character: char| {
+                    character.is_ascii_whitespace()
+                        || matches!(character, '"' | '\'' | '<' | '>' | ')' | ']' | '}')
+                })
+                .map_or(text.len(), |end| uri_start + end);
+            if database_uri_has_credentials(&text[uri_start..uri_end], scheme) {
+                return true;
+            }
+            search_start = uri_start + scheme.len();
+        }
+    }
+    false
+}
+
+fn database_uri_has_credentials(uri: &str, scheme: &str) -> bool {
+    let remainder = &uri[scheme.len()..];
+    let authority_end = remainder.find(['/', '?', '#']).unwrap_or(remainder.len());
+    let authority = &remainder[..authority_end];
+    if let Some(at) = authority.rfind('@') {
+        let user_info = percent_decode(&authority[..at]);
+        if user_info
+            .split_once(':')
+            .is_some_and(|(user, password)| !user.is_empty() && !password.is_empty())
+        {
+            return true;
+        }
+    }
+
+    let Some(query_start) = uri.find('?') else {
+        return false;
+    };
+    let decoded_query =
+        percent_decode(uri[query_start + 1..].split('#').next().unwrap_or_default());
+    decoded_query.split(['&', ';']).any(|parameter| {
+        let Some((key, value)) = parameter.split_once('=') else {
+            return false;
+        };
+        let key = canonical_secret_key(key);
+        !value.is_empty()
+            && matches!(
+                key.as_str(),
+                "password"
+                    | "passwd"
+                    | "pwd"
+                    | "passphrase"
+                    | "secret"
+                    | "token"
+                    | "sslkey"
+                    | "sslpassword"
+            )
+    })
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+        {
+            decoded.push((high << 4) | low);
+            index += 3;
+            continue;
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+const fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn contains_private_key_header(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim().to_ascii_uppercase();
+        line.strip_prefix("-----BEGIN ")
+            .and_then(|label| label.strip_suffix("-----"))
+            .is_some_and(|label| label == "PRIVATE KEY" || label.ends_with(" PRIVATE KEY"))
+    })
+}
+
+fn contains_generic_secret_token(text: &str) -> bool {
+    text.split(|character: char| {
+        !(character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    })
+    .any(|candidate| {
+        candidate
+            .get(..3)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("sk-"))
+            && candidate.len() >= 10
+    })
 }
 
 pub fn scan_filesystem(root: impl AsRef<Path>) -> Result<Vec<FilesystemEntry>, ScanError> {

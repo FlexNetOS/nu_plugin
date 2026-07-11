@@ -107,9 +107,7 @@ def main [] {
                 CODEDB_PG_CONN: $pg_conn,
             } {
                 let store_args = (
-                    "--store pg --pg-conn "
-                    + ($pg_conn | to nuon)
-                    + " --pg-table "
+                    "--store pg --pg-table "
                     + ($pg_table | to nuon)
                 )
                 run_backend $nu_bin $plugin $codedb $plugin_config $repo $pg_out $store_args

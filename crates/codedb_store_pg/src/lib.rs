@@ -87,9 +87,13 @@ impl PgStore {
     pub fn initialize(conn: &str, table: &str) -> Result<Self, StoreError> {
         let tables = StoreTables::new(table)?;
         let mut client = connect_client(conn)?;
-        match inspect_layout(&mut client, &tables)? {
+        let mut tx = client
+            .transaction()
+            .map_err(|_| database_error("begin initialization transaction"))?;
+        acquire_store_mutation_lock(&mut tx, &tables)?;
+        match inspect_layout(&mut tx, &tables)? {
             StoreLayout::Fresh => {
-                create_current_schema(&mut client, &tables, "initialize_v1")?;
+                create_current_schema(&mut tx, &tables, "initialize_v1")?;
             }
             StoreLayout::Current => {}
             StoreLayout::LegacyContentRows => {
@@ -102,7 +106,9 @@ impl PgStore {
                 return Err(incomplete_layout_error(&tables));
             }
         }
-        validate_current_schema(&mut client, &tables)?;
+        validate_current_schema(&mut tx, &tables)?;
+        tx.commit()
+            .map_err(|_| database_error("commit initialization transaction"))?;
         Ok(Self {
             client: RefCell::new(client),
             tables,
@@ -117,7 +123,11 @@ impl PgStore {
     pub fn migrate(conn: &str, table: &str) -> Result<Self, StoreError> {
         let tables = StoreTables::new(table)?;
         let mut client = connect_client(conn)?;
-        match inspect_layout(&mut client, &tables)? {
+        let mut tx = client
+            .transaction()
+            .map_err(|_| database_error("begin schema migration transaction"))?;
+        acquire_store_mutation_lock(&mut tx, &tables)?;
+        match inspect_layout(&mut tx, &tables)? {
             StoreLayout::Fresh => {
                 return Err(StoreError::new(format!(
                     "PostgreSQL CodeDB store {} is not initialized; run PgStore::initialize first",
@@ -125,16 +135,18 @@ impl PgStore {
                 )));
             }
             StoreLayout::Current => {
-                validate_current_schema(&mut client, &tables)?;
+                validate_current_schema(&mut tx, &tables)?;
             }
             StoreLayout::LegacyContentRows => {
-                migrate_legacy_content_rows(&mut client, &tables)?;
-                validate_current_schema(&mut client, &tables)?;
+                migrate_legacy_content_rows(&mut tx, &tables)?;
+                validate_current_schema(&mut tx, &tables)?;
             }
             StoreLayout::Incomplete => {
                 return Err(incomplete_layout_error(&tables));
             }
         }
+        tx.commit()
+            .map_err(|_| database_error("commit schema migration transaction"))?;
         Ok(Self {
             client: RefCell::new(client),
             tables,
@@ -229,7 +241,7 @@ impl BlobStore for PgStore {
     fn captured_paths(&self) -> Result<BTreeSet<String>, StoreError> {
         let mut client = self.client.borrow_mut();
         let sql = format!(
-            "SELECT module_path FROM {} ORDER BY module_path",
+            "SELECT module_path FROM {} ORDER BY module_path COLLATE \"C\"",
             self.tables.path_refs
         );
         let rows = client
@@ -262,7 +274,8 @@ impl BlobStore for PgStore {
         let mut client = self.client.borrow_mut();
         let sql = format!(
             "SELECT p.module_path, p.sha256, b.bytes FROM {} p \
-             LEFT JOIN {} b ON b.sha256 = p.sha256 ORDER BY p.module_path",
+             LEFT JOIN {} b ON b.sha256 = p.sha256 \
+             ORDER BY p.module_path COLLATE \"C\"",
             self.tables.path_refs, self.tables.blobs
         );
         let rows = client
@@ -338,7 +351,7 @@ impl BlobStore for PgStore {
     fn store_metadata_rows(&self) -> Result<Vec<StoreMetadataRow>, StoreError> {
         let mut client = self.client.borrow_mut();
         let schema_sql = format!(
-            "SELECT key, value FROM {} ORDER BY key",
+            "SELECT key, value FROM {} ORDER BY key COLLATE \"C\"",
             self.tables.schema_metadata
         );
         let mut rows = client
@@ -407,7 +420,25 @@ fn sanitize_table(table: &str) -> Result<String, StoreError> {
     Ok(table.to_string())
 }
 
-fn inspect_layout(client: &mut Client, tables: &StoreTables) -> Result<StoreLayout, StoreError> {
+fn acquire_store_mutation_lock<C: GenericClient>(
+    client: &mut C,
+    tables: &StoreTables,
+) -> Result<(), StoreError> {
+    client
+        .query_one(
+            "SELECT pg_advisory_xact_lock(\
+                 hashtextextended(COALESCE(current_schema(), '') || chr(31) || $1, 0)\
+             )",
+            &[&tables.base],
+        )
+        .map_err(|_| database_error("acquire store schema mutation lock"))?;
+    Ok(())
+}
+
+fn inspect_layout<C: GenericClient>(
+    client: &mut C,
+    tables: &StoreTables,
+) -> Result<StoreLayout, StoreError> {
     let base = relation_exists(client, &tables.base)?;
     let schema_metadata = relation_exists(client, &tables.schema_metadata)?;
     let blobs = relation_exists(client, &tables.blobs)?;
@@ -424,7 +455,7 @@ fn inspect_layout(client: &mut Client, tables: &StoreTables) -> Result<StoreLayo
     }
 }
 
-fn relation_exists(client: &mut Client, relation: &str) -> Result<bool, StoreError> {
+fn relation_exists<C: GenericClient>(client: &mut C, relation: &str) -> Result<bool, StoreError> {
     let relation: Option<String> = client
         .query_one("SELECT to_regclass($1)::text", &[&relation])
         .map_err(|_| database_error("inspect schema relation"))?
@@ -489,11 +520,50 @@ fn create_current_schema<C: GenericClient>(
         client
             .execute(metadata_sql.as_str(), &[&key, &value])
             .map_err(|_| database_error("write schema metadata"))?;
+        maybe_inject_initialization_failure(client, last_migration, key)?;
     }
     Ok(())
 }
 
-fn validate_current_schema(client: &mut Client, tables: &StoreTables) -> Result<(), StoreError> {
+#[cfg(feature = "pg-integration")]
+fn maybe_inject_initialization_failure<C: GenericClient>(
+    client: &mut C,
+    last_migration: &str,
+    metadata_key: &str,
+) -> Result<(), StoreError> {
+    if last_migration != "initialize_v1" || metadata_key != "store_backend" {
+        return Ok(());
+    }
+    let setting: Option<String> = client
+        .query_one(
+            "SELECT current_setting(\
+                 'codedb.test_fail_initialization_after_first_metadata', true\
+             )",
+            &[],
+        )
+        .map_err(|_| database_error("read initialization test fault setting"))?
+        .get(0);
+    if setting.as_deref() == Some("on") {
+        return Err(database_error(
+            "injected initialization failure after first schema metadata write",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "pg-integration"))]
+fn maybe_inject_initialization_failure<C: GenericClient>(
+    _client: &mut C,
+    _last_migration: &str,
+    _metadata_key: &str,
+) -> Result<(), StoreError> {
+    Ok(())
+}
+
+fn validate_current_schema<C: GenericClient>(
+    client: &mut C,
+    tables: &StoreTables,
+) -> Result<(), StoreError> {
     validate_relation_shape(
         client,
         &tables.schema_metadata,
@@ -557,8 +627,8 @@ fn validate_current_schema(client: &mut Client, tables: &StoreTables) -> Result<
     Ok(())
 }
 
-fn validate_relation_shape(
-    client: &mut Client,
+fn validate_relation_shape<C: GenericClient>(
+    client: &mut C,
     relation: &str,
     expected_columns: &[(&str, &str)],
 ) -> Result<(), StoreError> {
@@ -604,21 +674,18 @@ fn validate_relation_shape(
     Ok(())
 }
 
-fn migrate_legacy_content_rows(
-    client: &mut Client,
+fn migrate_legacy_content_rows<C: GenericClient>(
+    client: &mut C,
     tables: &StoreTables,
 ) -> Result<(), StoreError> {
     validate_legacy_relation(client, &tables.base)?;
-    let mut tx = client
-        .transaction()
-        .map_err(|_| database_error("begin legacy migration transaction"))?;
-    create_current_schema(&mut tx, tables, "legacy_content_rows_to_v1")?;
+    create_current_schema(client, tables, "legacy_content_rows_to_v1")?;
     let legacy_sql = format!(
         "SELECT module_path, content, sha256, COALESCE(metadata, '{{}}'::jsonb)::text \
-         FROM {} ORDER BY module_path",
+         FROM {} ORDER BY module_path COLLATE \"C\"",
         tables.base
     );
-    let legacy_rows = tx
+    let legacy_rows = client
         .query(legacy_sql.as_str(), &[])
         .map_err(|_| database_error("read legacy content rows"))?;
     let blob_sql = format!(
@@ -642,19 +709,23 @@ fn migrate_legacy_content_rows(
         }
         let byte_count = i64::try_from(content.len())
             .map_err(|_| StoreError::new("legacy blob exceeds PostgreSQL bigint size"))?;
-        tx.execute(blob_sql.as_str(), &[&sha256, &content, &byte_count])
+        client
+            .execute(blob_sql.as_str(), &[&sha256, &content, &byte_count])
             .map_err(|_| database_error("migrate legacy content-addressed blob"))?;
-        tx.execute(path_sql.as_str(), &[&relative_path, &sha256, &metadata])
+        client
+            .execute(path_sql.as_str(), &[&relative_path, &sha256, &metadata])
             .map_err(|_| database_error("migrate legacy path reference"))?;
     }
-    tx.batch_execute(format!("DROP TABLE {}", tables.base).as_str())
+    client
+        .batch_execute(format!("DROP TABLE {}", tables.base).as_str())
         .map_err(|_| database_error("remove migrated legacy table"))?;
-    tx.commit()
-        .map_err(|_| database_error("commit legacy migration transaction"))?;
     Ok(())
 }
 
-fn validate_legacy_relation(client: &mut Client, relation: &str) -> Result<(), StoreError> {
+fn validate_legacy_relation<C: GenericClient>(
+    client: &mut C,
+    relation: &str,
+) -> Result<(), StoreError> {
     validate_relation_shape(
         client,
         relation,

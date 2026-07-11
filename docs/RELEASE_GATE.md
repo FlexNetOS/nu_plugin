@@ -22,6 +22,45 @@ row in `execution/REQUIREMENT_PROOF_LEDGER.csv` is `partial`, `missing`,
 the corresponding ledger row still requires a direct executable test and a
 proof artifact bound to the exact current Git HEAD.
 
+The exact-head binding is an external post-checkout attestation, not a generated
+file committed back into the tree it proves. A committed ledger or receipt
+cannot truthfully embed the SHA of the commit that contains itself: changing the
+embedded SHA changes the tree and therefore changes the commit SHA again.
+
+Release validation therefore joins:
+
+```text
+committed requirement row
+        +
+external receipt row
+        +
+current commit/tree/ledger/validator hashes
+```
+
+Generate a development receipt outside the checkout:
+
+```bash
+python3 scripts/generate_requirement_proof_receipt.py \
+  --output "$RUNNER_TEMP/codedb-requirement-proof.json" \
+  --requirement CDB013
+```
+
+CI receipts must be generated from a clean checkout, remain outside the source
+tree, and be uploaded as a GitHub artifact attestation. Release validators read
+the downloaded receipt through:
+
+```bash
+export CODEDB_REQUIREMENT_PROOF_RECEIPT="$RUNNER_TEMP/codedb-requirement-proof.json"
+python3 scripts/validate_requirement_proof_ledger.py
+```
+
+The receipt binds the commit, tree, ledger SHA-256, validator SHA-256,
+requirement ID, exact verification command, exit status, output digests,
+logical evidence names, and clean-before/clean-after state. Parent-commit,
+dirty-worktree, command-drift, row-substitution, arbitrary-SHA-text, and
+tampered-receipt evidence fail closed. Source workflows must never commit or
+bot-push generated receipts.
+
 `--structure-only` is available on the requirement-ledger and mandatory-policy
 validators solely to validate the 140-row inventory while implementation is in
 progress. It is not a release command and cannot satisfy CDB090.

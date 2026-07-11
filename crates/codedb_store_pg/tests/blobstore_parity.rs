@@ -10,6 +10,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Barrier};
+use std::thread;
 
 use codedb_core::store::{BlobStore, StoreError, StoreMetadataRow};
 use codedb_store_pg::{PgStore, STORE_SCHEMA_VERSION};
@@ -33,6 +35,16 @@ fn fixture_batch() -> Vec<(String, Vec<u8>)> {
 fn disposable_conn() -> String {
     std::env::var("CODEDB_PG_CONN")
         .expect("CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service")
+}
+
+fn conn_with_session_setting(conn: &str, key: &str, value: &str) -> String {
+    let options = format!("-c{key}={value}");
+    if conn.starts_with("postgres://") || conn.starts_with("postgresql://") {
+        let separator = if conn.contains('?') { '&' } else { '?' };
+        format!("{conn}{separator}options={options}")
+    } else {
+        format!("{conn} options='{options}'")
+    }
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -342,6 +354,13 @@ impl Drop for TestTables {
     }
 }
 
+fn assert_store_relations_absent(tables: &TestTables) {
+    assert!(!tables.relation_exists(&tables.base));
+    assert!(!tables.relation_exists(&tables.schema_metadata()));
+    assert!(!tables.relation_exists(&tables.blobs()));
+    assert!(!tables.relation_exists(&tables.path_refs()));
+}
+
 #[test]
 fn redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update() {
     let tables = TestTables::new();
@@ -588,6 +607,30 @@ fn pg_blobstore_contract_is_content_addressed_and_reopenable() {
 }
 
 #[test]
+fn postgresql_list_order_matches_rust_byte_order_across_letter_case() {
+    let tables = TestTables::new();
+    let batch = ["a.rs", "B.rs", "b.rs", "A.rs"]
+        .into_iter()
+        .map(|path| (path.to_string(), path.as_bytes().to_vec()))
+        .collect::<Vec<_>>();
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+    pg.persist_batch(&batch)
+        .expect("persist mixed-case ordering fixture");
+
+    let listed = pg
+        .list_source_files()
+        .expect("list mixed-case source files")
+        .into_iter()
+        .map(|row| row.relative_path)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        listed,
+        vec!["A.rs", "B.rs", "a.rs", "b.rs"],
+        "PostgreSQL ordering must match Rust String/BTree byte ordering regardless of database locale"
+    );
+}
+
+#[test]
 fn readonly_open_never_initializes_or_runs_migrations() {
     let tables = TestTables::new();
 
@@ -596,10 +639,91 @@ fn readonly_open_never_initializes_or_runs_migrations() {
         "read-only open must reject an uninitialized PostgreSQL store",
     );
     assert!(error.message().contains("not initialized"));
-    assert!(!tables.relation_exists(&tables.base));
-    assert!(!tables.relation_exists(&tables.schema_metadata()));
-    assert!(!tables.relation_exists(&tables.blobs()));
-    assert!(!tables.relation_exists(&tables.path_refs()));
+    assert_store_relations_absent(&tables);
+}
+
+#[test]
+fn concurrent_initializers_serialize_and_all_observe_one_complete_store() {
+    const INITIALIZER_COUNT: usize = 16;
+
+    let tables = TestTables::new();
+    let barrier = Arc::new(Barrier::new(INITIALIZER_COUNT));
+    let initializers = (0..INITIALIZER_COUNT)
+        .map(|_| {
+            let barrier = Arc::clone(&barrier);
+            let conn = tables.conn.clone();
+            let table = tables.base.clone();
+            thread::spawn(move || {
+                barrier.wait();
+                PgStore::initialize(&conn, &table)
+                    .and_then(|store| store.store_metadata_rows().map(|_| ()))
+                    .map_err(|error| error.message().to_string())
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let failures = initializers
+        .into_iter()
+        .filter_map(|initializer| {
+            initializer
+                .join()
+                .expect("concurrent initializer thread must not panic")
+                .err()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        failures.is_empty(),
+        "every concurrent initializer must observe the same complete store: {failures:?}"
+    );
+
+    let reopened = PgStore::open_existing(&tables.conn, &tables.base)
+        .expect("concurrently initialized store must be complete and reopenable");
+    let metadata = reopened
+        .store_metadata_rows()
+        .expect("read metadata after concurrent initialization")
+        .into_iter()
+        .map(|row| (row.key, row.value))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        metadata.get("schema_version").map(String::as_str),
+        Some(STORE_SCHEMA_VERSION)
+    );
+    assert_eq!(
+        metadata.get("last_migration").map(String::as_str),
+        Some("initialize_v1")
+    );
+}
+
+#[test]
+fn injected_initialization_failure_rolls_back_every_relation_and_allows_retry() {
+    let tables = TestTables::new();
+    let failing_conn = conn_with_session_setting(
+        &tables.conn,
+        "codedb.test_fail_initialization_after_first_metadata",
+        "on",
+    );
+
+    let error = require_error(
+        PgStore::initialize(&failing_conn, &tables.base),
+        "injected failure after schema DDL must fail initialization",
+    );
+    assert!(error.message().contains("injected initialization failure"));
+    assert!(error.message().contains("redacted"));
+    assert!(!error.message().contains(&tables.conn));
+    assert_store_relations_absent(&tables);
+
+    let recovered = PgStore::initialize(&tables.conn, &tables.base)
+        .expect("a clean initialization must succeed after transactional rollback");
+    let metadata = recovered
+        .store_metadata_rows()
+        .expect("read metadata after initialization retry")
+        .into_iter()
+        .map(|row| (row.key, row.value))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        metadata.get("schema_version").map(String::as_str),
+        Some(STORE_SCHEMA_VERSION)
+    );
 }
 
 #[test]

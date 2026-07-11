@@ -4,11 +4,14 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fmt::{Display, Formatter};
 use std::fs;
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use codedb_cargo::capture_cargo_metadata_json;
 use codedb_context::{CargoContextRequest, capture_context, detect_host_triple};
+use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
     TableRow, capture_gaps, prove_no_mutation, schema_rows, table_inventory, validation_errors,
 };
@@ -33,11 +36,15 @@ pub const DEFAULT_MAX_REQUESTS: usize = 128;
 pub const MAX_REQUESTS: usize = 128;
 pub const MAX_JSON_RPC_LINE_BYTES: usize = 1_048_576;
 pub const MAX_CURSOR: usize = 1_000_000;
+pub const MAX_STORE_REPORT_BYTES: usize = 4 * 1_048_576;
+pub const MAX_REDB_SNAPSHOT_BYTES: u64 = 512 * 1_048_576;
+pub const DEFAULT_PG_TABLE: &str = "codebase_codedb";
 
 pub const ALLOWED_TOOLS: &[&str] = &[
     "codedb_schema",
     "codedb_list_tables",
     "codedb_get_table_page",
+    "codedb_get_store_summary",
     "codedb_get_capture_gaps",
     "codedb_get_validation_errors",
     "codedb_get_repo_summary",
@@ -125,6 +132,26 @@ pub struct McpServerConfig {
     pub max_traversal_depth: usize,
     pub max_requests: usize,
     pub raw_source_enabled: bool,
+    #[serde(default, skip_serializing)]
+    pub persisted_store: Option<PersistedStoreConfig>,
+}
+
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+pub struct PersistedStoreConfig {
+    pub selector: String,
+    pub pg_table: String,
+    pub codedb_command: PathBuf,
+}
+
+impl std::fmt::Debug for PersistedStoreConfig {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PersistedStoreConfig")
+            .field("selector", &"<redacted store selector>")
+            .field("pg_table", &self.pg_table)
+            .field("codedb_command", &self.codedb_command)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,6 +184,7 @@ pub enum McpError {
     RawSourceDisabled,
     MissingRepoPath,
     MissingTable,
+    MissingStore,
     InvalidConfiguration,
     InvalidRepositoryPath,
     BoundExceeded,
@@ -172,9 +200,10 @@ impl McpError {
         match self {
             Self::BlockedTool | Self::RawSourceDisabled => "policy_denied",
             Self::UnknownTool => "unknown_tool",
-            Self::MissingRepoPath | Self::MissingTable | Self::ProtocolViolation => {
-                "invalid_request"
-            }
+            Self::MissingRepoPath
+            | Self::MissingTable
+            | Self::MissingStore
+            | Self::ProtocolViolation => "invalid_request",
             Self::InvalidConfiguration => "invalid_configuration",
             Self::InvalidRepositoryPath => "invalid_repository_path",
             Self::BoundExceeded | Self::ResponseBudgetTooSmall => "request_bound_exceeded",
@@ -192,9 +221,10 @@ impl Display for McpError {
                 "requested operation is disabled by policy"
             }
             Self::UnknownTool => "requested tool is not available",
-            Self::MissingRepoPath | Self::MissingTable | Self::ProtocolViolation => {
-                "request is invalid"
-            }
+            Self::MissingRepoPath
+            | Self::MissingTable
+            | Self::MissingStore
+            | Self::ProtocolViolation => "request is invalid",
             Self::InvalidConfiguration => "server configuration is invalid",
             Self::InvalidRepositoryPath => "repository path is not permitted",
             Self::BoundExceeded | Self::ResponseBudgetTooSmall => {
@@ -224,6 +254,7 @@ impl McpServerConfig {
             max_traversal_depth: DEFAULT_MAX_TRAVERSAL_DEPTH,
             max_requests: DEFAULT_MAX_REQUESTS,
             raw_source_enabled: false,
+            persisted_store: None,
         }
     }
 
@@ -250,13 +281,21 @@ impl McpServerConfig {
         validate_positive_bounded(self.max_traversal_depth, MAX_TRAVERSAL_DEPTH)?;
         validate_positive_bounded(self.max_requests, MAX_REQUESTS)?;
 
+        let canonical_allowed_root = canonical_allowed_root(&self.allowed_root)?;
+        let persisted_store = self
+            .persisted_store
+            .as_ref()
+            .map(|store| validate_persisted_store(store, &canonical_allowed_root))
+            .transpose()?;
+
         Ok(ValidatedPolicy {
-            canonical_allowed_root: canonical_allowed_root(&self.allowed_root)?,
+            canonical_allowed_root,
             work_limits: WorkLimits {
                 max_scan_entries: self.max_scan_entries,
                 max_rust_sources: self.max_rust_sources,
                 max_traversal_depth: self.max_traversal_depth,
             },
+            persisted_store,
         })
     }
 }
@@ -303,6 +342,21 @@ pub fn server_config_from_environment() -> Result<McpServerConfig, McpError> {
             "1" | "true" | "TRUE" => true,
             _ => return Err(McpError::InvalidConfiguration),
         };
+    }
+    if let Some(selector) = env::var_os("CODEDB_MCP_STORE") {
+        let selector = selector
+            .into_string()
+            .map_err(|_| McpError::InvalidConfiguration)?;
+        let pg_table =
+            env::var("CODEDB_MCP_PG_TABLE").unwrap_or_else(|_| DEFAULT_PG_TABLE.to_string());
+        let codedb_command = env::var_os("CODEDB_MCP_CODEDB_BIN")
+            .map(PathBuf::from)
+            .unwrap_or_else(default_codedb_command);
+        config.persisted_store = Some(PersistedStoreConfig {
+            selector,
+            pg_table,
+            codedb_command,
+        });
     }
     config.validate()?;
     Ok(config)
@@ -374,6 +428,10 @@ pub fn lifecycle_rows(config: &McpServerConfig) -> Result<Vec<Row>, McpError> {
             ("default_max_bytes", config.default_max_bytes.to_string()),
             ("max_response_bytes", config.max_response_bytes.to_string()),
             ("raw_source_enabled", "false".to_string()),
+            (
+                "persisted_store_configured",
+                config.persisted_store.is_some().to_string(),
+            ),
         ]),
     ])
 }
@@ -426,11 +484,127 @@ impl ReadOnlyBackend for StaticAnalysisBackend {
     }
 }
 
+struct ConfiguredReadOnlyBackend {
+    static_backend: StaticAnalysisBackend,
+    persisted_backend: Option<PersistedSnapshotBackend>,
+}
+
+impl ReadOnlyBackend for ConfiguredReadOnlyBackend {
+    fn read(
+        &self,
+        tool: &str,
+        table: Option<&str>,
+        repo_path: Option<&Path>,
+        limits: WorkLimits,
+    ) -> Result<Vec<Row>, McpError> {
+        if tool_requires_persisted_store(tool, table) {
+            return self
+                .persisted_backend
+                .as_ref()
+                .ok_or(McpError::MissingStore)?
+                .read(tool, table, repo_path, limits);
+        }
+        self.static_backend.read(tool, table, repo_path, limits)
+    }
+}
+
+struct PersistedSnapshotBackend {
+    store: ValidatedPersistedStore,
+}
+
+impl PersistedSnapshotBackend {
+    fn new(store: ValidatedPersistedStore) -> Self {
+        Self { store }
+    }
+
+    fn store_summary_rows(&self) -> Result<Vec<Row>, McpError> {
+        let mut command = Command::new(&self.store.codedb_command);
+        command
+            .arg("store-report")
+            .arg("--store")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut redb_snapshot = None;
+        match self.store.spec.backend() {
+            StoreBackend::Redb => {
+                let snapshot = RedbSnapshotCopy::create(
+                    self.store
+                        .spec
+                        .redb_path()
+                        .expect("validated redb store has a path"),
+                )?;
+                command.arg(&snapshot.path);
+                redb_snapshot = Some(snapshot);
+            }
+            StoreBackend::PostgreSql => {
+                command
+                    .arg("pg")
+                    .arg("--pg-table")
+                    .arg(&self.store.pg_table)
+                    .env(
+                        "CODEDB_PG_CONN",
+                        self.store
+                            .spec
+                            .connection_string()
+                            .expect("validated PostgreSQL store has a connection string"),
+                    );
+            }
+        }
+        command.args(["--format", "json"]);
+
+        let mut child = command.spawn().map_err(|_| McpError::BackendFailure)?;
+        let mut output = Vec::new();
+        child
+            .stdout
+            .take()
+            .ok_or(McpError::BackendFailure)?
+            .take((MAX_STORE_REPORT_BYTES + 1) as u64)
+            .read_to_end(&mut output)
+            .map_err(|_| McpError::BackendFailure)?;
+        if output.len() > MAX_STORE_REPORT_BYTES {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(McpError::WorkLimitExceeded);
+        }
+        let status = child.wait().map_err(|_| McpError::BackendFailure)?;
+        if !status.success() {
+            return Err(McpError::BackendFailure);
+        }
+        let rows =
+            serde_json::from_slice::<Vec<Row>>(&output).map_err(|_| McpError::BackendFailure)?;
+        let summary = normalize_store_summary(&rows, &self.store);
+        drop(redb_snapshot);
+        summary
+    }
+}
+
+impl ReadOnlyBackend for PersistedSnapshotBackend {
+    fn read(
+        &self,
+        tool: &str,
+        table: Option<&str>,
+        _repo_path: Option<&Path>,
+        _limits: WorkLimits,
+    ) -> Result<Vec<Row>, McpError> {
+        if tool_requires_persisted_store(tool, table) {
+            self.store_summary_rows()
+        } else {
+            Err(McpError::UnknownTool)
+        }
+    }
+}
+
 pub fn handle_request(
     config: &McpServerConfig,
     request: McpRequest,
 ) -> Result<McpResponse, McpError> {
-    handle_request_with_backend(config, &StaticAnalysisBackend, request)
+    let policy = config.policy()?;
+    let backend = ConfiguredReadOnlyBackend {
+        static_backend: StaticAnalysisBackend,
+        persisted_backend: policy.persisted_store.map(PersistedSnapshotBackend::new),
+    };
+    handle_request_with_backend(config, &backend, request)
 }
 
 pub fn handle_request_with_backend<B: ReadOnlyBackend + ?Sized>(
@@ -508,6 +682,20 @@ pub fn serve_json_rpc<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
 ) -> Result<ServerReport, McpError> {
+    let policy = config.policy()?;
+    let backend = ConfiguredReadOnlyBackend {
+        static_backend: StaticAnalysisBackend,
+        persisted_backend: policy.persisted_store.map(PersistedSnapshotBackend::new),
+    };
+    serve_json_rpc_with_backend(config, &backend, reader, writer)
+}
+
+pub fn serve_json_rpc_with_backend<B: ReadOnlyBackend + ?Sized, R: BufRead, W: Write>(
+    config: &McpServerConfig,
+    backend: &B,
+    reader: &mut R,
+    writer: &mut W,
+) -> Result<ServerReport, McpError> {
     config.validate()?;
 
     let mut state = ServerState::AwaitingInitialize;
@@ -525,14 +713,26 @@ pub fn serve_json_rpc<R: BufRead, W: Write>(
             ReadLine::TooLong => {
                 requests = requests.saturating_add(1);
                 if requests > config.max_requests {
-                    write_json_rpc_error(writer, None, -32000, McpError::WorkLimitExceeded)?;
+                    write_json_rpc_error(
+                        writer,
+                        None,
+                        -32000,
+                        McpError::WorkLimitExceeded,
+                        config.default_max_bytes,
+                    )?;
                     writer.flush().map_err(|_| McpError::IoFailure)?;
                     return Ok(ServerReport {
                         status: "request_limit_shutdown".to_string(),
                         requests,
                     });
                 }
-                write_json_rpc_error(writer, None, -32600, McpError::BoundExceeded)?;
+                write_json_rpc_error(
+                    writer,
+                    None,
+                    -32600,
+                    McpError::BoundExceeded,
+                    config.default_max_bytes,
+                )?;
                 continue;
             }
             ReadLine::Line => {}
@@ -543,7 +743,13 @@ pub fn serve_json_rpc<R: BufRead, W: Write>(
         }
         requests = requests.saturating_add(1);
         if requests > config.max_requests {
-            write_json_rpc_error(writer, None, -32000, McpError::WorkLimitExceeded)?;
+            write_json_rpc_error(
+                writer,
+                None,
+                -32000,
+                McpError::WorkLimitExceeded,
+                config.default_max_bytes,
+            )?;
             writer.flush().map_err(|_| McpError::IoFailure)?;
             return Ok(ServerReport {
                 status: "request_limit_shutdown".to_string(),
@@ -554,7 +760,13 @@ pub fn serve_json_rpc<R: BufRead, W: Write>(
         let request = match serde_json::from_slice::<JsonRpcRequest>(&line) {
             Ok(request) if request.jsonrpc == "2.0" => request,
             _ => {
-                write_json_rpc_error(writer, None, -32600, McpError::ProtocolViolation)?;
+                write_json_rpc_error(
+                    writer,
+                    None,
+                    -32600,
+                    McpError::ProtocolViolation,
+                    config.default_max_bytes,
+                )?;
                 continue;
             }
         };
@@ -563,15 +775,37 @@ pub fn serve_json_rpc<R: BufRead, W: Write>(
             .as_ref()
             .is_some_and(|id| !matches!(id, Value::Null | Value::String(_) | Value::Number(_)))
         {
-            write_json_rpc_error(writer, None, -32600, McpError::ProtocolViolation)?;
+            write_json_rpc_error(
+                writer,
+                None,
+                -32600,
+                McpError::ProtocolViolation,
+                config.default_max_bytes,
+            )?;
             continue;
         }
         let id = request.id.clone();
-        let outcome = process_json_rpc_request(config, &mut state, request);
+        let wire_budget = json_rpc_wire_budget(config, &request);
+        let outcome = process_json_rpc_request(config, backend, &mut state, request);
         if let Some(id) = id {
             match outcome {
-                Ok(result) => write_json_rpc_result(writer, id, result)?,
-                Err(error) => write_json_rpc_error(writer, Some(id), rpc_error_code(error), error)?,
+                Ok(result) => match bounded_json_rpc_result(id.clone(), result, wire_budget) {
+                    Ok(message) => write_json_line(writer, &message, wire_budget)?,
+                    Err(error) => write_json_rpc_error(
+                        writer,
+                        Some(id),
+                        rpc_error_code(error),
+                        error,
+                        wire_budget,
+                    )?,
+                },
+                Err(error) => write_json_rpc_error(
+                    writer,
+                    Some(id),
+                    rpc_error_code(error),
+                    error,
+                    wire_budget,
+                )?,
             }
         }
     }
@@ -585,8 +819,9 @@ pub fn run_stdio(config: &McpServerConfig) -> Result<ServerReport, McpError> {
     serve_json_rpc(config, &mut reader, &mut writer)
 }
 
-fn process_json_rpc_request(
+fn process_json_rpc_request<B: ReadOnlyBackend + ?Sized>(
     config: &McpServerConfig,
+    backend: &B,
     state: &mut ServerState,
     request: JsonRpcRequest,
 ) -> Result<Value, McpError> {
@@ -616,7 +851,7 @@ fn process_json_rpc_request(
         "tools/call" => {
             require_ready(*state)?;
             let request = tool_request(request.params)?;
-            let response = handle_request(config, request)?;
+            let response = handle_request_with_backend(config, backend, request)?;
             Ok(json!({
                 "content": [{
                     "type": "text",
@@ -660,6 +895,64 @@ fn json_rpc_tools() -> Vec<Value> {
         .collect()
 }
 
+fn json_rpc_wire_budget(config: &McpServerConfig, request: &JsonRpcRequest) -> usize {
+    if request.method != "tools/call" {
+        return config.default_max_bytes;
+    }
+    request
+        .params
+        .as_ref()
+        .and_then(|params| params.get("arguments"))
+        .and_then(|arguments| arguments.get("max_bytes"))
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| {
+            (MIN_RESPONSE_BYTES..=config.max_response_bytes).contains(value)
+                && *value <= MAX_RESPONSE_BYTES
+        })
+        .unwrap_or(config.default_max_bytes)
+}
+
+fn bounded_json_rpc_result(id: Value, result: Value, max_bytes: usize) -> Result<Value, McpError> {
+    let mut message = json!({ "jsonrpc": "2.0", "id": id, "result": result });
+    if json_wire_len(&message)? <= max_bytes {
+        return Ok(message);
+    }
+
+    loop {
+        let Some(structured) = message
+            .get_mut("result")
+            .and_then(|result| result.get_mut("structuredContent"))
+        else {
+            return Err(McpError::ResponseBudgetTooSmall);
+        };
+        let cursor = structured
+            .get("cursor")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or(McpError::BackendFailure)?;
+        let rows = structured
+            .get_mut("rows")
+            .and_then(Value::as_array_mut)
+            .ok_or(McpError::BackendFailure)?;
+        if rows.pop().is_none() {
+            return Err(McpError::ResponseBudgetTooSmall);
+        }
+        let next_cursor = cursor.saturating_add(rows.len());
+        structured["truncated"] = Value::Bool(true);
+        structured["next_cursor"] = json!(next_cursor);
+        if json_wire_len(&message)? <= max_bytes {
+            return Ok(message);
+        }
+    }
+}
+
+fn json_wire_len(value: &Value) -> Result<usize, McpError> {
+    serde_json::to_vec(value)
+        .map(|encoded| encoded.len().saturating_add(1))
+        .map_err(|_| McpError::IoFailure)
+}
+
 fn tool_request(params: Option<Value>) -> Result<McpRequest, McpError> {
     let params = params.ok_or(McpError::ProtocolViolation)?;
     let call: JsonRpcToolCall =
@@ -675,39 +968,45 @@ fn tool_request(params: Option<Value>) -> Result<McpRequest, McpError> {
     })
 }
 
-fn write_json_rpc_result<W: Write>(
-    writer: &mut W,
-    id: Value,
-    result: Value,
-) -> Result<(), McpError> {
-    write_json_line(
-        writer,
-        json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-    )
-}
-
 fn write_json_rpc_error<W: Write>(
     writer: &mut W,
     id: Option<Value>,
     code: i64,
     error: McpError,
+    max_bytes: usize,
 ) -> Result<(), McpError> {
-    write_json_line(
-        writer,
-        json!({
-            "jsonrpc": "2.0",
-            "id": id.unwrap_or(Value::Null),
-            "error": {
-                "code": code,
-                "message": error.to_string(),
-                "data": { "reason": error.code() },
-            },
-        }),
-    )
+    let message = json!({
+        "jsonrpc": "2.0",
+        "id": id.unwrap_or(Value::Null),
+        "error": {
+            "code": code,
+            "message": error.to_string(),
+            "data": { "reason": error.code() },
+        },
+    });
+    if json_wire_len(&message)? <= max_bytes {
+        return write_json_line(writer, &message, max_bytes);
+    }
+    let fallback = json!({
+        "jsonrpc": "2.0",
+        "id": Value::Null,
+        "error": {
+            "code": -32000,
+            "message": "response budget exceeded",
+        },
+    });
+    write_json_line(writer, &fallback, max_bytes)
 }
 
-fn write_json_line<W: Write>(writer: &mut W, value: Value) -> Result<(), McpError> {
-    serde_json::to_writer(&mut *writer, &value).map_err(|_| McpError::IoFailure)?;
+fn write_json_line<W: Write>(
+    writer: &mut W,
+    value: &Value,
+    max_bytes: usize,
+) -> Result<(), McpError> {
+    if json_wire_len(value)? > max_bytes {
+        return Err(McpError::ResponseBudgetTooSmall);
+    }
+    serde_json::to_writer(&mut *writer, value).map_err(|_| McpError::IoFailure)?;
     writer.write_all(b"\n").map_err(|_| McpError::IoFailure)?;
     writer.flush().map_err(|_| McpError::IoFailure)
 }
@@ -715,7 +1014,10 @@ fn write_json_line<W: Write>(writer: &mut W, value: Value) -> Result<(), McpErro
 fn rpc_error_code(error: McpError) -> i64 {
     match error {
         McpError::UnknownTool => -32601,
-        McpError::ProtocolViolation | McpError::MissingRepoPath | McpError::MissingTable => -32602,
+        McpError::ProtocolViolation
+        | McpError::MissingRepoPath
+        | McpError::MissingTable
+        | McpError::MissingStore => -32602,
         _ => -32000,
     }
 }
@@ -1025,6 +1327,67 @@ fn canonical_allowed_root(path: &Path) -> Result<PathBuf, McpError> {
     Ok(canonical)
 }
 
+fn validate_persisted_store(
+    config: &PersistedStoreConfig,
+    allowed_root: &Path,
+) -> Result<ValidatedPersistedStore, McpError> {
+    if config.selector.is_empty()
+        || config.codedb_command.as_os_str().is_empty()
+        || !valid_pg_table(&config.pg_table)
+    {
+        return Err(McpError::InvalidConfiguration);
+    }
+    let explicit_pg_conn = env::var("CODEDB_PG_CONN")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let parsed = StoreSpec::parse(&config.selector, explicit_pg_conn.as_deref())
+        .map_err(|_| McpError::InvalidConfiguration)?;
+    let spec = match parsed.backend() {
+        StoreBackend::PostgreSql => parsed,
+        StoreBackend::Redb => {
+            let configured_path = parsed.redb_path().ok_or(McpError::InvalidConfiguration)?;
+            let absolute = if configured_path.is_absolute() {
+                configured_path.to_path_buf()
+            } else {
+                allowed_root.join(configured_path)
+            };
+            reject_symlink_components(&absolute, McpError::InvalidConfiguration)?;
+            let canonical =
+                fs::canonicalize(&absolute).map_err(|_| McpError::InvalidConfiguration)?;
+            if !canonical.is_file() || !canonical.starts_with(allowed_root) {
+                return Err(McpError::InvalidConfiguration);
+            }
+            StoreSpec::parse(canonical.to_string_lossy(), None)
+                .map_err(|_| McpError::InvalidConfiguration)?
+        }
+    };
+    Ok(ValidatedPersistedStore {
+        spec,
+        pg_table: config.pg_table.clone(),
+        codedb_command: config.codedb_command.clone(),
+    })
+}
+
+fn valid_pg_table(table: &str) -> bool {
+    !table.is_empty()
+        && table.len() <= 40
+        && table
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
+        && table
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn default_codedb_command() -> PathBuf {
+    env::current_exe()
+        .ok()
+        .map(|path| path.with_file_name(format!("codedb{}", env::consts::EXE_SUFFIX)))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("codedb"))
+}
+
 fn canonical_request_path(path: &Path, allowed_root: &Path) -> Result<PathBuf, McpError> {
     if !path.is_absolute() || path == Path::new("/") {
         return Err(McpError::InvalidRepositoryPath);
@@ -1113,6 +1476,52 @@ fn tool_requires_repo_path(tool: &str) -> bool {
     )
 }
 
+fn tool_requires_persisted_store(tool: &str, table: Option<&str>) -> bool {
+    tool == "codedb_get_store_summary"
+        || (tool == "codedb_get_table_page" && table == Some("store_summary"))
+}
+
+fn normalize_store_summary(
+    rows: &[Row],
+    store: &ValidatedPersistedStore,
+) -> Result<Vec<Row>, McpError> {
+    let metadata_value = |key: &str| {
+        rows.iter()
+            .find(|row| row.get("key").is_some_and(|value| value == key))
+            .and_then(|row| row.get("value"))
+            .cloned()
+    };
+    let source_files = metadata_value("source_files")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            rows.iter()
+                .filter(|row| {
+                    row.get("table")
+                        .is_some_and(|table| table == "source_files")
+                })
+                .count()
+        });
+    let schema_version = metadata_value("schema_version").ok_or(McpError::BackendFailure)?;
+    let checksum_algorithm =
+        metadata_value("checksum_algorithm").ok_or(McpError::BackendFailure)?;
+    let store_status = metadata_value("store_status").ok_or(McpError::BackendFailure)?;
+    let (backend, snapshot_id) = match store.spec.backend() {
+        StoreBackend::Redb => ("redb", "configured_redb".to_string()),
+        StoreBackend::PostgreSql => ("postgresql", store.pg_table.clone()),
+    };
+    Ok(vec![row([
+        ("table", "store_summary".to_string()),
+        ("backend", backend.to_string()),
+        ("snapshot_id", snapshot_id),
+        ("schema_version", schema_version),
+        ("checksum_algorithm", checksum_algorithm),
+        ("source_files", source_files.to_string()),
+        ("status", store_status),
+        ("raw_source_exposed", "false".to_string()),
+        ("mutation_allowed", "false".to_string()),
+    ])])
+}
+
 fn required_repo_path(repo_path: Option<&Path>) -> Result<&Path, McpError> {
     repo_path.ok_or(McpError::MissingRepoPath)
 }
@@ -1164,10 +1573,56 @@ struct RepositoryInventory {
     rust_sources: Vec<PathBuf>,
 }
 
-#[derive(Debug)]
 struct ValidatedPolicy {
     canonical_allowed_root: PathBuf,
     work_limits: WorkLimits,
+    persisted_store: Option<ValidatedPersistedStore>,
+}
+
+#[derive(Clone)]
+struct ValidatedPersistedStore {
+    spec: StoreSpec,
+    pg_table: String,
+    codedb_command: PathBuf,
+}
+
+struct RedbSnapshotCopy {
+    directory: PathBuf,
+    path: PathBuf,
+}
+
+impl RedbSnapshotCopy {
+    fn create(source: &Path) -> Result<Self, McpError> {
+        let metadata = fs::metadata(source).map_err(|_| McpError::BackendFailure)?;
+        if !metadata.is_file() || metadata.len() > MAX_REDB_SNAPSHOT_BYTES {
+            return Err(McpError::WorkLimitExceeded);
+        }
+        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = env::temp_dir().join(format!(
+            "codedb-mcp-redb-snapshot-{}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir(&directory).map_err(|_| McpError::BackendFailure)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
+                .map_err(|_| McpError::BackendFailure)?;
+        }
+        let path = directory.join("store.redb");
+        if fs::copy(source, &path).is_err() {
+            let _ = fs::remove_dir_all(&directory);
+            return Err(McpError::BackendFailure);
+        }
+        Ok(Self { directory, path })
+    }
+}
+
+impl Drop for RedbSnapshotCopy {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.directory);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

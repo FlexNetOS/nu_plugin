@@ -71,8 +71,11 @@ def main [] {
         let server = $config.mcpServers.codedb
         let policy = $config.codedbPolicy
 
-        if $server.command != "/absolute/path/to/codedb" {
-            fail "Codex MCP sample command must remain a placeholder path"
+        if $server.command != "codedb" {
+            fail "Codex MCP sample must use the profile-owned codedb command"
+        }
+        if (($server.args | first 2) | to json --raw) != ([mcp serve] | to json --raw) {
+            fail "Codex MCP sample must launch the codedb mcp serve frontdoor"
         }
         if not (($server.args | to json --raw) | str contains "--default-limit") {
             fail "Codex MCP sample must include --default-limit"
