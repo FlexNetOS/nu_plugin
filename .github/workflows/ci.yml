@@ -21,13 +21,15 @@ jobs:
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
       - name: Apply deterministic tested migrations
-        run: python3 scripts/run_context_integration.py
+        run: |
+          python3 scripts/run_context_integration.py
+          python3 scripts/patch_pg_open.py
       - name: Format migrated Rust sources
         run: cargo fmt --all
-      - name: Prove locked context and materialization safety wiring
-        run: python3 -m unittest tests/test_locked_context_integration.py tests/test_materialization_safety.py
+      - name: Prove locked context, path safety, and PostgreSQL open policy
+        run: python3 -m unittest tests/test_locked_context_integration.py tests/test_materialization_safety.py tests/test_postgres_open_policy.py
       - name: Test affected crates and frontdoors
-        run: cargo test -p codedb-core -p codedb-context -p codedb-cargo -p codedb -p nu_plugin_codedb -p codedb-mcp
+        run: cargo test -p codedb-core -p codedb-context -p codedb-cargo -p codedb -p nu_plugin_codedb -p codedb-mcp -p codedb-store-pg
       - name: Regenerate stale repository truth surface
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: python3 scripts/truth_surface.py --check || python3 scripts/truth_surface.py --write
