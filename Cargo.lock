@@ -389,6 +389,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "codedb-context"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "codedb-core"
 version = "0.1.0"
 dependencies = [
