@@ -6,14 +6,14 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "0f3f450380986bb838c2da940cc8a575d1486049fa2692665140581196460c30",
+  "checksum_scope_files_sha256": "724031c7cef7092d6896d356c013f3f2efa168a67e78ee9d0dfc8a192b7a3b8c",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 322,
+  "file_count_in_checksum_scope": 323,
   "files": [
     {
-      "bytes": 5074,
+      "bytes": 5939,
       "path": ".github/workflows/ci.yml",
-      "sha256": "da58aef7e769163681c1400965a7ae41fded5506f596cde8a719e1390526210d"
+      "sha256": "f9c85d61c777c8bcc8efc5bf5bd8d225d2e0123cf6aafca057fbf9c066dbf63c"
     },
     {
       "bytes": 90,
@@ -416,9 +416,9 @@
       "sha256": "c5ebea8999518c7bc962bb1bc950507d0b56a9c8bdfbb9651dfb9f6b1c5dce5a"
     },
     {
-      "bytes": 578,
+      "bytes": 395,
       "path": "crates/codedb_store_pg/Cargo.toml",
-      "sha256": "00392ceae33e73deb1395c462c34c1917f172a7cd8f68ff90647d1fcbb799579"
+      "sha256": "a3ef87842483951ac95d4240f94517b3833312fdb3df8a2e0de5e2904dcedd3c"
     },
     {
       "bytes": 11055,
@@ -426,9 +426,9 @@
       "sha256": "7c07cce456a7caa14b3f0cfd1c75a2aff31a253f6881d21b7d39e7c4f9d05512"
     },
     {
-      "bytes": 3197,
+      "bytes": 2776,
       "path": "crates/codedb_store_pg/tests/blobstore_parity.rs",
-      "sha256": "925b99de943fa133996882178b76515513545f2d27ee78b7ab5ff1cdd9e0017d"
+      "sha256": "18f17d0513369c49c5cd590834b90eebb82cdab2e13d03048f79aee989ca8cdf"
     },
     {
       "bytes": 241,
@@ -1556,6 +1556,11 @@
       "sha256": "a42dadff4f684f5a8236b7a7fe73d9788f06997456e497cfeea12841ea888a83"
     },
     {
+      "bytes": 990,
+      "path": "tests/test_mandatory_pg_parity.py",
+      "sha256": "e637e9114a27fc3d14a1a562b4d99b199f41e919eaba5d54da4c2a8fc3f24275"
+    },
+    {
       "bytes": 566,
       "path": "tests/test_materialization_safety.py",
       "sha256": "713efe825f13e9965b0245c628ce3e5c4d42371099ad9134a61539ebc8f8e9f4"
@@ -1621,7 +1626,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-11T00:40:57+00:00",
+  "generated_at_utc": "2026-07-11T00:46:39+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
