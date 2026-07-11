@@ -21,7 +21,7 @@ jobs:
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
       - name: Apply deterministic runtime-context integration
-        run: python3 scripts/apply_context_integration.py
+        run: python3 scripts/run_context_integration.py
       - name: Format migrated Rust sources
         run: cargo fmt --all
       - name: Prove every frontdoor uses locked context authority
