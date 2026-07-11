@@ -5,6 +5,7 @@ use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::io;
+use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -21,6 +22,9 @@ pub struct BuildCaptureRequest {
     pub raw_log_path: PathBuf,
     pub unsafe_execute_build: bool,
     pub approver: Option<String>,
+    pub task_id: Option<String>,
+    pub before_state: Option<String>,
+    pub cleanup_plan: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +37,7 @@ pub struct BuildCaptureOutcome {
     pub build_script_stderr: Vec<Row>,
     pub build_script_cargo_instructions: Vec<Row>,
     pub proc_macro_invocations: Vec<Row>,
+    pub proc_macro_input_token_streams: Vec<Row>,
     pub proc_macro_output_token_streams: Vec<Row>,
     pub native_link_facts: Vec<Row>,
     pub out_dir_artifacts: Vec<Row>,
@@ -66,6 +71,7 @@ pub enum BuildCaptureError {
     CreateLogDir { path: PathBuf, source: io::Error },
     WriteLog { path: PathBuf, source: io::Error },
     SpawnCargo { path: PathBuf, source: io::Error },
+    DisallowedEnvironment { key: String },
 }
 
 impl Display for BuildCaptureError {
@@ -90,6 +96,12 @@ impl Display for BuildCaptureError {
                     f,
                     "failed to run cargo check in {}: {source}",
                     path.display()
+                )
+            }
+            Self::DisallowedEnvironment { key } => {
+                write!(
+                    f,
+                    "approved build capture environment key is not allowlisted: {key}"
                 )
             }
         }
@@ -120,6 +132,7 @@ struct CapturedStream {
 #[derive(Debug, Default)]
 struct ProcMacroEvidence {
     invocations: Vec<Row>,
+    inputs: Vec<Row>,
     outputs: Vec<Row>,
     log_summary: Vec<String>,
 }
@@ -127,6 +140,12 @@ struct ProcMacroEvidence {
 pub fn capture_build(request: BuildCaptureRequest) -> BuildCaptureOutcome {
     if !request.unsafe_execute_build {
         return refused_capture(request);
+    }
+    if !has_named_approver(&request) {
+        return missing_approval_capture(request);
+    }
+    if !has_complete_approval_provenance(&request) {
+        return incomplete_approval_capture(request);
     }
 
     approved_scaffold(request)
@@ -145,12 +164,21 @@ pub fn capture_approved_fixture_build_with_env(
     if !request.unsafe_execute_build {
         return Ok(refused_capture(request));
     }
+    if !has_named_approver(&request) {
+        return Ok(missing_approval_capture(request));
+    }
+    if !has_complete_approval_provenance(&request) {
+        return Ok(incomplete_approval_capture(request));
+    }
+    validate_approved_environment(environment)?;
 
     let target_dir = isolated_target_dir(&request);
     let mut command = Command::new("cargo");
     command
         .args(["check", "--message-format=json"])
-        .current_dir(&request.repo_path);
+        .current_dir(&request.repo_path)
+        .env_clear();
+    copy_allowlisted_host_environment(&mut command);
     for (key, value) in environment {
         command.env(key, value);
     }
@@ -176,27 +204,36 @@ pub fn capture_approved_fixture_build_with_env(
     let mut build_script_env = build_script_env_rows(&observations, &request);
     build_script_env.extend(approved_environment_rows(environment, &request));
     let build_script_cargo_instructions = build_script_instruction_rows(&streams, &request);
-    let native_link_facts = native_link_facts_from_observations(&observations, &request);
+    let native_link_facts = native_link_facts_from_observations_and_instructions(
+        &observations,
+        &build_script_cargo_instructions,
+        &request,
+    );
     let mut validation_errors = Vec::new();
     let mut out_dir_artifacts = Vec::new();
+    let mut out_dir_capture_failed = false;
     for observation in &observations {
         let Some(out_dir) = observation.out_dir.as_deref() else {
             continue;
         };
         match capture_out_dir_artifacts(out_dir, &observation.package_id, &request) {
             Ok(mut artifacts) => out_dir_artifacts.append(&mut artifacts),
-            Err(source) => validation_errors.push(row([
-                ("table", "validation_errors".to_string()),
-                ("code", "out_dir_artifact_capture_failed".to_string()),
-                ("package_id", observation.package_id.clone()),
-                ("out_dir", out_dir.display().to_string()),
-                ("message", redact_text(&source.to_string())),
-            ])),
+            Err(source) => {
+                out_dir_capture_failed = true;
+                validation_errors.push(row([
+                    ("table", "validation_errors".to_string()),
+                    ("code", "out_dir_artifact_capture_failed".to_string()),
+                    ("package_id", observation.package_id.clone()),
+                    ("out_dir", out_dir.display().to_string()),
+                    ("message", redact_text(&source.to_string())),
+                ]));
+            }
         }
     }
     let proc_macro_evidence = capture_proc_macro_evidence(environment, &request);
     write_redacted_raw_log(
         &request.raw_log_path,
+        &request,
         &output,
         &streams,
         &proc_macro_evidence.log_summary,
@@ -209,9 +246,11 @@ pub fn capture_approved_fixture_build_with_env(
     if proc_macro_evidence.invocations.is_empty() {
         capture_gaps.push(proc_macro_gap(&request));
     }
-    if observations
-        .iter()
-        .any(|observation| observation.out_dir.is_none())
+    if observations.is_empty()
+        || out_dir_capture_failed
+        || observations
+            .iter()
+            .any(|observation| observation.out_dir.is_none())
     {
         capture_gaps.push(out_dir_artifact_gap(&request));
     }
@@ -245,10 +284,11 @@ pub fn capture_approved_fixture_build_with_env(
         build_script_stderr: stream_rows(&streams, "stderr", &request),
         build_script_cargo_instructions,
         proc_macro_invocations: proc_macro_evidence.invocations,
+        proc_macro_input_token_streams: proc_macro_evidence.inputs,
         proc_macro_output_token_streams: proc_macro_evidence.outputs,
         native_link_facts,
         out_dir_artifacts,
-        toolchain_provenance: vec![toolchain_provenance(&target_dir)],
+        toolchain_provenance: vec![toolchain_provenance(&target_dir, &request)],
         validation_errors: {
             if !output.status.success() {
                 validation_errors.push(row([
@@ -284,6 +324,7 @@ fn refused_capture(request: BuildCaptureRequest) -> BuildCaptureOutcome {
         build_script_stderr: Vec::new(),
         build_script_cargo_instructions: Vec::new(),
         proc_macro_invocations: Vec::new(),
+        proc_macro_input_token_streams: Vec::new(),
         proc_macro_output_token_streams: Vec::new(),
         native_link_facts: Vec::new(),
         out_dir_artifacts: Vec::new(),
@@ -326,9 +367,100 @@ fn refused_capture(request: BuildCaptureRequest) -> BuildCaptureOutcome {
                 ),
                 ("required_flag", UNSAFE_FLAG.to_string()),
             ]),
+            row([
+                ("table", "capture_gaps".to_string()),
+                ("missing_truth", "out_dir_artifacts".to_string()),
+                (
+                    "reason",
+                    "OUT_DIR artifact capture requires approved dynamic build execution"
+                        .to_string(),
+                ),
+                ("required_flag", UNSAFE_FLAG.to_string()),
+            ]),
         ],
         raw_log_paths: vec![raw_log_row(&request, "not_written")],
     }
+}
+
+fn has_named_approver(request: &BuildCaptureRequest) -> bool {
+    request
+        .approver
+        .as_deref()
+        .is_some_and(|approver| !approver.trim().is_empty())
+}
+
+fn has_complete_approval_provenance(request: &BuildCaptureRequest) -> bool {
+    [
+        &request.task_id,
+        &request.before_state,
+        &request.cleanup_plan,
+    ]
+    .into_iter()
+    .all(|value| {
+        value
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+    })
+}
+
+fn missing_approval_capture(request: BuildCaptureRequest) -> BuildCaptureOutcome {
+    let mut outcome = refused_capture(request.clone());
+    outcome.unsafe_execution_approval = vec![approval_row(
+        &request,
+        "missing",
+        "dynamic build/proc-macro capture refused because named operator approval provenance is absent",
+    )];
+    outcome.validation_errors = vec![row([
+        ("table", "validation_errors".to_string()),
+        ("code", "approval_provenance_missing".to_string()),
+        (
+            "message",
+            "capture build requires a non-empty approver together with explicit unsafe approval"
+                .to_string(),
+        ),
+        ("repo_path", request.repo_path.display().to_string()),
+    ])];
+    for gap in &mut outcome.capture_gaps {
+        gap.insert(
+            "reason".to_string(),
+            "dynamic evidence requires named operator approval provenance".to_string(),
+        );
+        gap.insert(
+            "required_approval".to_string(),
+            "named approver".to_string(),
+        );
+    }
+    outcome
+}
+
+fn incomplete_approval_capture(request: BuildCaptureRequest) -> BuildCaptureOutcome {
+    let mut outcome = refused_capture(request.clone());
+    outcome.unsafe_execution_approval = vec![approval_row(
+        &request,
+        "incomplete",
+        "dynamic build/proc-macro capture refused because task, before-state, or cleanup provenance is absent",
+    )];
+    outcome.validation_errors = vec![row([
+        ("table", "validation_errors".to_string()),
+        ("code", "approval_provenance_incomplete".to_string()),
+        (
+            "message",
+            "capture build requires non-empty task_id, before_state, and cleanup_plan".to_string(),
+        ),
+        ("repo_path", request.repo_path.display().to_string()),
+    ])];
+    for gap in &mut outcome.capture_gaps {
+        gap.insert(
+            "reason".to_string(),
+            "dynamic evidence requires complete task, before-state, and cleanup provenance"
+                .to_string(),
+        );
+        gap.insert(
+            "required_approval".to_string(),
+            "task_id, before_state, cleanup_plan".to_string(),
+        );
+    }
+    outcome
 }
 
 fn approved_scaffold(request: BuildCaptureRequest) -> BuildCaptureOutcome {
@@ -345,6 +477,7 @@ fn approved_scaffold(request: BuildCaptureRequest) -> BuildCaptureOutcome {
         build_script_stderr: Vec::new(),
         build_script_cargo_instructions: Vec::new(),
         proc_macro_invocations: Vec::new(),
+        proc_macro_input_token_streams: Vec::new(),
         proc_macro_output_token_streams: Vec::new(),
         native_link_facts: Vec::new(),
         out_dir_artifacts: Vec::new(),
@@ -368,6 +501,7 @@ fn approval_row(request: &BuildCaptureRequest, status: &str, note: &str) -> Row 
     row([
         ("table", "unsafe_execution_approval".to_string()),
         ("status", status.to_string()),
+        ("approval_id", approval_id(request)),
         ("flag", UNSAFE_FLAG.to_string()),
         (
             "approver",
@@ -375,6 +509,15 @@ fn approval_row(request: &BuildCaptureRequest, status: &str, note: &str) -> Row 
                 .approver
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string()),
+        ),
+        ("task_id", request.task_id.clone().unwrap_or_default()),
+        (
+            "before_state",
+            request.before_state.clone().unwrap_or_default(),
+        ),
+        (
+            "cleanup_plan",
+            request.cleanup_plan.clone().unwrap_or_default(),
         ),
         ("repo_path", request.repo_path.display().to_string()),
         (
@@ -386,6 +529,10 @@ fn approval_row(request: &BuildCaptureRequest, status: &str, note: &str) -> Row 
                 .unwrap_or_default(),
         ),
         ("raw_log_path", request.raw_log_path.display().to_string()),
+        (
+            "output_artifact_path",
+            isolated_target_dir(request).display().to_string(),
+        ),
         ("note", note.to_string()),
     ])
 }
@@ -394,6 +541,7 @@ fn raw_log_row(request: &BuildCaptureRequest, status: &str) -> Row {
     row([
         ("table", "raw_log_paths".to_string()),
         ("status", status.to_string()),
+        ("approval_id", approval_id(request)),
         ("path", request.raw_log_path.display().to_string()),
         (
             "note",
@@ -403,13 +551,28 @@ fn raw_log_row(request: &BuildCaptureRequest, status: &str) -> Row {
     ])
 }
 
+fn approval_id(request: &BuildCaptureRequest) -> String {
+    sha256_hex(
+        format!(
+            "{}\0{}\0{}\0{}\0{}\0{}",
+            request.task_id.as_deref().unwrap_or_default(),
+            request.approver.as_deref().unwrap_or_default(),
+            request.before_state.as_deref().unwrap_or_default(),
+            request.repo_path.display(),
+            request.raw_log_path.display(),
+            request.cleanup_plan.as_deref().unwrap_or_default(),
+        )
+        .as_bytes(),
+    )
+}
+
 fn out_dir_artifact_gap(request: &BuildCaptureRequest) -> Row {
     row([
         ("table", "capture_gaps".to_string()),
         ("missing_truth", "out_dir_artifacts".to_string()),
         (
             "reason",
-            "Cargo reported a build-script execution without an observable OUT_DIR path"
+            "approved Cargo execution did not yield a complete readable OUT_DIR artifact manifest"
                 .to_string(),
         ),
         ("required_task", "CDB080".to_string()),
@@ -445,6 +608,48 @@ fn isolated_target_dir(request: &BuildCaptureRequest) -> PathBuf {
         .parent()
         .unwrap_or(&request.repo_path)
         .join("cargo-target")
+}
+
+const APPROVED_CAPTURE_ENVIRONMENT: &[&str] = &[
+    "CODEDB_FIXTURE_EMIT_NATIVE_LINK",
+    "CODEDB_FIXTURE_LOG_SECRET",
+    "CODEDB_PROC_MACRO_LOG_PATH",
+];
+
+fn validate_approved_environment(environment: &[(&str, &str)]) -> Result<(), BuildCaptureError> {
+    for (key, _) in environment {
+        if !APPROVED_CAPTURE_ENVIRONMENT.contains(key) {
+            return Err(BuildCaptureError::DisallowedEnvironment {
+                key: (*key).to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn copy_allowlisted_host_environment(command: &mut Command) {
+    const HOST_ENVIRONMENT: &[&str] = &[
+        "CARGO",
+        "CARGO_HOME",
+        "HOME",
+        "NIX_CC",
+        "NIX_CFLAGS_COMPILE",
+        "NIX_LDFLAGS",
+        "PATH",
+        "RUSTC",
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "RUSTDOC",
+        "RUSTUP_HOME",
+        "RUSTUP_TOOLCHAIN",
+        "TMPDIR",
+    ];
+    for key in HOST_ENVIRONMENT {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    command.env("LANG", "C").env("LC_ALL", "C");
 }
 
 fn build_script_observations_from_cargo_json(stdout: &str) -> Vec<BuildScriptObservation> {
@@ -504,11 +709,12 @@ fn build_script_run_rows(
     observed_warning: bool,
     output: &std::process::Output,
 ) -> Vec<Row> {
-    observations
+    let mut rows = observations
         .iter()
         .map(|observation| {
             row([
                 ("table", "build_script_runs".to_string()),
+                ("approval_id", approval_id(request)),
                 ("repo_path", request.repo_path.display().to_string()),
                 ("package_id", observation.package_id.clone()),
                 (
@@ -532,7 +738,28 @@ fn build_script_run_rows(
                 ("approval_flag", UNSAFE_FLAG.to_string()),
             ])
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if rows.is_empty() && status == BuildCaptureStatus::Failed {
+        rows.push(row([
+            ("table", "build_script_runs".to_string()),
+            ("approval_id", approval_id(request)),
+            ("repo_path", request.repo_path.display().to_string()),
+            ("package_id", "unresolved-before-failure".to_string()),
+            ("out_dir", String::new()),
+            ("isolated_target_dir", target_dir.display().to_string()),
+            ("status", status.as_str().to_string()),
+            ("exit_code", output.status.code().unwrap_or(-1).to_string()),
+            ("stdout_bytes", output.stdout.len().to_string()),
+            ("stderr_bytes", output.stderr.len().to_string()),
+            ("observed_warning", observed_warning.to_string()),
+            (
+                "provenance",
+                "cargo check --message-format=json failure".to_string(),
+            ),
+            ("approval_flag", UNSAFE_FLAG.to_string()),
+        ]));
+    }
+    rows
 }
 
 fn build_script_env_rows(
@@ -545,6 +772,7 @@ fn build_script_env_rows(
             observation.environment.iter().map(move |(key, value)| {
                 row([
                     ("table", "build_script_env".to_string()),
+                    ("approval_id", approval_id(request)),
                     ("status", "observed".to_string()),
                     ("package_id", observation.package_id.clone()),
                     ("key", key.clone()),
@@ -575,6 +803,7 @@ fn approved_environment_rows(
         .map(|(key, value)| {
             row([
                 ("table", "build_script_env".to_string()),
+                ("approval_id", approval_id(request)),
                 ("status", "provided".to_string()),
                 ("key", (*key).to_string()),
                 ("value", redact_value_for_key(key, value)),
@@ -628,6 +857,7 @@ fn stream_rows(
         .map(|stream| {
             row([
                 ("table", format!("build_script_{stream_name}")),
+                ("approval_id", approval_id(request)),
                 ("status", "observed".to_string()),
                 ("package_id", stream.package_id.clone()),
                 ("out_dir", stream.out_dir.display().to_string()),
@@ -658,6 +888,7 @@ fn build_script_instruction_rows(
                 .map(move |(instruction, value)| {
                     row([
                         ("table", "build_script_cargo_instructions".to_string()),
+                        ("approval_id", approval_id(request)),
                         ("status", "observed".to_string()),
                         ("package_id", stream.package_id.clone()),
                         ("out_dir", stream.out_dir.display().to_string()),
@@ -681,8 +912,9 @@ fn parse_cargo_instruction(line: &str) -> Option<(String, String)> {
     Some((instruction.to_string(), redact_text(value)))
 }
 
-fn native_link_facts_from_observations(
+fn native_link_facts_from_observations_and_instructions(
     observations: &[BuildScriptObservation],
+    instructions: &[Row],
     request: &BuildCaptureRequest,
 ) -> Vec<Row> {
     let mut facts = Vec::new();
@@ -694,6 +926,7 @@ fn native_link_facts_from_observations(
             for value in values {
                 facts.push(row([
                     ("table", "native_link_facts".to_string()),
+                    ("approval_id", approval_id(request)),
                     ("status", "observed".to_string()),
                     ("fact_kind", fact_kind.to_string()),
                     ("value", redact_text(value)),
@@ -712,6 +945,36 @@ fn native_link_facts_from_observations(
                 ]));
             }
         }
+    }
+    for instruction in instructions {
+        let Some(name) = instruction.get("instruction") else {
+            continue;
+        };
+        if !name.starts_with("rustc-link-arg") {
+            continue;
+        }
+        facts.push(row([
+            ("table", "native_link_facts".to_string()),
+            ("approval_id", approval_id(request)),
+            ("status", "observed".to_string()),
+            ("fact_kind", "link_arg".to_string()),
+            (
+                "value",
+                instruction.get("value").cloned().unwrap_or_default(),
+            ),
+            (
+                "package_id",
+                instruction.get("package_id").cloned().unwrap_or_default(),
+            ),
+            (
+                "out_dir",
+                instruction.get("out_dir").cloned().unwrap_or_default(),
+            ),
+            ("repo_path", request.repo_path.display().to_string()),
+            ("provenance", "cargo build-script output".to_string()),
+            ("cargo_instruction", name.clone()),
+            ("approval_flag", UNSAFE_FLAG.to_string()),
+        ]));
     }
     facts
 }
@@ -733,8 +996,9 @@ fn capture_out_dir_artifacts_from(
     request: &BuildCaptureRequest,
     artifacts: &mut Vec<Row>,
 ) -> io::Result<()> {
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
+    let mut entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path)?;
         let relative_path = path
@@ -749,6 +1013,7 @@ fn capture_out_dir_artifacts_from(
 
         let mut artifact = Row::new();
         artifact.insert("table".to_string(), "out_dir_artifacts".to_string());
+        artifact.insert("approval_id".to_string(), approval_id(request));
         artifact.insert("status".to_string(), "observed".to_string());
         artifact.insert("package_id".to_string(), package_id.to_string());
         artifact.insert("out_dir".to_string(), root.display().to_string());
@@ -779,17 +1044,39 @@ fn capture_out_dir_artifacts_from(
         append_platform_metadata(&mut artifact, &metadata);
 
         if metadata.file_type().is_file() {
+            let bytes = fs::read(&path)?;
+            let sha256 = sha256_hex(&bytes);
             artifact.insert("file_kind".to_string(), "file".to_string());
-            artifact.insert("sha256".to_string(), sha256_hex(&fs::read(&path)?));
-        } else if metadata.file_type().is_symlink() {
-            artifact.insert("file_kind".to_string(), "symlink".to_string());
+            artifact.insert("sha256".to_string(), sha256.clone());
+            artifact.insert("content_encoding".to_string(), "hex".to_string());
+            artifact.insert("content_hex".to_string(), hex_encode(&bytes));
             artifact.insert(
-                "link_target".to_string(),
-                fs::read_link(&path)?.display().to_string(),
+                "reproduction_sha256".to_string(),
+                artifact_reproduction_hash(
+                    artifact
+                        .get("relative_path")
+                        .expect("relative path inserted"),
+                    "file",
+                    &sha256,
+                ),
             );
+        } else if metadata.file_type().is_symlink() {
+            let link_target = fs::read_link(&path)?.display().to_string();
+            artifact.insert("file_kind".to_string(), "symlink".to_string());
+            artifact.insert("link_target".to_string(), link_target.clone());
             artifact.insert(
                 "materialization".to_string(),
                 "metadata_only_fallback".to_string(),
+            );
+            artifact.insert(
+                "reproduction_sha256".to_string(),
+                artifact_reproduction_hash(
+                    artifact
+                        .get("relative_path")
+                        .expect("relative path inserted"),
+                    "symlink",
+                    &link_target,
+                ),
             );
         } else {
             artifact.insert("file_kind".to_string(), "other".to_string());
@@ -797,6 +1084,227 @@ fn capture_out_dir_artifacts_from(
         artifacts.push(artifact);
     }
     Ok(())
+}
+
+fn artifact_reproduction_hash(relative_path: &str, file_kind: &str, payload_id: &str) -> String {
+    sha256_hex(format!("{relative_path}\0{file_kind}\0{payload_id}").as_bytes())
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn hex_decode(value: &str) -> io::Result<Vec<u8>> {
+    if !value.len().is_multiple_of(2) {
+        return Err(invalid_artifact("hex payload has an odd number of digits"));
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let digits = std::str::from_utf8(pair)
+                .map_err(|_| invalid_artifact("hex payload is not UTF-8"))?;
+            u8::from_str_radix(digits, 16)
+                .map_err(|_| invalid_artifact("hex payload contains a non-hex digit"))
+        })
+        .collect()
+}
+
+fn invalid_artifact(message: impl Into<String>) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message.into())
+}
+
+fn checked_relative_artifact_path(value: &str) -> io::Result<PathBuf> {
+    let path = Path::new(value);
+    if value.is_empty()
+        || path.is_absolute()
+        || !path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return Err(invalid_artifact(format!(
+            "artifact path must be a contained relative path: {value}"
+        )));
+    }
+    Ok(path.to_path_buf())
+}
+
+enum ReproductionPayload {
+    File(Vec<u8>),
+    Symlink(PathBuf),
+}
+
+struct PreparedReproduction {
+    relative_path: PathBuf,
+    expected_sha256: String,
+    reproduction_sha256: String,
+    readonly: bool,
+    unix_mode: Option<u32>,
+    payload: ReproductionPayload,
+}
+
+pub fn reproduce_out_dir_artifacts(artifacts: &[Row], destination: &Path) -> io::Result<Vec<Row>> {
+    let mut prepared = Vec::with_capacity(artifacts.len());
+    for artifact in artifacts {
+        let relative_value = artifact
+            .get("relative_path")
+            .ok_or_else(|| invalid_artifact("artifact row is missing relative_path"))?;
+        let relative_path = checked_relative_artifact_path(relative_value)?;
+        let file_kind = artifact
+            .get("file_kind")
+            .ok_or_else(|| invalid_artifact("artifact row is missing file_kind"))?;
+        let readonly = artifact
+            .get("readonly")
+            .is_some_and(|value| value == "true");
+        let unix_mode = artifact
+            .get("unix_mode")
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                u32::from_str_radix(value, 8)
+                    .map_err(|_| invalid_artifact("artifact unix_mode is not octal"))
+            })
+            .transpose()?;
+
+        let (payload, expected_sha256, payload_id) = match file_kind.as_str() {
+            "file" => {
+                let content = artifact
+                    .get("content_hex")
+                    .ok_or_else(|| invalid_artifact("file artifact is missing content_hex"))?;
+                let bytes = hex_decode(content)?;
+                let actual_sha256 = sha256_hex(&bytes);
+                let expected_sha256 = artifact
+                    .get("sha256")
+                    .ok_or_else(|| invalid_artifact("file artifact is missing sha256"))?;
+                if &actual_sha256 != expected_sha256 {
+                    return Err(invalid_artifact(format!(
+                        "artifact payload checksum mismatch for {relative_value}"
+                    )));
+                }
+                (
+                    ReproductionPayload::File(bytes),
+                    expected_sha256.clone(),
+                    actual_sha256,
+                )
+            }
+            "symlink" => {
+                let target_value = artifact
+                    .get("link_target")
+                    .ok_or_else(|| invalid_artifact("symlink artifact is missing link_target"))?;
+                let target = checked_relative_artifact_path(target_value)?;
+                (
+                    ReproductionPayload::Symlink(target),
+                    sha256_hex(target_value.as_bytes()),
+                    target_value.clone(),
+                )
+            }
+            other => {
+                return Err(invalid_artifact(format!(
+                    "unsupported OUT_DIR artifact kind: {other}"
+                )));
+            }
+        };
+        let reproduction_sha256 =
+            artifact_reproduction_hash(relative_value, file_kind, &payload_id);
+        if artifact
+            .get("reproduction_sha256")
+            .is_some_and(|expected| expected != &reproduction_sha256)
+        {
+            return Err(invalid_artifact(format!(
+                "artifact reproduction checksum mismatch for {relative_value}"
+            )));
+        }
+        prepared.push(PreparedReproduction {
+            relative_path,
+            expected_sha256,
+            reproduction_sha256,
+            readonly,
+            unix_mode,
+            payload,
+        });
+    }
+
+    fs::create_dir_all(destination)?;
+    let mut proof = Vec::with_capacity(prepared.len());
+    for artifact in prepared {
+        let output_path = destination.join(&artifact.relative_path);
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let file_kind = match artifact.payload {
+            ReproductionPayload::File(bytes) => {
+                fs::write(&output_path, &bytes)?;
+                apply_reproduced_permissions(&output_path, artifact.readonly, artifact.unix_mode)?;
+                if sha256_hex(&fs::read(&output_path)?) != artifact.expected_sha256 {
+                    return Err(invalid_artifact(format!(
+                        "reproduced artifact checksum mismatch for {}",
+                        artifact.relative_path.display()
+                    )));
+                }
+                "file"
+            }
+            ReproductionPayload::Symlink(target) => {
+                reproduce_symlink(&target, &output_path)?;
+                "symlink"
+            }
+        };
+        proof.push(row([
+            ("table", "out_dir_reproduction_proofs".to_string()),
+            ("status", "verified".to_string()),
+            (
+                "relative_path",
+                artifact.relative_path.display().to_string(),
+            ),
+            ("file_kind", file_kind.to_string()),
+            ("sha256", artifact.expected_sha256),
+            ("reproduction_sha256", artifact.reproduction_sha256),
+            ("proof", "reproduced-bytes-sha256-match".to_string()),
+            ("destination", destination.display().to_string()),
+        ]));
+    }
+    Ok(proof)
+}
+
+#[cfg(unix)]
+fn apply_reproduced_permissions(
+    path: &Path,
+    _readonly: bool,
+    unix_mode: Option<u32>,
+) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    if let Some(mode) = unix_mode {
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn apply_reproduced_permissions(
+    path: &Path,
+    readonly: bool,
+    _unix_mode: Option<u32>,
+) -> io::Result<()> {
+    let mut permissions = fs::metadata(path)?.permissions();
+    permissions.set_readonly(readonly);
+    fs::set_permissions(path, permissions)
+}
+
+#[cfg(unix)]
+fn reproduce_symlink(target: &Path, output_path: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, output_path)
+}
+
+#[cfg(windows)]
+fn reproduce_symlink(target: &Path, output_path: &Path) -> io::Result<()> {
+    std::os::windows::fs::symlink_file(target, output_path)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn reproduce_symlink(_target: &Path, _output_path: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "symlink reproduction is unsupported on this platform",
+    ))
 }
 
 #[cfg(unix)]
@@ -870,6 +1378,7 @@ fn push_proc_macro_evidence(
     let output_sha256 = sha256_hex(output.as_bytes());
     evidence.invocations.push(row([
         ("table", "proc_macro_invocations".to_string()),
+        ("approval_id", approval_id(request)),
         ("status", "observed".to_string()),
         ("macro_name", macro_name.clone()),
         ("input_sha256", input_sha256.clone()),
@@ -882,8 +1391,23 @@ fn push_proc_macro_evidence(
         ("repo_path", request.repo_path.display().to_string()),
         ("capture", "hash-only".to_string()),
     ]));
+    evidence.inputs.push(row([
+        ("table", "proc_macro_input_token_streams".to_string()),
+        ("approval_id", approval_id(request)),
+        ("status", "observed".to_string()),
+        ("macro_name", macro_name.clone()),
+        ("sha256", input_sha256.clone()),
+        ("token_count", input.split_whitespace().count().to_string()),
+        ("capture", "hash-only".to_string()),
+        (
+            "provenance",
+            "compiler-executed-proc-macro-fixture".to_string(),
+        ),
+        ("approval_flag", UNSAFE_FLAG.to_string()),
+    ]));
     evidence.outputs.push(row([
         ("table", "proc_macro_output_token_streams".to_string()),
+        ("approval_id", approval_id(request)),
         ("status", "observed".to_string()),
         ("macro_name", macro_name.clone()),
         ("sha256", output_sha256.clone()),
@@ -900,9 +1424,10 @@ fn push_proc_macro_evidence(
     ));
 }
 
-fn toolchain_provenance(target_dir: &Path) -> Row {
+fn toolchain_provenance(target_dir: &Path, request: &BuildCaptureRequest) -> Row {
     let mut row = Row::new();
     row.insert("table".to_string(), "toolchain_provenance".to_string());
+    row.insert("approval_id".to_string(), approval_id(request));
     row.insert("provenance".to_string(), "rustc -vV".to_string());
     row.insert(
         "isolated_target_dir".to_string(),
@@ -927,6 +1452,12 @@ fn toolchain_provenance(target_dir: &Path) -> Row {
                     }
                 }
             }
+            let target = std::env::var("CARGO_BUILD_TARGET")
+                .ok()
+                .filter(|target| !target.trim().is_empty())
+                .or_else(|| row.get("host").cloned())
+                .unwrap_or_default();
+            row.insert("target_triple".to_string(), target);
         }
         Ok(output) => {
             row.insert("status".to_string(), "unavailable".to_string());
@@ -942,11 +1473,37 @@ fn toolchain_provenance(target_dir: &Path) -> Row {
             row.insert("message".to_string(), redact_text(&error.to_string()));
         }
     }
+    match Command::new("cargo").arg("-V").output() {
+        Ok(output) if output.status.success() => {
+            row.insert(
+                "cargo_version".to_string(),
+                first_non_empty_line(&redact_text(&String::from_utf8_lossy(&output.stdout)))
+                    .unwrap_or_default()
+                    .to_string(),
+            );
+        }
+        Ok(output) => {
+            row.insert(
+                "cargo_version".to_string(),
+                first_non_empty_line(&redact_text(&String::from_utf8_lossy(&output.stderr)))
+                    .unwrap_or("unavailable")
+                    .to_string(),
+            );
+        }
+        Err(_) => {
+            row.insert("cargo_version".to_string(), "unavailable".to_string());
+        }
+    }
+    row.insert(
+        "environment_policy".to_string(),
+        "cleared_then_allowlisted".to_string(),
+    );
     row
 }
 
 fn write_redacted_raw_log(
     path: &Path,
+    request: &BuildCaptureRequest,
     output: &std::process::Output,
     streams: &[CapturedStream],
     proc_macro_log_summary: &[String],
@@ -958,9 +1515,14 @@ fn write_redacted_raw_log(
         })?;
     }
     let mut body = format!(
-        "status={}\nexit_code={}\nredaction=applied\n--- cargo stdout ---\n{}\n--- cargo stderr ---\n{}\n",
+        "status={}\nexit_code={}\nredaction=applied\napproval_id={}\ntask_id={}\napprover={}\nbefore_state={}\ncleanup_plan={}\nenvironment_policy=cleared_then_allowlisted\n--- cargo stdout ---\n{}\n--- cargo stderr ---\n{}\n",
         output.status,
         output.status.code().unwrap_or(-1),
+        approval_id(request),
+        redact_text(request.task_id.as_deref().unwrap_or_default()),
+        redact_text(request.approver.as_deref().unwrap_or_default()),
+        redact_text(request.before_state.as_deref().unwrap_or_default()),
+        redact_text(request.cleanup_plan.as_deref().unwrap_or_default()),
         redact_cargo_json_output(&String::from_utf8_lossy(&output.stdout)),
         redact_text(&String::from_utf8_lossy(&output.stderr))
     );
@@ -1172,6 +1734,15 @@ fn redact_text(value: &str) -> String {
 }
 
 fn redact_token(token: &str) -> String {
+    let unquoted = token.trim_matches(|character: char| {
+        matches!(
+            character,
+            '"' | '\'' | '`' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}'
+        )
+    });
+    if looks_like_bare_secret(unquoted) {
+        return "[REDACTED]".to_string();
+    }
     if let Some((key, value)) = token.split_once('=') {
         if is_sensitive_key(key) {
             return format!("{key}=[REDACTED]");
@@ -1188,6 +1759,22 @@ fn redact_token(token: &str) -> String {
         return format!("{key}:[REDACTED]");
     }
     token.to_string()
+}
+
+fn looks_like_bare_secret(token: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "ghp_",
+        "gho_",
+        "github_pat_",
+        "sk-",
+        "sk_proj_",
+        "sk-proj-",
+        "xoxb-",
+        "xoxp-",
+    ];
+    PREFIXES
+        .iter()
+        .any(|prefix| token.starts_with(prefix) && token.len() >= prefix.len() + 12)
 }
 
 fn redact_cargo_json_output(value: &str) -> String {
@@ -1215,10 +1802,28 @@ fn redact_cargo_json_output(value: &str) -> String {
                     }
                 }
             }
+            redact_json_strings(&mut message);
             serde_json::to_string(&message).unwrap_or_else(|_| redact_text(line))
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn redact_json_strings(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => *text = redact_text(text),
+        serde_json::Value::Array(values) => {
+            for value in values {
+                redact_json_strings(value);
+            }
+        }
+        serde_json::Value::Object(values) => {
+            for value in values.values_mut() {
+                redact_json_strings(value);
+            }
+        }
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
+    }
 }
 
 fn is_sensitive_key(key: &str) -> bool {
@@ -1274,6 +1879,10 @@ mod tests {
             outcome.raw_log_paths[0].get("status").map(String::as_str),
             Some("not_written")
         );
+        assert!(outcome.capture_gaps.iter().any(|gap| {
+            gap.get("missing_truth").map(String::as_str) == Some("out_dir_artifacts")
+                && gap.get("required_flag").map(String::as_str) == Some(UNSAFE_FLAG)
+        }));
     }
 
     // Test lane: default
@@ -1338,6 +1947,9 @@ edition = "2024"
             raw_log_path: raw_log_path.clone(),
             unsafe_execute_build: true,
             approver: Some("test".to_string()),
+            task_id: Some("CDB079".to_string()),
+            before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+            cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
         })
         .expect("approved fixture capture should run");
 
@@ -1411,6 +2023,11 @@ edition = "2024"
                 raw_log_path: fixture.join("logs/cargo.log"),
                 unsafe_execute_build: true,
                 approver: Some("proc-macro-test".to_string()),
+                task_id: Some("CDB078".to_string()),
+                before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+                cleanup_plan: Some(
+                    "remove isolated fixture and cargo target after proof".to_string(),
+                ),
             },
             &[("CODEDB_PROC_MACRO_LOG_PATH", proc_macro_log_value.as_str())],
         )
@@ -1422,6 +2039,11 @@ edition = "2024"
                 && row.get("macro_name").map(String::as_str) == Some("demo_attr")
                 && row.get("provenance").map(String::as_str)
                     == Some("compiler-executed-proc-macro-fixture")
+        }));
+        assert!(approved.proc_macro_input_token_streams.iter().any(|row| {
+            row.get("status").map(String::as_str) == Some("observed")
+                && row.get("sha256").is_some_and(|value| value.len() == 64)
+                && row.get("capture").map(String::as_str) == Some("hash-only")
         }));
         assert!(approved.proc_macro_output_token_streams.iter().any(|row| {
             row.get("status").map(String::as_str) == Some("observed")
@@ -1473,6 +2095,9 @@ edition = "2024"
             raw_log_path: raw_log_path.clone(),
             unsafe_execute_build: true,
             approver: Some("build-script-test".to_string()),
+            task_id: Some("CDB079".to_string()),
+            before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+            cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
         })
         .expect("approved fixture capture should run");
 
@@ -1482,6 +2107,34 @@ edition = "2024"
                 .get("approver")
                 .map(String::as_str),
             Some("build-script-test")
+        );
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("task_id")
+                .map(String::as_str),
+            Some("CDB079")
+        );
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("before_state")
+                .map(String::as_str),
+            Some("fixture-source-copied-and-unchanged")
+        );
+        assert_eq!(
+            approved.unsafe_execution_approval[0]
+                .get("cleanup_plan")
+                .map(String::as_str),
+            Some("remove isolated fixture and cargo target after proof")
+        );
+        let approval_id = approved.unsafe_execution_approval[0]
+            .get("approval_id")
+            .expect("approval id");
+        assert_eq!(approval_id.len(), 64);
+        assert!(
+            approved
+                .build_script_runs
+                .iter()
+                .all(|row| row.get("approval_id") == Some(approval_id))
         );
         assert_eq!(
             approved.build_script_runs[0]
@@ -1540,6 +2193,11 @@ edition = "2024"
                 raw_log_path: raw_log_path.clone(),
                 unsafe_execute_build: true,
                 approver: Some("native-link-test".to_string()),
+                task_id: Some("CDB082".to_string()),
+                before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+                cleanup_plan: Some(
+                    "remove isolated fixture and cargo target after proof".to_string(),
+                ),
             },
             &[("CODEDB_FIXTURE_EMIT_NATIVE_LINK", "1")],
         )
@@ -1555,6 +2213,11 @@ edition = "2024"
         assert!(approved.native_link_facts.iter().any(|fact| {
             fact.get("fact_kind").map(String::as_str) == Some("linked_path")
                 && fact.get("value").map(String::as_str) == Some("native=vendor/native")
+        }));
+        assert!(approved.native_link_facts.iter().any(|fact| {
+            fact.get("fact_kind").map(String::as_str) == Some("link_arg")
+                && fact.get("value").map(String::as_str) == Some("-Wl,--as-needed")
+                && fact.get("provenance").map(String::as_str) == Some("cargo build-script output")
         }));
         assert!(!approved.capture_gaps.iter().any(|gap| {
             gap.get("missing_truth").map(String::as_str) == Some("native_linker_dynamic_facts")
@@ -1600,6 +2263,9 @@ edition = "2024"
             raw_log_path: raw_log_path.clone(),
             unsafe_execute_build: true,
             approver: Some("out-dir-test".to_string()),
+            task_id: Some("CDB080".to_string()),
+            before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+            cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
         })
         .expect("approved out-dir fixture capture should run");
 
@@ -1625,10 +2291,69 @@ edition = "2024"
             provenance.get("status").map(String::as_str) == Some("observed")
                 && provenance.get("rustc_version").is_some()
                 && provenance.get("host").is_some()
+                && provenance.get("target_triple").is_some()
+                && provenance.get("cargo_version").is_some()
+                && provenance.get("environment_policy").map(String::as_str)
+                    == Some("cleared_then_allowlisted")
         }));
         assert!(!outcome.capture_gaps.iter().any(|gap| {
             gap.get("missing_truth").map(String::as_str) == Some("out_dir_artifacts")
         }));
+
+        let reproduced = fixture.join("reproduced-out-dir");
+        let reproduction_proof =
+            reproduce_out_dir_artifacts(&outcome.out_dir_artifacts, &reproduced)
+                .expect("reproduce captured OUT_DIR");
+        assert_eq!(
+            fs::read(reproduced.join("generated.rs")).expect("read reproduced generated.rs"),
+            b"pub const GENERATED_VALUE: &str = \"generated\";\n"
+        );
+        assert!(
+            reproduction_proof
+                .iter()
+                .all(|row| { row.get("status").map(String::as_str) == Some("verified") })
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            fs::read_link(reproduced.join("generated-link.rs"))
+                .expect("read reproduced generated symlink"),
+            PathBuf::from("generated.rs")
+        );
+
+        let second_fixture = temp_dir("codedb_out_dir_generator_repeat_fixture");
+        copy_fixture_tree(
+            &repo_root.join("fixtures/out_dir_generator"),
+            &second_fixture,
+            &["Cargo.toml", "build.rs", "src/lib.rs"],
+        );
+        let second = capture_approved_fixture_build(BuildCaptureRequest {
+            repo_path: second_fixture.clone(),
+            store_path: None,
+            raw_log_path: second_fixture.join("logs/raw-build.log"),
+            unsafe_execute_build: true,
+            approver: Some("out-dir-repeat-test".to_string()),
+            task_id: Some("CDB080".to_string()),
+            before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+            cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
+        })
+        .expect("repeat approved out-dir fixture capture");
+        let stable_projection = |rows: &[Row]| {
+            rows.iter()
+                .map(|row| {
+                    (
+                        row["relative_path"].clone(),
+                        row["file_kind"].clone(),
+                        row.get("sha256").cloned().unwrap_or_default(),
+                        row.get("link_target").cloned().unwrap_or_default(),
+                        row["reproduction_sha256"].clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            stable_projection(&outcome.out_dir_artifacts),
+            stable_projection(&second.out_dir_artifacts)
+        );
 
         let raw_log = fs::read_to_string(&raw_log_path).expect("read raw log");
         assert!(
@@ -1637,6 +2362,7 @@ edition = "2024"
         );
 
         let _ = fs::remove_dir_all(fixture);
+        let _ = fs::remove_dir_all(second_fixture);
     }
 
     // Test lane: approved dynamic execution
@@ -1670,6 +2396,11 @@ edition = "2024"
                 raw_log_path: proc_macro_fixture.join("logs/cargo.log"),
                 unsafe_execute_build: true,
                 approver: Some("execution-evidence-test".to_string()),
+                task_id: Some("CDB078".to_string()),
+                before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+                cleanup_plan: Some(
+                    "remove isolated fixture and cargo target after proof".to_string(),
+                ),
             },
             &[("CODEDB_PROC_MACRO_LOG_PATH", proc_macro_log_value.as_str())],
         )
@@ -1709,6 +2440,11 @@ edition = "2024"
                 raw_log_path: build_script_fixture.join("logs/cargo.log"),
                 unsafe_execute_build: true,
                 approver: Some("execution-evidence-test".to_string()),
+                task_id: Some("CDB079".to_string()),
+                before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+                cleanup_plan: Some(
+                    "remove isolated fixture and cargo target after proof".to_string(),
+                ),
             },
             &[(
                 "CODEDB_FIXTURE_LOG_SECRET",
@@ -1762,6 +2498,9 @@ edition = "2024"
             raw_log_path: out_dir_fixture.join("logs/cargo.log"),
             unsafe_execute_build: true,
             approver: Some("execution-evidence-test".to_string()),
+            task_id: Some("CDB080".to_string()),
+            before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+            cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
         })
         .expect("approved OUT_DIR capture should run");
 
@@ -1789,6 +2528,254 @@ edition = "2024"
         let _ = fs::remove_dir_all(out_dir_fixture);
     }
 
+    // Test lane: default refusal
+    // Defends: approved execution requires named operator provenance, not just
+    // the unsafe boolean.
+    #[test]
+    fn approved_execution_refuses_missing_approver_before_spawning_cargo() {
+        let mut missing_approver = request(true);
+        missing_approver.approver = None;
+
+        let outcome = capture_approved_fixture_build(missing_approver)
+            .expect("missing approval provenance must fail closed without spawning cargo");
+
+        assert_eq!(outcome.status, BuildCaptureStatus::Refused);
+        assert!(outcome.build_script_runs.is_empty());
+        assert!(outcome.validation_errors.iter().any(|row| {
+            row.get("code").map(String::as_str) == Some("approval_provenance_missing")
+        }));
+    }
+
+    // Test lane: default refusal
+    // Defends: unsafe approval is incomplete without the selected task,
+    // before-state evidence, and a cleanup plan.
+    #[test]
+    fn approved_execution_refuses_incomplete_approval_provenance() {
+        for incomplete in [
+            {
+                let mut request = request(true);
+                request.task_id = None;
+                request
+            },
+            {
+                let mut request = request(true);
+                request.before_state = None;
+                request
+            },
+            {
+                let mut request = request(true);
+                request.cleanup_plan = None;
+                request
+            },
+        ] {
+            let outcome = capture_approved_fixture_build(incomplete)
+                .expect("incomplete approval must fail closed before cargo");
+            assert_eq!(outcome.status, BuildCaptureStatus::Refused);
+            assert!(outcome.validation_errors.iter().any(|row| {
+                row.get("code").map(String::as_str) == Some("approval_provenance_incomplete")
+            }));
+        }
+    }
+
+    // Test lane: approved dynamic execution
+    // Defends: caller-provided build environment is an explicit CodeDB
+    // allowlist and cannot inject loader/compiler control variables.
+    #[test]
+    fn approved_execution_rejects_non_allowlisted_environment() {
+        let error = capture_approved_fixture_build_with_env(
+            request(true),
+            &[("LD_PRELOAD", "/tmp/not-allowed.so")],
+        )
+        .expect_err("non-allowlisted environment must be rejected before cargo");
+
+        assert!(matches!(
+            error,
+            BuildCaptureError::DisallowedEnvironment { ref key } if key == "LD_PRELOAD"
+        ));
+    }
+
+    // Test lane: approved failure evidence
+    // Defends: a failed build still emits a run row and a redacted failure log.
+    #[test]
+    fn failed_build_preserves_redacted_failure_run() {
+        let fixture = temp_dir("codedb_failed_build_capture_fixture");
+        fs::create_dir_all(fixture.join("src")).expect("create fixture src");
+        fs::write(
+            fixture.join("Cargo.toml"),
+            r#"[package]
+name = "codedb-failed-build-capture-fixture"
+version = "0.1.0"
+edition = "2024"
+"#,
+        )
+        .expect("write manifest");
+        fs::write(fixture.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write lib");
+        fs::write(
+            fixture.join("build.rs"),
+            r#"fn main() {
+    panic!("password=failure-log-secret");
+}
+"#,
+        )
+        .expect("write failing build script");
+
+        let raw_log_path = fixture.join("logs/cargo.log");
+        let outcome = capture_approved_fixture_build(BuildCaptureRequest {
+            repo_path: fixture.clone(),
+            store_path: None,
+            raw_log_path: raw_log_path.clone(),
+            unsafe_execute_build: true,
+            approver: Some("failure-test".to_string()),
+            task_id: Some("CDB079".to_string()),
+            before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+            cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
+        })
+        .expect("cargo failure is captured as evidence");
+
+        assert_eq!(outcome.status, BuildCaptureStatus::Failed);
+        assert_eq!(outcome.build_script_runs.len(), 1);
+        assert_eq!(
+            outcome.build_script_runs[0]
+                .get("status")
+                .map(String::as_str),
+            Some("failed")
+        );
+        assert!(outcome.validation_errors.iter().any(|row| {
+            row.get("code").map(String::as_str) == Some("dynamic_build_capture_failed")
+        }));
+        let log = fs::read_to_string(raw_log_path).expect("read failure log");
+        assert!(!log.contains("failure-log-secret"));
+        assert!(log.contains("password=[REDACTED]"));
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: deterministic OUT_DIR reproduction
+    // Defends: CDB080 stores exact regular-file payloads, deterministically
+    // orders the manifest, and reproduces a checksum-identical artifact tree.
+    #[test]
+    fn out_dir_manifest_is_deterministic_and_reproduces_exact_bytes() {
+        let source = temp_dir("codedb_out_dir_manifest_source");
+        fs::create_dir_all(source.join("nested")).expect("create source");
+        fs::write(source.join("z.rs"), b"pub const Z: u8 = 26;\n").expect("write z");
+        fs::write(source.join("nested/a.bin"), [0_u8, 1, 2, 0xff]).expect("write binary");
+        let request = BuildCaptureRequest {
+            repo_path: source.clone(),
+            store_path: None,
+            raw_log_path: source.join("capture.log"),
+            unsafe_execute_build: true,
+            approver: Some("reproduction-test".to_string()),
+            task_id: Some("CDB080".to_string()),
+            before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+            cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
+        };
+
+        let first =
+            capture_out_dir_artifacts(&source, "fixture 0.1.0", &request).expect("first capture");
+        let second =
+            capture_out_dir_artifacts(&source, "fixture 0.1.0", &request).expect("second capture");
+
+        let stable_projection = |rows: &[Row]| {
+            rows.iter()
+                .map(|row| {
+                    (
+                        row["relative_path"].clone(),
+                        row["sha256"].clone(),
+                        row["content_hex"].clone(),
+                        row["reproduction_sha256"].clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(stable_projection(&first), stable_projection(&second));
+        assert_eq!(
+            first
+                .iter()
+                .map(|row| row["relative_path"].as_str())
+                .collect::<Vec<_>>(),
+            vec!["nested/a.bin", "z.rs"]
+        );
+
+        let destination = temp_dir("codedb_out_dir_manifest_destination");
+        let proof = reproduce_out_dir_artifacts(&first, &destination).expect("reproduce artifacts");
+        assert_eq!(proof.len(), 2);
+        assert_eq!(
+            fs::read(destination.join("nested/a.bin")).expect("read reproduced binary"),
+            [0_u8, 1, 2, 0xff]
+        );
+        assert_eq!(
+            sha256_hex(&fs::read(destination.join("z.rs")).expect("read reproduced rust")),
+            first
+                .iter()
+                .find(|row| row["relative_path"] == "z.rs")
+                .expect("z row")["sha256"]
+        );
+        assert!(proof.iter().all(|row| {
+            row.get("status").map(String::as_str) == Some("verified")
+                && row.get("proof").map(String::as_str) == Some("reproduced-bytes-sha256-match")
+        }));
+
+        let _ = fs::remove_dir_all(source);
+        let _ = fs::remove_dir_all(destination);
+    }
+
+    // Test lane: reproduction containment
+    // Defends: a forged artifact row cannot escape the reproduction root.
+    #[test]
+    fn out_dir_reproduction_rejects_escaping_paths() {
+        let destination = temp_dir("codedb_out_dir_escape_destination");
+        let forged = row([
+            ("relative_path", "../escape.rs".to_string()),
+            ("file_kind", "file".to_string()),
+            ("content_hex", "657363617065".to_string()),
+            ("sha256", sha256_hex(b"escape")),
+        ]);
+
+        let error = reproduce_out_dir_artifacts(&[forged], &destination)
+            .expect_err("escaping artifact path must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            !destination
+                .parent()
+                .expect("parent")
+                .join("escape.rs")
+                .exists()
+        );
+    }
+
+    // Test lane: redaction
+    // Defends: common credential-shaped bare tokens are redacted even when a
+    // tool prints them without a key=value label.
+    #[test]
+    fn redaction_covers_bare_secret_tokens() {
+        let redacted = redact_text(
+            "bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD sk-proj-abcdefghijklmnop",
+        );
+
+        assert!(!redacted.contains("ghp_"));
+        assert!(!redacted.contains("sk-proj-"));
+        assert_eq!(redacted, "bearer [REDACTED] [REDACTED]");
+    }
+
+    // Test lane: redaction
+    // Defends: secrets nested in Cargo JSON diagnostics are recursively
+    // redacted, not only build-script env arrays.
+    #[test]
+    fn cargo_json_redaction_covers_nested_diagnostic_strings() {
+        let input = serde_json::json!({
+            "reason": "compiler-message",
+            "message": {
+                "rendered": "warning: token=nested-json-secret ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD"
+            }
+        })
+        .to_string();
+
+        let redacted = redact_cargo_json_output(&input);
+        assert!(!redacted.contains("nested-json-secret"));
+        assert!(!redacted.contains("ghp_"));
+        assert!(redacted.contains("[REDACTED]"));
+    }
+
     fn copy_fixture_tree(source: &Path, destination: &Path, files: &[&str]) {
         for relative_path in files {
             let destination_path = destination.join(relative_path);
@@ -1814,6 +2801,9 @@ edition = "2024"
             raw_log_path: PathBuf::from("/tmp/codedb-build-capture.log"),
             unsafe_execute_build,
             approver: Some("test".to_string()),
+            task_id: Some("CDB078,CDB079,CDB080,CDB082".to_string()),
+            before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+            cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
         }
     }
 

@@ -114,12 +114,50 @@ pub fn prepare_materialization_path(
     relative_path: &str,
 ) -> Result<PathBuf, StoreError> {
     let lexical = safe_materialization_path(output_root, relative_path)?;
-    fs::create_dir_all(output_root).map_err(|error| {
-        StoreError::new(format!(
-            "create materialization root {}: {error}",
-            output_root.display()
-        ))
-    })?;
+    match fs::symlink_metadata(output_root) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(StoreError::new(format!(
+                "symlink materialization root is forbidden: {}",
+                output_root.display()
+            )));
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(StoreError::new(format!(
+                "non-directory materialization root is forbidden: {}",
+                output_root.display()
+            )));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir_all(output_root).map_err(|error| {
+                StoreError::new(format!(
+                    "create materialization root {}: {error}",
+                    output_root.display()
+                ))
+            })?;
+            if fs::symlink_metadata(output_root)
+                .map_err(|error| {
+                    StoreError::new(format!(
+                        "inspect materialization root {}: {error}",
+                        output_root.display()
+                    ))
+                })?
+                .file_type()
+                .is_symlink()
+            {
+                return Err(StoreError::new(format!(
+                    "symlink materialization root is forbidden: {}",
+                    output_root.display()
+                )));
+            }
+        }
+        Err(error) => {
+            return Err(StoreError::new(format!(
+                "inspect materialization root {}: {error}",
+                output_root.display()
+            )));
+        }
+    }
     let canonical_root = fs::canonicalize(output_root).map_err(|error| {
         StoreError::new(format!(
             "canonicalize materialization root {}: {error}",

@@ -67,7 +67,19 @@ jobs:
     runs-on: ${{ vars.CI_FORCE_HOSTED == '1' && 'ubuntu-latest' || ((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","local","flexnetos"]') || 'ubuntu-latest') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - name: Install Rust toolchain on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - name: Select profile-owned Rust toolchain on FlexNetOS self-hosted runners
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          toolbin=/home/flexnetos/.nix-profile/toolbin
+          test -x "$toolbin/cargo"
+          test -x "$toolbin/rustc"
+          echo "$toolbin" >> "$GITHUB_PATH"
+          "$toolbin/cargo" --version
+          "$toolbin/rustc" -Vv
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test workspace

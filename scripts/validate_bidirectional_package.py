@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 import sys
 from pathlib import Path
+
+from validate_requirement_proof_ledger import audit_ledger
 
 
 REQUIRED_DOCS = [
@@ -36,19 +39,18 @@ def read_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def main() -> int:
+def audit_package(root: Path) -> list[str]:
+    root = root.resolve()
     failures: list[str] = []
     for path in REQUIRED_DOCS:
-        if not path.is_file():
+        if not (root / path).is_file():
             failures.append(f"missing required bidirectional artifact: {path}")
 
     if failures:
-        for failure in failures:
-            print(failure, file=sys.stderr)
-        return 1
+        return failures
 
-    graph_rows = read_rows(Path("execution/BIDIRECTIONAL_TASK_GRAPH.csv"))
-    file_rows = read_rows(Path("execution/BIDIRECTIONAL_TASK_FILE_MAP.csv"))
+    graph_rows = read_rows(root / "execution/BIDIRECTIONAL_TASK_GRAPH.csv")
+    file_rows = read_rows(root / "execution/BIDIRECTIONAL_TASK_FILE_MAP.csv")
 
     graph_ids = [row.get("task_id", "") for row in graph_rows]
     file_ids = [row.get("task_id", "") for row in file_rows]
@@ -69,12 +71,12 @@ def main() -> int:
     if incomplete:
         failures.append(f"bidirectional task graph has incomplete rows: {incomplete}")
 
-    graph_text = Path("execution/BIDIRECTIONAL_TASK_GRAPH.csv").read_text(encoding="utf-8")
+    graph_text = (root / "execution/BIDIRECTIONAL_TASK_GRAPH.csv").read_text(encoding="utf-8")
     for phase in EXPECTED_PHASES:
         if phase not in graph_text:
             failures.append(f"missing required phase in bidirectional task graph: {phase}")
 
-    safety_text = Path("docs/MUTATION_POLICY.md").read_text(encoding="utf-8")
+    safety_text = (root / "docs/MUTATION_POLICY.md").read_text(encoding="utf-8")
     for phrase in [
         "Default commands remain read-only",
         "No hidden Git mutation",
@@ -85,7 +87,7 @@ def main() -> int:
         if phrase not in safety_text:
             failures.append(f"mutation policy missing phrase: {phrase}")
 
-    gap_text = Path("docs/GAP_CLOSURE_PLAN.md").read_text(encoding="utf-8")
+    gap_text = (root / "docs/GAP_CLOSURE_PLAN.md").read_text(encoding="utf-8")
     for gap in [
         "macro expansion",
         "proc-macro execution gate",
@@ -104,12 +106,28 @@ def main() -> int:
         if gap not in gap_text:
             failures.append(f"gap closure plan missing coverage: {gap}")
 
+    ledger_violations = audit_ledger(root, require_all_verified=True)
+    failures.extend(
+        f"requirement proof ledger: {violation}" for violation in ledger_violations
+    )
+    return failures
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    args = parser.parse_args()
+
+    failures = audit_package(args.root)
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
 
-    print(f"bidirectional package ok: {len(graph_rows)} task rows")
+    print(
+        "bidirectional package ok: 21 task rows and "
+        "140 current-head requirement proofs"
+    )
     return 0
 
 

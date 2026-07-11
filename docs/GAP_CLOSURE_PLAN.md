@@ -116,3 +116,39 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 ## Mandatory closure semantics
 
 A GAP proves that CodeDB detected missing truth; it never proves that the capability was delivered. Every task in this plan remains active until its positive implementation path and failure path both have executable, current-head tests. Any remaining GAP blocks CDB090 and release readiness.
+
+## Exhaustive requirement-to-proof ledger
+
+`execution/REQUIREMENT_PROOF_LEDGER.csv` is the release authority for the
+mandatory implementation rail. It contains one row for every CDB013-CDB063 and
+CDB077-CDB090 task plus atomic rows for every CDB106 acceptance criterion and
+REQ-061 requirement group.
+
+| Scope | Mandatory rows | Current classification |
+|---|---:|---|
+| CDB013-CDB063 | 51 | planned; direct current-head proof not established |
+| CDB077-CDB090 | 14 | active; direct current-head proof not established |
+| CDB106 acceptance criteria | 10 | active |
+| REQ-061 constraints architecture commands acceptance and missed details | 65 | active |
+| Total | 140 | 90 partial; 50 missing; 0 verified |
+
+The classifications above are inventory truth rather than implementation
+completion. `partial` means a candidate implementation or test surface exists
+but lacks a current-head proof artifact. `missing` means a required positive
+path or direct test is absent. Neither status can satisfy release.
+
+The validator has two intentionally different modes:
+
+```bash
+# Inventory/schema/authority checks. This may pass while implementation remains open.
+python3 scripts/validate_requirement_proof_ledger.py --structure-only
+
+# Release mode. This fails until every row is verified at the exact current HEAD.
+python3 scripts/validate_requirement_proof_ledger.py
+```
+
+A `verified` row must name an existing non-documentation implementation path,
+an existing direct test, an executable verification command, an existing proof
+artifact containing the exact current Git HEAD, and the same revision in
+`proof_head_sha`. Missing rows, stale revisions, documentation-only evidence,
+GAP-compatible closure, and task-graph contradictions fail closed.

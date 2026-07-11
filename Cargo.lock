@@ -403,6 +403,7 @@ name = "codedb-core"
 version = "0.1.0"
 dependencies = [
  "sha2 0.10.9",
+ "tempfile",
 ]
 
 [[package]]
@@ -1429,6 +1430,7 @@ dependencies = [
  "codedb-context",
  "codedb-core",
  "codedb-rust-static",
+ "libc",
  "nu-plugin",
  "nu-protocol",
  "serde_json",

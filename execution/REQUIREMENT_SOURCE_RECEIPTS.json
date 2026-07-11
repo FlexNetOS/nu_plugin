@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "sources": {
+    "CDB106": {
+      "kind": "gitkb",
+      "slug": "tasks/cdb106-mandatory-v1-1-completion",
+      "document_id": "019f507e-0d68-7902-bf1f-9cd3b178e645",
+      "status_observed": "active",
+      "observed_at_utc": "2026-07-11T09:48:38Z"
+    },
+    "REQ-061": {
+      "kind": "github_issue",
+      "repository": "FlexNetOS/envctl",
+      "issue": 414,
+      "url": "https://github.com/FlexNetOS/envctl/issues/414",
+      "title": "TASK: envctl DB feature upgrades - multi-root query, symbol mapping, safe refactor/deploy automation",
+      "state_observed": "OPEN",
+      "source_updated_at": "2026-07-04T01:55:12Z",
+      "body_sha256": "a2f17c445688716e52ea692202a65de9d172ad0cc7606a7a80a77a04c379716d",
+      "observed_at_utc": "2026-07-11T09:50:41Z"
+    }
+  }
+}

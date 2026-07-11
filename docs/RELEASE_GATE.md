@@ -6,6 +6,26 @@ runner/fxrun owns release readiness. CodeDB provides runner-readable proof
 exports; it does not declare a release ready from ad-hoc command success or docs.
 Release without provenance is forbidden.
 
+## Current-head requirement proof gate
+
+Release readiness begins with:
+
+```bash
+python3 scripts/validate_requirement_proof_ledger.py
+python3 scripts/validate_mandatory_capabilities.py
+python3 scripts/validate_bidirectional_package.py
+```
+
+These commands are release-mode validators. They must fail while any mandatory
+row in `execution/REQUIREMENT_PROOF_LEDGER.csv` is `partial`, `missing`,
+`contradicted`, or `blocked`. A task graph changed to `complete` is not proof:
+the corresponding ledger row still requires a direct executable test and a
+proof artifact bound to the exact current Git HEAD.
+
+`--structure-only` is available on the requirement-ledger and mandatory-policy
+validators solely to validate the 140-row inventory while implementation is in
+progress. It is not a release command and cannot satisfy CDB090.
+
 ## Runner proof export
 
 Runner must consume:
@@ -56,3 +76,11 @@ with `gate_id = bidirectional_issue_212`, `status = satisfied`,
 ## Mandatory compiler and reproduction gate
 
 Release is blocked by any unresolved compiler/Cargo/macro/build/generated-artifact/HIR/MIR/rustdoc/database-parity/reproduction GAP. CDB090 cannot be satisfied by documentation, refusal-only tests, or a GAP-compatible validation gate. Every completed task must identify a current-head executable test and provenance artifact.
+
+The same rule applies to REQ-061. The existing Nu bridge for envctl roots,
+query, and fail-closed refactor-plan display is only partial evidence. Release
+also requires the issue's engine-owned symbol and occurrence index, impact
+query, guarded refactor apply, hook discovery/deploy, widgets, persistence,
+managed-tool, GUI-shared-API, no-C, and wide-test requirements. Missing plugin
+commands or external envctl implementation cannot be represented as completed
+by a read-only three-command bridge.

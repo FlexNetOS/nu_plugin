@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from validate_requirement_proof_ledger import audit_ledger
+
 
 @dataclass(frozen=True)
 class Violation:
@@ -98,11 +100,28 @@ def audit_repository(root: Path) -> list[Violation]:
     )
 
 
+def audit_release(root: Path, *, require_all_verified: bool) -> list[object]:
+    """Combine language-policy checks with direct proof-ledger validation."""
+
+    return [
+        *audit_repository(root),
+        *audit_ledger(root, require_all_verified=require_all_verified),
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--structure-only",
+        action="store_true",
+        help="validate policy and ledger structure without asserting release readiness",
+    )
     args = parser.parse_args()
-    violations = audit_repository(args.root)
+    violations = audit_release(
+        args.root,
+        require_all_verified=not args.structure_only,
+    )
     if violations:
         print("mandatory capability policy: FAILED")
         for violation in violations:

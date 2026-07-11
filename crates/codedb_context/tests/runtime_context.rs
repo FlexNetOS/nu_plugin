@@ -25,7 +25,7 @@ impl CommandRunner for FakeRunner {
             args.to_vec(),
             current_dir.to_path_buf(),
         ));
-        match (program, args.as_ref()) {
+        match (program, args) {
             ("cargo", [arg]) if arg == "--version" => {
                 Ok(CommandOutput::success("cargo 1.93.1 (fixture)\n", ""))
             }

@@ -12,6 +12,7 @@ use codedb_context::{
     CapturedCargoContext, CargoContextRequest, capture_context, detect_host_triple,
 };
 use codedb_core::store::{BlobStore, prepare_materialization_path};
+use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
     TableRow, capture_gaps, prove_no_mutation, scan_filesystem, schema_rows, table_inventory,
     validation_errors,
@@ -98,7 +99,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             print_rows(rows, format)
         }
         // capture = scan + PERSIST: every regular file's exact bytes land in the
-        // redb store as a content-addressed blob (sha256) with its relative path
+        // selected CodeDB store as a content-addressed blob (sha256) with its relative path
         // and unix mode; anything unpersistable becomes a capture_gaps row —
         // silent omission is failure (PRD CDB015/017/018 wiring).
         "capture" => {
@@ -285,7 +286,7 @@ fn parse_time_budget(s: &str) -> Result<Duration, CliError> {
         .map_err(|_| CliError::Message(format!("invalid --time-budget: {s}")))
 }
 
-/// scan + persist: exact bytes of every regular file into the redb store
+/// scan + persist: exact bytes of every regular file into the selected CodeDB store
 /// (content-addressed sha256 blobs + relative-path rows + unix modes); every
 /// non-file, non-directory entry becomes a capture_gaps row. Read-only on the
 /// scanned tree; the ONLY write target is the store path. Persisted in durable
@@ -295,32 +296,30 @@ fn parse_time_budget(s: &str) -> Result<Duration, CliError> {
 // is intentionally not read again.
 /// True when a `--store` spec selects the PostgreSQL backend rather than a redb
 /// file path. Recognizes the bare selector `pg` and URL schemes.
-fn is_pg_store(spec: &str) -> bool {
-    spec == "pg"
-        || spec.starts_with("pg://")
-        || spec.starts_with("postgres://")
-        || spec.starts_with("postgresql://")
-}
-
-/// Resolve the PostgreSQL connection string for a pg store spec. A full
-/// `postgres(ql)://` URL is used verbatim; `pg://<rest>` is normalized to a URL;
-/// the bare `pg` selector falls back to `--pg-conn`, then `CODEDB_PG_CONN` /
-/// `DATABASE_URL`, then the crate default (live cluster over its unix socket).
-fn pg_conn_string(spec: &str, args: &[String]) -> Result<String, CliError> {
-    if spec.starts_with("postgres://") || spec.starts_with("postgresql://") {
-        return Ok(spec.to_string());
-    }
-    if let Some(rest) = spec.strip_prefix("pg://").filter(|rest| !rest.is_empty()) {
-        return Ok(format!("postgres://{rest}"));
-    }
+/// Resolve an externally supplied PostgreSQL DSN for the bare `pg` selector.
+/// URL store specifications remain self-contained and are parsed by
+/// `StoreSpec`; there is no host-specific default DSN.
+fn external_pg_conn_string(args: &[String]) -> Option<String> {
     option_value(args, "--pg-conn")
         .map(str::to_string)
         .or_else(|| env::var("CODEDB_PG_CONN").ok())
         .or_else(|| env::var("DATABASE_URL").ok())
         .filter(|dsn| !dsn.trim().is_empty())
-        .ok_or_else(|| CliError::Message(
-            "PostgreSQL DSN is required: pass --pg-conn, CODEDB_PG_CONN, DATABASE_URL, or a postgres:// store URL".to_string()
-        ))
+}
+
+/// Parse the user-provided store selector without opening a backend or touching
+/// the filesystem. Unknown URI schemes fail closed instead of becoming redb
+/// pathnames.
+fn parse_store_spec(store_spec: &str, args: &[String]) -> Result<StoreSpec, CliError> {
+    let external_dsn = external_pg_conn_string(args);
+    if store_spec == "pg" && external_dsn.is_none() {
+        return Err(CliError::Message(
+            "PostgreSQL DSN is required: pass --pg-conn, CODEDB_PG_CONN, DATABASE_URL, or a postgres:// store URL"
+                .to_string(),
+        ));
+    }
+    StoreSpec::parse(store_spec, external_dsn.as_deref())
+        .map_err(|error| CliError::Message(error.to_string()))
 }
 
 /// Resolve the PostgreSQL table name: `--pg-table`, then `CODEDB_PG_TABLE`, then
@@ -333,59 +332,75 @@ fn pg_table_name(args: &[String]) -> String {
         .unwrap_or_else(|| codedb_store_pg::DEFAULT_TABLE.to_string())
 }
 
-/// Open the capture-side backend for a store spec, returning the trait object
-/// and the human-facing store label echoed into result rows. redb: create the
-/// parent dir + initialize the file when absent, then open a batcher. pg:
-/// connect (which idempotently ensures the target table).
+/// Open the capture-side backend selected by the backend-neutral `StoreSpec`.
+/// The parser runs before filesystem/database effects, so a misspelled URI
+/// cannot silently create a redb file.
 fn open_store_for_capture(
     store_spec: &str,
     args: &[String],
 ) -> Result<(Box<dyn BlobStore>, String), CliError> {
-    if is_pg_store(store_spec) {
-        let conn = pg_conn_string(store_spec, args)?;
-        let table = pg_table_name(args);
-        let store = codedb_store_pg::PgStore::initialize(&conn, &table)
-            .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
-        Ok((Box::new(store), format!("pg:{table}")))
-    } else {
-        let store = PathBuf::from(store_spec);
-        if let Some(parent) = store.parent().filter(|p| !p.as_os_str().is_empty()) {
-            fs::create_dir_all(parent)
-                .map_err(|e| CliError::Message(format!("creating store parent: {e}")))?;
+    let store_spec = parse_store_spec(store_spec, args)?;
+    match store_spec.backend() {
+        StoreBackend::PostgreSql => {
+            let conn = store_spec
+                .connection_string()
+                .expect("PostgreSQL StoreSpec has a connection string");
+            let table = pg_table_name(args);
+            let store = codedb_store_pg::PgStore::initialize(conn, &table)
+                .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
+            Ok((Box::new(store), format!("postgresql:{table}")))
         }
-        if !store.exists() {
-            let rustc_version = probe_tool_version("rustc");
-            let cargo_version = probe_tool_version("cargo");
-            initialize_store(
-                &store,
-                &StoreInitContext {
-                    codedb_version: codedb_core::VERSION,
-                    toolchain: "host-default",
-                    rustc_version: &rustc_version,
-                    cargo_version: &cargo_version,
-                },
-            )
-            .map_err(|e| CliError::Message(format!("store init failed: {e}")))?;
+        StoreBackend::Redb => {
+            let store = store_spec
+                .redb_path()
+                .expect("redb StoreSpec has a filesystem path");
+            if let Some(parent) = store.parent().filter(|p| !p.as_os_str().is_empty()) {
+                fs::create_dir_all(parent)
+                    .map_err(|e| CliError::Message(format!("creating store parent: {e}")))?;
+            }
+            if !store.exists() {
+                let rustc_version = probe_tool_version("rustc");
+                let cargo_version = probe_tool_version("cargo");
+                initialize_store(
+                    store,
+                    &StoreInitContext {
+                        codedb_version: codedb_core::VERSION,
+                        toolchain: "host-default",
+                        rustc_version: &rustc_version,
+                        cargo_version: &cargo_version,
+                    },
+                )
+                .map_err(|e| CliError::Message(format!("store init failed: {e}")))?;
+            }
+            let batcher = CaptureBatcher::open(store)
+                .map_err(|e| CliError::Message(format!("opening store for capture: {e}")))?;
+            Ok((Box::new(batcher), store_spec.redacted()))
         }
-        let batcher = CaptureBatcher::open(&store)
-            .map_err(|e| CliError::Message(format!("opening store for capture: {e}")))?;
-        Ok((Box::new(batcher), store_spec.to_string()))
     }
 }
 
 /// Open the read-side backend for a store spec (materialize / store-report).
 /// redb: open the existing file (must already exist). pg: connect.
 fn open_store_readonly(store_spec: &str, args: &[String]) -> Result<Box<dyn BlobStore>, CliError> {
-    if is_pg_store(store_spec) {
-        let conn = pg_conn_string(store_spec, args)?;
-        let table = pg_table_name(args);
-        let store = codedb_store_pg::PgStore::open_existing(&conn, &table)
-            .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
-        Ok(Box::new(store))
-    } else {
-        let batcher = CaptureBatcher::open(Path::new(store_spec))
-            .map_err(|e| CliError::Message(format!("opening store: {e}")))?;
-        Ok(Box::new(batcher))
+    let store_spec = parse_store_spec(store_spec, args)?;
+    match store_spec.backend() {
+        StoreBackend::PostgreSql => {
+            let conn = store_spec
+                .connection_string()
+                .expect("PostgreSQL StoreSpec has a connection string");
+            let table = pg_table_name(args);
+            let store = codedb_store_pg::PgStore::open_existing(conn, &table)
+                .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
+            Ok(Box::new(store))
+        }
+        StoreBackend::Redb => {
+            let path = store_spec
+                .redb_path()
+                .expect("redb StoreSpec has a filesystem path");
+            let batcher = CaptureBatcher::open(path)
+                .map_err(|e| CliError::Message(format!("opening store: {e}")))?;
+            Ok(Box::new(batcher))
+        }
     }
 }
 
@@ -396,9 +411,9 @@ fn capture_rows(
     args: &[String],
 ) -> Result<Vec<Row>, CliError> {
     let repo_path = selection.repo_path.as_path();
-    // Store spec: empty --store defaults to the repo-local redb file (backward
-    // compatible); a `pg`/`pg://`/`postgres://` spec selects the PostgreSQL
-    // backend. `store_path` is the human-facing label echoed into result rows.
+    // Store spec: empty --store defaults to the repo-local redb file for backward
+    // compatibility. Otherwise the shared StoreSpec grammar selects redb or
+    // PostgreSQL, and store_path is the redacted label echoed into result rows.
     let store_spec = if selection.store_path.is_empty() {
         repo_path.join(".codedb/store.redb").display().to_string()
     } else {
@@ -1281,19 +1296,20 @@ fn agent_harness_export_rows(
             ));
         }
         for record in records {
-            if let Some(parent_version) = version_dir_name(&record.source_path) {
-                if !record.version.is_empty() && parent_version != record.version {
-                    validations.push(agent_harness_validation_row(
-                        &manifest_id,
-                        "stale_plugin_metadata",
-                        &format!(
-                            "plugin {} metadata version {} does not match cache path {}",
-                            record.name, record.version, parent_version
-                        ),
-                        &record.source_path,
-                        Some(record.name.clone()),
-                    ));
-                }
+            if let Some(parent_version) = version_dir_name(&record.source_path)
+                && !record.version.is_empty()
+                && parent_version != record.version
+            {
+                validations.push(agent_harness_validation_row(
+                    &manifest_id,
+                    "stale_plugin_metadata",
+                    &format!(
+                        "plugin {} metadata version {} does not match cache path {}",
+                        record.name, record.version, parent_version
+                    ),
+                    &record.source_path,
+                    Some(record.name.clone()),
+                ));
             }
         }
     }
@@ -2324,19 +2340,23 @@ fn runner_proof_manifest_rows(selection: &RepoSelection) -> Result<Vec<Row>, Cli
             "",
             [("blocks_release_readiness", "true".to_string())],
         ),
-        runner_proof_row(
-            "bidirectional_issue_212",
-            "satisfied",
-            "scripts/validate_bidirectional_package.py;truth_surface.py;local cargo gates",
-            "CDB070-CDB090 are complete or explicitly represented as GAP/QUESTION rows with read-only defaults preserved",
-            "logs/CDB090-release-gate.log",
-            [
-                ("task_range", "CDB070-CDB090".to_string()),
-                ("task_count", "21".to_string()),
-                ("read_only_defaults", "proven".to_string()),
-                ("hidden_mutation", "forbidden".to_string()),
-            ],
-        ),
+        {
+            let gate = bidirectional_release_gate_summary();
+            runner_proof_row(
+                "bidirectional_issue_212",
+                gate.status,
+                "execution/BIDIRECTIONAL_TASK_GRAPH.csv;current-head capability receipts",
+                &gate.note,
+                "logs/CDB090-release-gate.log",
+                [
+                    ("task_range", "CDB070-CDB090".to_string()),
+                    ("task_count", gate.task_count.to_string()),
+                    ("active_task_count", gate.incomplete_task_count.to_string()),
+                    ("read_only_defaults", "proven".to_string()),
+                    ("hidden_mutation", "forbidden".to_string()),
+                ],
+            )
+        },
     ];
     rows.push(runner_proof_row(
         "release_readiness",
@@ -2350,6 +2370,63 @@ fn runner_proof_manifest_rows(selection: &RepoSelection) -> Result<Vec<Row>, Cli
         ],
     ));
     Ok(rows)
+}
+
+struct BidirectionalReleaseGateSummary {
+    status: &'static str,
+    task_count: usize,
+    incomplete_task_count: usize,
+    note: String,
+}
+
+fn bidirectional_release_gate_summary() -> BidirectionalReleaseGateSummary {
+    const TASK_GRAPH: &str = include_str!("../../../execution/BIDIRECTIONAL_TASK_GRAPH.csv");
+    let mut task_count = 0;
+    let mut incomplete_task_count = 0;
+
+    for line in TASK_GRAPH
+        .lines()
+        .skip(1)
+        .filter(|line| !line.trim().is_empty())
+    {
+        let mut fields = line.split(',');
+        let task_id = fields.next().unwrap_or_default();
+        if !matches!(
+            task_id
+                .strip_prefix("CDB")
+                .and_then(|value| value.parse::<u16>().ok()),
+            Some(70..=90)
+        ) {
+            continue;
+        }
+
+        task_count += 1;
+        let status = line.rsplit(',').next().unwrap_or_default().trim();
+        if status != "complete" {
+            incomplete_task_count += 1;
+        }
+    }
+
+    let status = if task_count == 21 && incomplete_task_count == 0 {
+        "satisfied"
+    } else {
+        "pending"
+    };
+    let note = if status == "satisfied" {
+        "all CDB070-CDB090 rows are complete; release still requires current-head capability receipts"
+            .to_string()
+    } else {
+        format!(
+            "{incomplete_task_count} of {task_count} CDB070-CDB090 tasks remain incomplete; GAP, planned, or refusal-only evidence cannot satisfy this release gate"
+        )
+    };
+
+    BidirectionalReleaseGateSummary {
+        status,
+        task_count,
+        incomplete_task_count,
+        note,
+    }
 }
 
 fn runner_proof_row<const N: usize>(
@@ -3097,14 +3174,43 @@ fn _repo_path(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_REPO_ID: AtomicU64 = AtomicU64::new(0);
 
     fn temp_repo() -> PathBuf {
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        env::temp_dir().join(format!("codedb-cli-test-{suffix}"))
+        for _ in 0..1024 {
+            let suffix = NEXT_TEMP_REPO_ID.fetch_add(1, Ordering::Relaxed);
+            let path =
+                env::temp_dir().join(format!("codedb-cli-test-{}-{suffix}", std::process::id()));
+            match fs::create_dir(&path) {
+                Ok(()) => return path,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("create unique test repository {}: {error}", path.display()),
+            }
+        }
+        panic!("unable to reserve a unique CodeDB CLI test repository");
+    }
+
+    #[test]
+    fn temp_repo_reserves_exclusive_directories_for_parallel_tests() {
+        let first = temp_repo();
+        let second = temp_repo();
+
+        assert_ne!(first, second);
+        fs::write(first.join("only-first"), "sentinel").expect("write first sentinel");
+        assert!(!second.join("only-first").exists());
+
+        fs::remove_dir_all(first).expect("remove first temp repo");
+        fs::remove_dir_all(second).expect("remove second temp repo");
+    }
+
+    #[test]
+    fn cli_store_selection_rejects_unknown_uri_schemes_before_opening_a_backend() {
+        let error = parse_store_spec("postgre://user:password@localhost/codedb", &[])
+            .expect_err("misspelled PostgreSQL scheme must be rejected");
+
+        assert!(error.to_string().contains("unsupported store URI scheme"));
     }
 
     // Test lane: default
@@ -3157,9 +3263,9 @@ mod tests {
     }
 
     // Test lane: default
-    // Defends: CDB090 runner proof manifest exposes the issue-212 release gate.
+    // Defends: CDB090 fails closed while mandatory bidirectional tasks remain active.
     #[test]
-    fn runner_proof_manifest_includes_bidirectional_release_gate() {
+    fn runner_proof_manifest_keeps_bidirectional_release_gate_pending_until_all_tasks_complete() {
         let repo = temp_repo();
         fs::create_dir_all(repo.join("src")).expect("create src");
         fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");
@@ -3175,9 +3281,7 @@ mod tests {
         assert!(rows.iter().any(|row| {
             row.get("gate_id")
                 .is_some_and(|gate_id| gate_id == "bidirectional_issue_212")
-                && row
-                    .get("status")
-                    .is_some_and(|status| status == "satisfied")
+                && row.get("status").is_some_and(|status| status == "pending")
                 && row
                     .get("release_without_provenance")
                     .is_some_and(|value| value == "forbidden")
@@ -3185,6 +3289,9 @@ mod tests {
                 && row
                     .get("read_only_defaults")
                     .is_some_and(|value| value == "proven")
+                && row
+                    .get("active_task_count")
+                    .is_some_and(|value| value == "14")
         }));
 
         let _ = fs::remove_dir_all(repo);

@@ -62,6 +62,9 @@ impl Plugin for CodeDbPlugin {
     fn commands(&self) -> Vec<Box<dyn PluginCommand<Plugin = Self>>> {
         vec![
             Box::new(Scan),
+            Box::new(Capture),
+            Box::new(Materialize),
+            Box::new(StoreReport),
             Box::new(FsEntries),
             Box::new(SourceFiles),
             Box::new(CargoPackages),
@@ -88,6 +91,9 @@ impl Plugin for CodeDbPlugin {
 }
 
 struct Scan;
+struct Capture;
+struct Materialize;
+struct StoreReport;
 struct FsEntries;
 struct SourceFiles;
 struct CargoPackages;
@@ -194,6 +200,104 @@ fn repo_from_flag_or_cwd(call: &EvaluatedCall) -> Result<PathBuf, LabeledError> 
     env::current_dir().map_err(|source| {
         LabeledError::new("failed to determine current repository")
             .with_label(source.to_string(), call.head)
+    })
+}
+
+fn codedb_bin() -> String {
+    env::var("CODEDB_BIN").unwrap_or_else(|_| "codedb".to_string())
+}
+
+fn store_option_argv(
+    store: Option<&str>,
+    pg_conn: Option<&str>,
+    pg_table: Option<&str>,
+) -> Vec<String> {
+    let mut argv = Vec::new();
+    if let Some(store) = store {
+        argv.push("--store".to_string());
+        argv.push(store.to_string());
+    }
+    if let Some(pg_conn) = pg_conn {
+        argv.push("--pg-conn".to_string());
+        argv.push(pg_conn.to_string());
+    }
+    if let Some(pg_table) = pg_table {
+        argv.push("--pg-table".to_string());
+        argv.push(pg_table.to_string());
+    }
+    argv
+}
+
+fn codedb_store_args(call: &EvaluatedCall) -> Result<Vec<String>, LabeledError> {
+    let store = call.get_flag::<String>("store")?;
+    let pg_conn = call.get_flag::<String>("pg-conn")?;
+    let pg_table = call.get_flag::<String>("pg-table")?;
+    Ok(store_option_argv(
+        store.as_deref(),
+        pg_conn.as_deref(),
+        pg_table.as_deref(),
+    ))
+}
+
+fn required_store(call: &EvaluatedCall) -> Result<String, LabeledError> {
+    call.get_flag::<String>("store")?.ok_or_else(|| {
+        LabeledError::new("missing CodeDB store selector").with_label(
+            "pass --store <path|redb://path|postgres://dsn|postgresql://dsn|pg>",
+            call.head,
+        )
+    })
+}
+
+fn store_signature(signature: Signature) -> Signature {
+    signature
+        .named(
+            "store",
+            SyntaxShape::String,
+            "Dynamic store selector: path, redb://, postgres://, postgresql://, or pg",
+            None,
+        )
+        .named(
+            "pg-conn",
+            SyntaxShape::String,
+            "Explicit PostgreSQL DSN used only with --store pg",
+            None,
+        )
+        .named(
+            "pg-table",
+            SyntaxShape::String,
+            "PostgreSQL logical table prefix",
+            None,
+        )
+}
+
+fn redact_codedb_diagnostic(stderr: &str, argv: &[String]) -> String {
+    let mut redacted = stderr.to_string();
+    for pair in argv.windows(2) {
+        if pair[0] == "--pg-conn"
+            || (pair[0] == "--store"
+                && (pair[1].starts_with("postgres://") || pair[1].starts_with("postgresql://")))
+        {
+            redacted = redacted.replace(&pair[1], REDACTED_VALUE);
+        }
+    }
+    redacted
+}
+
+fn run_codedb_json(argv: &[String], span: Span) -> Result<JsonValue, LabeledError> {
+    let out = std::process::Command::new(codedb_bin())
+        .args(argv)
+        .output()
+        .map_err(|e| {
+            LabeledError::new("failed to launch codedb")
+                .with_label(format!("{}: {e}", codedb_bin()), span)
+        })?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(LabeledError::new("codedb command failed")
+            .with_label(redact_codedb_diagnostic(stderr.trim(), argv), span));
+    }
+    serde_json::from_slice(&out.stdout).map_err(|e| {
+        LabeledError::new("codedb returned invalid JSON").with_label(e.to_string(), span)
     })
 }
 
@@ -1660,9 +1764,11 @@ fn text_table_rows(parser_hint: &str, text: &str, span: Span) -> Option<Vec<Valu
 }
 
 fn redact_structured_value(key: &str, value: String) -> String {
-    (structured_key_is_sensitive(key) || structured_value_looks_sensitive(&value))
-        .then_some(REDACTED_VALUE.to_string())
-        .unwrap_or(value)
+    if structured_key_is_sensitive(key) || structured_value_looks_sensitive(&value) {
+        REDACTED_VALUE.to_string()
+    } else {
+        value
+    }
 }
 
 fn structured_key_is_sensitive(key: &str) -> bool {
@@ -2417,21 +2523,22 @@ fn agent_harness_import_rows(
             ));
         }
         for record in records {
-            if let Some(parent_version) = version_dir_name(&record.source_path) {
-                if !record.version.is_empty() && parent_version != record.version {
-                    validations.push(agent_harness_validation_row(
-                        "stale_plugin_metadata",
-                        &format!(
-                            "plugin {} metadata version {} does not match cache path {}",
-                            record.name, record.version, parent_version
-                        ),
-                        &record.source_path,
-                        "user_local",
-                        "",
-                        Some(record.name.as_str()),
-                        span,
-                    ));
-                }
+            if let Some(parent_version) = version_dir_name(&record.source_path)
+                && !record.version.is_empty()
+                && parent_version != record.version
+            {
+                validations.push(agent_harness_validation_row(
+                    "stale_plugin_metadata",
+                    &format!(
+                        "plugin {} metadata version {} does not match cache path {}",
+                        record.name, record.version, parent_version
+                    ),
+                    &record.source_path,
+                    "user_local",
+                    "",
+                    Some(record.name.as_str()),
+                    span,
+                ));
             }
         }
     }
@@ -2807,11 +2914,6 @@ fn scan_error(error: codedb_core::ScanError) -> LabeledError {
     LabeledError::new("filesystem scan failed").with_label(error.to_string(), Span::unknown())
 }
 
-fn cargo_error(error: codedb_cargo::CargoMetadataError) -> LabeledError {
-    LabeledError::new("cargo metadata capture failed")
-        .with_label(error.to_string(), Span::unknown())
-}
-
 fn rust_error(error: codedb_rust_static::RustStaticError) -> LabeledError {
     LabeledError::new("static Rust capture failed").with_label(error.to_string(), Span::unknown())
 }
@@ -2929,6 +3031,166 @@ impl SimplePluginCommand for Scan {
             scan_summary_rows(&repo_path, call.head)?,
             call.head,
         ))
+    }
+}
+
+impl SimplePluginCommand for Capture {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb capture"
+    }
+
+    fn description(&self) -> &str {
+        "Capture exact repository bytes into a dynamically selected redb or PostgreSQL store."
+    }
+
+    fn signature(&self) -> Signature {
+        store_signature(
+            command_signature(PluginCommand::name(self))
+                .required(
+                    "repo_path",
+                    SyntaxShape::Filepath,
+                    "Repository path to capture",
+                )
+                .named(
+                    "batch-files",
+                    SyntaxShape::Int,
+                    "Maximum files per durable batch",
+                    None,
+                )
+                .named(
+                    "batch-bytes",
+                    SyntaxShape::String,
+                    "Maximum bytes per durable batch, for example 64M",
+                    None,
+                )
+                .named(
+                    "time-budget",
+                    SyntaxShape::String,
+                    "Optional capture time budget, for example 15m",
+                    None,
+                )
+                .switch("resume", "Resume from the selected store checkpoint", None),
+        )
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let repo = repo_from_positional(call, 0)?;
+        let mut argv = vec![
+            "capture".to_string(),
+            repo.display().to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+        argv.extend(codedb_store_args(call)?);
+        if let Some(value) = call.get_flag::<i64>("batch-files")? {
+            argv.extend(["--batch-files".to_string(), value.to_string()]);
+        }
+        if let Some(value) = call.get_flag::<String>("batch-bytes")? {
+            argv.extend(["--batch-bytes".to_string(), value]);
+        }
+        if let Some(value) = call.get_flag::<String>("time-budget")? {
+            argv.extend(["--time-budget".to_string(), value]);
+        }
+        if call.has_flag("resume")? {
+            argv.push("--resume".to_string());
+        }
+        let json = run_codedb_json(&argv, call.head)?;
+        Ok(json_array_to_table(&json, call.head))
+    }
+}
+
+impl SimplePluginCommand for Materialize {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb materialize"
+    }
+
+    fn description(&self) -> &str {
+        "Materialize an exact tree from a dynamically selected redb or PostgreSQL store."
+    }
+
+    fn signature(&self) -> Signature {
+        store_signature(
+            command_signature(PluginCommand::name(self))
+                .required(
+                    "out_dir",
+                    SyntaxShape::Filepath,
+                    "Contained output directory for the materialized tree",
+                )
+                .named(
+                    "path",
+                    SyntaxShape::String,
+                    "Optional single relative path to materialize",
+                    None,
+                ),
+        )
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let out_dir = repo_from_positional(call, 0)?;
+        required_store(call)?;
+        let mut argv = vec![
+            "materialize".to_string(),
+            "--out-dir".to_string(),
+            out_dir.display().to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+        argv.extend(codedb_store_args(call)?);
+        if let Some(path) = call.get_flag::<String>("path")? {
+            argv.extend(["--path".to_string(), path]);
+        }
+        let json = run_codedb_json(&argv, call.head)?;
+        Ok(json_array_to_table(&json, call.head))
+    }
+}
+
+impl SimplePluginCommand for StoreReport {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb store-report"
+    }
+
+    fn description(&self) -> &str {
+        "Return metadata from a dynamically selected existing redb or PostgreSQL store."
+    }
+
+    fn signature(&self) -> Signature {
+        store_signature(command_signature(PluginCommand::name(self)))
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        required_store(call)?;
+        let mut argv = vec![
+            "store-report".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+        argv.extend(codedb_store_args(call)?);
+        let json = run_codedb_json(&argv, call.head)?;
+        Ok(json_array_to_table(&json, call.head))
     }
 }
 
@@ -3458,9 +3720,13 @@ impl SimplePluginCommand for EnvctlDbRefactor {
             argv.push(out);
         }
         let json = run_envctl_json(&argv, call.head)?;
-        // RefactorPlan is `{ mode, changes:[...], ... }`; render the changes table.
+        // Current envctl emits `{plan:{changes:[...]}, rendered, mutated}`.
+        // Accept the earlier direct-plan shape as well to preserve protocol
+        // compatibility while rendering the same native rows.
         let changes = json
-            .get("changes")
+            .get("plan")
+            .and_then(|plan| plan.get("changes"))
+            .or_else(|| json.get("changes"))
             .cloned()
             .unwrap_or(JsonValue::Array(vec![]));
         Ok(json_array_to_table(&changes, call.head))
@@ -3602,6 +3868,63 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("codedb-{name}-{nanos}"))
+    }
+
+    #[test]
+    fn dynamic_store_options_preserve_redb_and_postgresql_selectors() {
+        assert_eq!(
+            store_option_argv(Some("redb:///tmp/code.redb"), None, None),
+            vec!["--store", "redb:///tmp/code.redb"]
+        );
+        assert_eq!(
+            store_option_argv(
+                Some("pg"),
+                Some("postgresql://user:secret@db/code"),
+                Some("repo_a"),
+            ),
+            vec![
+                "--store",
+                "pg",
+                "--pg-conn",
+                "postgresql://user:secret@db/code",
+                "--pg-table",
+                "repo_a",
+            ]
+        );
+    }
+
+    #[test]
+    fn codedb_diagnostics_redact_postgresql_credentials() {
+        let argv = store_option_argv(
+            Some("postgresql://user:secret@db/code"),
+            Some("postgresql://other:password@db/code"),
+            None,
+        );
+        let stderr =
+            "failed postgresql://user:secret@db/code via postgresql://other:password@db/code";
+        let diagnostic = redact_codedb_diagnostic(stderr, &argv);
+        assert!(!diagnostic.contains("secret"));
+        assert!(!diagnostic.contains("password"));
+        assert_eq!(diagnostic.matches(REDACTED_VALUE).count(), 2);
+    }
+
+    #[test]
+    fn plugin_registers_dynamic_store_commands() {
+        let names: Vec<String> = CodeDbPlugin
+            .commands()
+            .iter()
+            .map(|command| PluginCommand::name(command.as_ref()).to_string())
+            .collect();
+        for required in [
+            "codedb capture",
+            "codedb materialize",
+            "codedb store-report",
+        ] {
+            assert!(
+                names.iter().any(|name| name == required),
+                "missing {required}"
+            );
+        }
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -3815,9 +4138,7 @@ mod tests {
 
         let error = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap_err();
         assert!(
-            error
-                .to_string()
-                .contains("invalid inventory target"),
+            error.to_string().contains("invalid inventory target"),
             "unexpected error: {error}"
         );
     }
@@ -3933,7 +4254,10 @@ mod tests {
             row_string(&rows[0], "skip_reason")
                 .is_some_and(|reason| reason.contains("maximum safe file size"))
         );
-        assert_eq!(row_string(&rows[0], "structured_status"), Some("metadata_only"));
+        assert_eq!(
+            row_string(&rows[0], "structured_status"),
+            Some("metadata_only")
+        );
         assert_eq!(row_string(&rows[0], "content_hash"), Some(""));
     }
 

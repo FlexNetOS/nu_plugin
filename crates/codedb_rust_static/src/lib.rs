@@ -1,10 +1,13 @@
 #![forbid(unsafe_code)]
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 use syn::{Attribute, Block, Expr, Item, Lit, Meta, Stmt, Visibility};
@@ -68,6 +71,197 @@ pub struct SemanticHashReport {
     pub semantic_inputs: Vec<String>,
     pub public_api_inputs: Vec<String>,
     pub limitation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustItemScan {
+    pub source_sha256: String,
+    pub rows: Vec<RustItemRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustStableIdentityMatch {
+    pub stable_id: String,
+    pub name: String,
+    pub item_kind: RustItemKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustIdentityConflict {
+    pub stable_id: String,
+    pub kind: RustIdentityConflictKind,
+    pub previous_source_sha256: String,
+    pub current_source_sha256: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RustIdentityConflictKind {
+    UnstableAnonymousSourceShift,
+    SameSourceScanMismatch,
+}
+
+impl RustIdentityConflictKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::UnstableAnonymousSourceShift => "unstable_anonymous_source_shift",
+            Self::SameSourceScanMismatch => "same_source_scan_mismatch",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RustIdentityComparisonStatus {
+    RepeatScanVerified,
+    SourceShiftStableNamedOnly,
+    SourceShiftConflict,
+    SameSourceConflict,
+}
+
+impl RustIdentityComparisonStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::RepeatScanVerified => "repeat_scan_verified",
+            Self::SourceShiftStableNamedOnly => "source_shift_stable_named_only",
+            Self::SourceShiftConflict => "source_shift_conflict",
+            Self::SameSourceConflict => "same_source_conflict",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustIdentityComparison {
+    pub status: RustIdentityComparisonStatus,
+    pub source_shifted: bool,
+    pub stable_matches: Vec<RustStableIdentityMatch>,
+    pub conflicts: Vec<RustIdentityConflict>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilerEvidenceOptions {
+    /// Compiler execution is opt-in because compiling a source can expand macros.
+    pub enabled: bool,
+    pub rustc: PathBuf,
+    pub rustdoc: PathBuf,
+    pub edition: String,
+}
+
+impl Default for CompilerEvidenceOptions {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            rustc: std::env::var_os("RUSTC")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("rustc")),
+            rustdoc: std::env::var_os("RUSTDOC")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("rustdoc")),
+            edition: "2024".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilerEvidenceCollectionStatus {
+    CompilerObserved,
+    EvidenceUnavailable,
+}
+
+impl CompilerEvidenceCollectionStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CompilerObserved => "compiler_observed",
+            Self::EvidenceUnavailable => "evidence_unavailable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilerArtifactStatus {
+    CompilerObserved,
+    EvidenceUnavailable,
+}
+
+impl CompilerArtifactStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CompilerObserved => "compiler_observed",
+            Self::EvidenceUnavailable => "evidence_unavailable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CompilerEvidenceArtifactKind {
+    MacroExpansion,
+    MacroResolution,
+    MacroHygiene,
+    Hir,
+    Mir,
+    RustdocPublicApi,
+}
+
+impl CompilerEvidenceArtifactKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MacroExpansion => "macro_expansion",
+            Self::MacroResolution => "macro_resolution",
+            Self::MacroHygiene => "macro_hygiene",
+            Self::Hir => "hir",
+            Self::Mir => "mir",
+            Self::RustdocPublicApi => "rustdoc_public_api",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilerArtifactEvidence {
+    pub kind: CompilerEvidenceArtifactKind,
+    pub status: CompilerArtifactStatus,
+    pub command: Vec<String>,
+    /// Full UTF-8 compiler or rustdoc evidence. Binary metadata is represented only
+    /// by `evidence_sha256` and `evidence_bytes`.
+    pub output: Option<String>,
+    pub evidence_sha256: Option<String>,
+    pub evidence_bytes: Option<usize>,
+    pub diagnostic: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilerEvidenceGap {
+    pub artifact: Option<CompilerEvidenceArtifactKind>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilerToolchainProvenance {
+    pub rustc_path: PathBuf,
+    pub rustc_version: String,
+    pub rustdoc_path: PathBuf,
+    pub rustdoc_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilerEvidenceReport {
+    pub collection_status: CompilerEvidenceCollectionStatus,
+    pub source_path: PathBuf,
+    pub source_sha256: Option<String>,
+    pub toolchain: Option<CompilerToolchainProvenance>,
+    pub artifacts: Vec<CompilerArtifactEvidence>,
+    pub semantic_hash: Option<String>,
+    pub public_api_hash: Option<String>,
+    pub semantic_inputs: Vec<String>,
+    pub public_api_inputs: Vec<String>,
+    pub gaps: Vec<CompilerEvidenceGap>,
+}
+
+impl CompilerEvidenceReport {
+    pub fn artifact(
+        &self,
+        kind: CompilerEvidenceArtifactKind,
+    ) -> Option<&CompilerArtifactEvidence> {
+        self.artifacts.iter().find(|artifact| artifact.kind == kind)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -531,6 +725,121 @@ pub fn capture_rust_items(
     Ok(rows)
 }
 
+/// Captures the source fingerprint beside the static rows so identity claims can
+/// distinguish repeat scans from source-shift comparisons.
+pub fn capture_rust_item_scan(
+    root: impl AsRef<Path>,
+    source_path: impl AsRef<Path>,
+    context_id: impl AsRef<str>,
+) -> Result<RustItemScan, RustStaticError> {
+    let source_path = source_path.as_ref();
+    let source = fs::read(source_path).map_err(|source| RustStaticError::Read {
+        path: source_path.to_path_buf(),
+        source,
+    })?;
+    let rows = capture_rust_items(root, source_path, context_id)?;
+    Ok(RustItemScan {
+        source_sha256: sha256_bytes(&source),
+        rows,
+    })
+}
+
+/// Compares two static scans without treating scan-order anonymous rows as stable
+/// identities after any source-byte shift.
+pub fn compare_rust_item_scans(
+    previous: &RustItemScan,
+    current: &RustItemScan,
+) -> RustIdentityComparison {
+    let source_shifted = previous.source_sha256 != current.source_sha256;
+    if !source_shifted {
+        if previous.rows == current.rows {
+            return RustIdentityComparison {
+                status: RustIdentityComparisonStatus::RepeatScanVerified,
+                source_shifted: false,
+                stable_matches: stable_identity_matches(previous, current),
+                conflicts: Vec::new(),
+            };
+        }
+
+        return RustIdentityComparison {
+            status: RustIdentityComparisonStatus::SameSourceConflict,
+            source_shifted: false,
+            stable_matches: stable_identity_matches(previous, current),
+            conflicts: vec![RustIdentityConflict {
+                stable_id: String::new(),
+                kind: RustIdentityConflictKind::SameSourceScanMismatch,
+                previous_source_sha256: previous.source_sha256.clone(),
+                current_source_sha256: current.source_sha256.clone(),
+                reason: "identical source fingerprints produced different static rows".to_string(),
+            }],
+        };
+    }
+
+    let anonymous_ids = previous
+        .rows
+        .iter()
+        .chain(&current.rows)
+        .filter(|row| row.identity_kind == RustIdentityKind::UnstableAnonymous)
+        .map(|row| row.stable_id.clone())
+        .collect::<BTreeSet<_>>();
+    let conflicts = anonymous_ids
+        .into_iter()
+        .map(|stable_id| RustIdentityConflict {
+            stable_id,
+            kind: RustIdentityConflictKind::UnstableAnonymousSourceShift,
+            previous_source_sha256: previous.source_sha256.clone(),
+            current_source_sha256: current.source_sha256.clone(),
+            reason: "anonymous scan-order identity is not matched across a source shift"
+                .to_string(),
+        })
+        .collect::<Vec<_>>();
+    let status = if conflicts.is_empty() {
+        RustIdentityComparisonStatus::SourceShiftStableNamedOnly
+    } else {
+        RustIdentityComparisonStatus::SourceShiftConflict
+    };
+
+    RustIdentityComparison {
+        status,
+        source_shifted: true,
+        stable_matches: stable_identity_matches(previous, current),
+        conflicts,
+    }
+}
+
+fn stable_identity_matches(
+    previous: &RustItemScan,
+    current: &RustItemScan,
+) -> Vec<RustStableIdentityMatch> {
+    let previous_rows = previous
+        .rows
+        .iter()
+        .filter(|row| row.identity_kind == RustIdentityKind::StableNamed)
+        .map(|row| (row.stable_id.as_str(), row))
+        .collect::<BTreeMap<_, _>>();
+    let mut matches = current
+        .rows
+        .iter()
+        .filter(|row| row.identity_kind == RustIdentityKind::StableNamed)
+        .filter_map(|row| {
+            previous_rows
+                .get(row.stable_id.as_str())
+                .map(|_| RustStableIdentityMatch {
+                    stable_id: row.stable_id.clone(),
+                    name: row.name.clone(),
+                    item_kind: row.item_kind,
+                })
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by(|left, right| {
+        left.item_kind
+            .cmp(&right.item_kind)
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.stable_id.cmp(&right.stable_id))
+    });
+    matches
+}
+
 pub fn capture_rust_macros(
     root: impl AsRef<Path>,
     source_path: impl AsRef<Path>,
@@ -791,6 +1100,592 @@ pub fn semantic_hash_report(rows: &[RustItemRow]) -> SemanticHashReport {
             "static syntax hash excludes function bodies, type layout, macro expansion, and rustc semantic checks"
                 .to_string(),
     }
+}
+
+/// Runs the opt-in compiler-capture lane. It is deliberately separate from the
+/// static inventory APIs: no `CompilerObserved` result is returned unless rustc
+/// identified expansion, metadata resolution, hygiene, HIR, MIR, and rustdoc
+/// JSON all succeed with recorded toolchain provenance.
+pub fn capture_compiler_evidence(
+    source_path: impl AsRef<Path>,
+    options: CompilerEvidenceOptions,
+) -> CompilerEvidenceReport {
+    let source_path = source_path.as_ref().to_path_buf();
+    if !options.enabled {
+        return compiler_evidence_unavailable(
+            source_path,
+            None,
+            None,
+            "compiler evidence collection is disabled; static inventory is not compiler evidence",
+        );
+    }
+
+    let source = match fs::read(&source_path) {
+        Ok(source) => source,
+        Err(error) => {
+            return compiler_evidence_unavailable(
+                source_path.clone(),
+                None,
+                None,
+                &format!("cannot read source for compiler evidence: {error}"),
+            );
+        }
+    };
+    let source_sha256 = sha256_bytes(&source);
+    let source_arg = match fs::canonicalize(&source_path)
+        .unwrap_or_else(|_| source_path.clone())
+        .to_str()
+    {
+        Some(path) => path.to_string(),
+        None => {
+            return compiler_evidence_unavailable(
+                source_path,
+                Some(source_sha256),
+                None,
+                "source path is not UTF-8; compiler evidence is unavailable",
+            );
+        }
+    };
+    let scratch = match CompilerScratch::new() {
+        Ok(scratch) => scratch,
+        Err(error) => {
+            return compiler_evidence_unavailable(
+                source_path,
+                Some(source_sha256),
+                None,
+                &format!("cannot create compiler-evidence scratch directory: {error}"),
+            );
+        }
+    };
+
+    let rustc_path = resolve_program_path(&options.rustc);
+    let rustdoc_path = resolve_program_path(&options.rustdoc);
+    let rustc_version = match capture_tool_version(&rustc_path) {
+        Ok(version) => version,
+        Err(reason) => {
+            return compiler_evidence_unavailable(
+                source_path,
+                Some(source_sha256),
+                None,
+                &format!("cannot capture full rustc identity: {reason}"),
+            );
+        }
+    };
+    let rustdoc_version = match capture_tool_version(&rustdoc_path) {
+        Ok(version) => version,
+        Err(reason) => {
+            return compiler_evidence_unavailable(
+                source_path,
+                Some(source_sha256),
+                None,
+                &format!("cannot capture full rustdoc identity: {reason}"),
+            );
+        }
+    };
+    let toolchain = CompilerToolchainProvenance {
+        rustc_path,
+        rustc_version,
+        rustdoc_path,
+        rustdoc_version,
+    };
+    let crate_name = compiler_crate_name(&source_path);
+
+    let macro_expansion = observe_text_artifact(
+        CompilerEvidenceArtifactKind::MacroExpansion,
+        &toolchain.rustc_path,
+        rustc_unpretty_args(
+            &crate_name,
+            &options.edition,
+            &source_arg,
+            "expanded,identified",
+        ),
+    );
+    let macro_resolution = observe_binary_artifact(
+        CompilerEvidenceArtifactKind::MacroResolution,
+        &toolchain.rustc_path,
+        rustc_metadata_args(
+            &crate_name,
+            &options.edition,
+            &source_arg,
+            scratch.path.join("metadata.rmeta"),
+        ),
+        scratch.path.join("metadata.rmeta"),
+    );
+    let macro_hygiene = observe_text_artifact(
+        CompilerEvidenceArtifactKind::MacroHygiene,
+        &toolchain.rustc_path,
+        rustc_unpretty_args(
+            &crate_name,
+            &options.edition,
+            &source_arg,
+            "expanded,hygiene",
+        ),
+    );
+    let hir = observe_text_artifact(
+        CompilerEvidenceArtifactKind::Hir,
+        &toolchain.rustc_path,
+        rustc_unpretty_args(&crate_name, &options.edition, &source_arg, "hir"),
+    );
+    let mir = observe_text_artifact(
+        CompilerEvidenceArtifactKind::Mir,
+        &toolchain.rustc_path,
+        rustc_unpretty_args(&crate_name, &options.edition, &source_arg, "mir"),
+    );
+    let (rustdoc_public_api, rustdoc_public_api_inputs) = observe_rustdoc_public_api_artifact(
+        &toolchain.rustdoc_path,
+        &crate_name,
+        &options.edition,
+        &source_arg,
+        scratch.path.join("rustdoc"),
+    );
+
+    let artifacts = vec![
+        macro_expansion,
+        macro_resolution,
+        macro_hygiene,
+        hir,
+        mir,
+        rustdoc_public_api,
+    ];
+    let all_observed = artifacts
+        .iter()
+        .all(|artifact| artifact.status == CompilerArtifactStatus::CompilerObserved);
+    let mut gaps = artifacts
+        .iter()
+        .filter(|artifact| artifact.status == CompilerArtifactStatus::EvidenceUnavailable)
+        .map(|artifact| CompilerEvidenceGap {
+            artifact: Some(artifact.kind),
+            reason: artifact.diagnostic.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    if !all_observed {
+        return CompilerEvidenceReport {
+            collection_status: CompilerEvidenceCollectionStatus::EvidenceUnavailable,
+            source_path,
+            source_sha256: Some(source_sha256),
+            toolchain: Some(toolchain),
+            artifacts,
+            semantic_hash: None,
+            public_api_hash: None,
+            semantic_inputs: Vec::new(),
+            public_api_inputs: Vec::new(),
+            gaps,
+        };
+    }
+
+    let mut semantic_inputs = vec![
+        format!("rustc\0{}", toolchain.rustc_version),
+        format!("edition\0{}", options.edition),
+    ];
+    for kind in [
+        CompilerEvidenceArtifactKind::Hir,
+        CompilerEvidenceArtifactKind::Mir,
+    ] {
+        let artifact = artifacts
+            .iter()
+            .find(|artifact| artifact.kind == kind)
+            .expect("all required compiler artifacts are present");
+        let output = artifact
+            .output
+            .as_deref()
+            .expect("observed HIR/MIR artifacts retain UTF-8 output");
+        semantic_inputs.push(format!(
+            "{}\0{}",
+            kind.as_str(),
+            normalize_compiler_output(output, &source_arg)
+        ));
+    }
+    semantic_inputs.sort();
+    let Some((_artifact_public_api_hash, mut public_api_inputs)) = rustdoc_public_api_inputs else {
+        gaps.push(CompilerEvidenceGap {
+            artifact: Some(CompilerEvidenceArtifactKind::RustdocPublicApi),
+            reason: "rustdoc JSON did not yield a public API snapshot".to_string(),
+        });
+        return CompilerEvidenceReport {
+            collection_status: CompilerEvidenceCollectionStatus::EvidenceUnavailable,
+            source_path,
+            source_sha256: Some(source_sha256),
+            toolchain: Some(toolchain),
+            artifacts,
+            semantic_hash: None,
+            public_api_hash: None,
+            semantic_inputs: Vec::new(),
+            public_api_inputs: Vec::new(),
+            gaps,
+        };
+    };
+    public_api_inputs.push(format!("rustdoc\0{}", toolchain.rustdoc_version));
+    public_api_inputs.push(format!("edition\0{}", options.edition));
+    public_api_inputs.sort();
+    let public_api_hash = hash_lines(&public_api_inputs);
+
+    CompilerEvidenceReport {
+        collection_status: CompilerEvidenceCollectionStatus::CompilerObserved,
+        source_path,
+        source_sha256: Some(source_sha256),
+        toolchain: Some(toolchain),
+        artifacts,
+        semantic_hash: Some(hash_lines(&semantic_inputs)),
+        public_api_hash: Some(public_api_hash),
+        semantic_inputs,
+        public_api_inputs,
+        gaps,
+    }
+}
+
+fn compiler_evidence_unavailable(
+    source_path: PathBuf,
+    source_sha256: Option<String>,
+    toolchain: Option<CompilerToolchainProvenance>,
+    reason: &str,
+) -> CompilerEvidenceReport {
+    CompilerEvidenceReport {
+        collection_status: CompilerEvidenceCollectionStatus::EvidenceUnavailable,
+        source_path,
+        source_sha256,
+        toolchain,
+        artifacts: Vec::new(),
+        semantic_hash: None,
+        public_api_hash: None,
+        semantic_inputs: Vec::new(),
+        public_api_inputs: Vec::new(),
+        gaps: vec![CompilerEvidenceGap {
+            artifact: None,
+            reason: reason.to_string(),
+        }],
+    }
+}
+
+struct CompilerScratch {
+    path: PathBuf,
+}
+
+impl CompilerScratch {
+    fn new() -> Result<Self, io::Error> {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "codedb_compiler_evidence_{}_{}",
+            std::process::id(),
+            nonce
+        ));
+        fs::create_dir_all(&path)?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for CompilerScratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+fn resolve_program_path(program: &Path) -> PathBuf {
+    if program.components().count() > 1 {
+        return fs::canonicalize(program).unwrap_or_else(|_| program.to_path_buf());
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        for directory in std::env::split_paths(&path) {
+            let candidate = directory.join(program);
+            if candidate.is_file() {
+                return fs::canonicalize(&candidate).unwrap_or(candidate);
+            }
+        }
+    }
+    program.to_path_buf()
+}
+
+fn capture_tool_version(program: &Path) -> Result<String, String> {
+    let args = vec!["--version".to_string(), "--verbose".to_string()];
+    let output = run_tool(program, &args)?;
+    let version = String::from_utf8(output.stdout)
+        .map_err(|_| "tool version output is not UTF-8".to_string())?;
+    if version.trim().is_empty() {
+        return Err("tool version output is empty".to_string());
+    }
+    Ok(version)
+}
+
+fn compiler_crate_name(source_path: &Path) -> String {
+    let stem = source_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("source");
+    let safe_stem = stem
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("codedb_compiler_{safe_stem}")
+}
+
+fn rustc_base_args(crate_name: &str, edition: &str) -> Vec<String> {
+    vec![
+        "--crate-name".to_string(),
+        crate_name.to_string(),
+        "--crate-type".to_string(),
+        "lib".to_string(),
+        "--edition".to_string(),
+        edition.to_string(),
+    ]
+}
+
+fn rustc_unpretty_args(
+    crate_name: &str,
+    edition: &str,
+    source_path: &str,
+    mode: &str,
+) -> Vec<String> {
+    let mut args = rustc_base_args(crate_name, edition);
+    args.push(format!("-Zunpretty={mode}"));
+    args.push(source_path.to_string());
+    args
+}
+
+fn rustc_metadata_args(
+    crate_name: &str,
+    edition: &str,
+    source_path: &str,
+    metadata_path: PathBuf,
+) -> Vec<String> {
+    let mut args = rustc_base_args(crate_name, edition);
+    args.push("--emit=metadata".to_string());
+    args.push("-o".to_string());
+    args.push(metadata_path.to_string_lossy().into_owned());
+    args.push(source_path.to_string());
+    args
+}
+
+fn observe_text_artifact(
+    kind: CompilerEvidenceArtifactKind,
+    program: &Path,
+    args: Vec<String>,
+) -> CompilerArtifactEvidence {
+    let command = command_vector(program, &args);
+    let output = match run_tool(program, &args) {
+        Ok(output) => output,
+        Err(reason) => return unavailable_artifact(kind, command, &reason),
+    };
+    let diagnostic = String::from_utf8_lossy(&output.stderr).into_owned();
+    let output = match String::from_utf8(output.stdout) {
+        Ok(output) if !output.is_empty() => output,
+        Ok(_) => return unavailable_artifact(kind, command, "compiler emitted no evidence output"),
+        Err(_) => {
+            return unavailable_artifact(kind, command, "compiler evidence output is not UTF-8");
+        }
+    };
+    CompilerArtifactEvidence {
+        kind,
+        status: CompilerArtifactStatus::CompilerObserved,
+        command,
+        evidence_sha256: Some(sha256_bytes(output.as_bytes())),
+        evidence_bytes: Some(output.len()),
+        output: Some(output),
+        diagnostic,
+    }
+}
+
+fn observe_binary_artifact(
+    kind: CompilerEvidenceArtifactKind,
+    program: &Path,
+    args: Vec<String>,
+    artifact_path: PathBuf,
+) -> CompilerArtifactEvidence {
+    let command = command_vector(program, &args);
+    let output = match run_tool(program, &args) {
+        Ok(output) => output,
+        Err(reason) => return unavailable_artifact(kind, command, &reason),
+    };
+    let diagnostic = String::from_utf8_lossy(&output.stderr).into_owned();
+    let bytes = match fs::read(&artifact_path) {
+        Ok(bytes) if !bytes.is_empty() => bytes,
+        Ok(_) => return unavailable_artifact(kind, command, "compiler metadata artifact is empty"),
+        Err(error) => {
+            return unavailable_artifact(
+                kind,
+                command,
+                &format!("compiler metadata artifact is unavailable: {error}"),
+            );
+        }
+    };
+    CompilerArtifactEvidence {
+        kind,
+        status: CompilerArtifactStatus::CompilerObserved,
+        command,
+        output: None,
+        evidence_sha256: Some(sha256_bytes(&bytes)),
+        evidence_bytes: Some(bytes.len()),
+        diagnostic,
+    }
+}
+
+fn observe_rustdoc_public_api_artifact(
+    program: &Path,
+    crate_name: &str,
+    edition: &str,
+    source_path: &str,
+    output_directory: PathBuf,
+) -> (CompilerArtifactEvidence, Option<(String, Vec<String>)>) {
+    let kind = CompilerEvidenceArtifactKind::RustdocPublicApi;
+    if let Err(error) = fs::create_dir_all(&output_directory) {
+        return (
+            unavailable_artifact(
+                kind,
+                command_vector(program, &[]),
+                &format!("cannot create rustdoc output directory: {error}"),
+            ),
+            None,
+        );
+    }
+    let args = vec![
+        "--crate-name".to_string(),
+        crate_name.to_string(),
+        "--crate-type".to_string(),
+        "lib".to_string(),
+        "--edition".to_string(),
+        edition.to_string(),
+        "-Z".to_string(),
+        "unstable-options".to_string(),
+        "--output-format".to_string(),
+        "json".to_string(),
+        "-o".to_string(),
+        output_directory.to_string_lossy().into_owned(),
+        source_path.to_string(),
+    ];
+    let command = command_vector(program, &args);
+    let output = match run_tool(program, &args) {
+        Ok(output) => output,
+        Err(reason) => return (unavailable_artifact(kind, command, &reason), None),
+    };
+    let diagnostic = String::from_utf8_lossy(&output.stderr).into_owned();
+    let json_path = output_directory.join(format!("{crate_name}.json"));
+    let bytes = match fs::read(&json_path) {
+        Ok(bytes) if !bytes.is_empty() => bytes,
+        Ok(_) => {
+            return (
+                unavailable_artifact(kind, command, "rustdoc JSON artifact is empty"),
+                None,
+            );
+        }
+        Err(error) => {
+            return (
+                unavailable_artifact(
+                    kind,
+                    command,
+                    &format!("rustdoc JSON artifact is unavailable: {error}"),
+                ),
+                None,
+            );
+        }
+    };
+    let json = match String::from_utf8(bytes) {
+        Ok(json) => json,
+        Err(_) => {
+            return (
+                unavailable_artifact(kind, command, "rustdoc JSON artifact is not UTF-8"),
+                None,
+            );
+        }
+    };
+    let public_api = match rustdoc_public_api_snapshot(&json) {
+        Ok(public_api) => public_api,
+        Err(reason) => {
+            let artifact = CompilerArtifactEvidence {
+                kind,
+                status: CompilerArtifactStatus::EvidenceUnavailable,
+                command,
+                evidence_sha256: Some(sha256_bytes(json.as_bytes())),
+                evidence_bytes: Some(json.len()),
+                output: Some(json),
+                diagnostic: reason,
+            };
+            return (artifact, None);
+        }
+    };
+    let artifact = CompilerArtifactEvidence {
+        kind,
+        status: CompilerArtifactStatus::CompilerObserved,
+        command,
+        evidence_sha256: Some(sha256_bytes(json.as_bytes())),
+        evidence_bytes: Some(json.len()),
+        output: Some(json),
+        diagnostic,
+    };
+    (artifact, Some(public_api))
+}
+
+fn run_tool(program: &Path, args: &[String]) -> Result<Output, String> {
+    let output = Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|error| format!("failed to execute {}: {error}", program.display()))?;
+    if output.status.success() {
+        Ok(output)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!(
+            "{} exited with {}: {}",
+            program.display(),
+            output.status,
+            stderr.trim()
+        ))
+    }
+}
+
+fn command_vector(program: &Path, args: &[String]) -> Vec<String> {
+    std::iter::once(program.to_string_lossy().into_owned())
+        .chain(args.iter().cloned())
+        .collect()
+}
+
+fn unavailable_artifact(
+    kind: CompilerEvidenceArtifactKind,
+    command: Vec<String>,
+    reason: &str,
+) -> CompilerArtifactEvidence {
+    CompilerArtifactEvidence {
+        kind,
+        status: CompilerArtifactStatus::EvidenceUnavailable,
+        command,
+        output: None,
+        evidence_sha256: None,
+        evidence_bytes: None,
+        diagnostic: reason.to_string(),
+    }
+}
+
+fn rustdoc_public_api_snapshot(json: &str) -> Result<(String, Vec<String>), String> {
+    let compact = json
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    if !compact.starts_with('{')
+        || !compact.contains("\"index\":")
+        || !compact.contains("\"includes_private\":false")
+    {
+        return Err("rustdoc output is not a public-only JSON artifact with an index".to_string());
+    }
+
+    // rustdoc itself selected the public-only item graph (`includes_private:false`).
+    // Hash the exact emitted artifact rather than projecting it back into a static
+    // syntax claim or depending on a second JSON-semantic implementation.
+    let public_api_hash = sha256_bytes(json.as_bytes());
+    Ok((
+        public_api_hash.clone(),
+        vec![format!("rustdoc_public_json_sha256\0{public_api_hash}")],
+    ))
+}
+
+fn normalize_compiler_output(output: &str, source_path: &str) -> String {
+    output.replace(source_path, "<source>")
 }
 
 fn collect_items(
@@ -2026,6 +2921,12 @@ fn hash_lines(lines: &[String]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+fn sha256_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
 fn path_to_string(path: &syn::Path) -> String {
     path.segments
         .iter()
@@ -2296,6 +3197,319 @@ fn helper_private_renamed() -> usize {
                 .iter()
                 .any(|input| input.contains("public_api_renamed"))
         );
+    }
+
+    // Defends: CDB077 records compiler-observed macro expansion, resolution, and hygiene
+    // only when the configured compiler supplies all required evidence.
+    #[test]
+    fn compiler_observed_macro_evidence_is_provenanced_or_fails_closed() {
+        let fixture_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/macro_rules/src/lib.rs");
+        let report = capture_compiler_evidence(
+            &fixture_path,
+            CompilerEvidenceOptions {
+                enabled: true,
+                edition: "2021".to_string(),
+                ..CompilerEvidenceOptions::default()
+            },
+        );
+        let nightly_rustc = std::process::Command::new(CompilerEvidenceOptions::default().rustc)
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| {
+                String::from_utf8_lossy(&output.stdout)
+                    .to_ascii_lowercase()
+                    .contains("nightly")
+            });
+        if nightly_rustc {
+            assert_eq!(
+                report.collection_status,
+                CompilerEvidenceCollectionStatus::CompilerObserved
+            );
+        }
+
+        match report.collection_status {
+            CompilerEvidenceCollectionStatus::CompilerObserved => {
+                let provenance = report.toolchain.as_ref().expect("toolchain provenance");
+                assert!(provenance.rustc_version.contains("commit-hash:"));
+                assert!(provenance.rustdoc_version.contains("commit-hash:"));
+                let expansion = report
+                    .artifact(CompilerEvidenceArtifactKind::MacroExpansion)
+                    .expect("macro expansion evidence");
+                assert!(
+                    expansion
+                        .command
+                        .iter()
+                        .any(|arg| arg == "-Zunpretty=expanded,identified")
+                );
+                assert!(expansion.output.as_deref().is_some_and(|output| {
+                    output.contains("generated_answer") && output.contains("/*")
+                }));
+                assert_eq!(
+                    report
+                        .artifact(CompilerEvidenceArtifactKind::MacroResolution)
+                        .expect("macro resolution evidence")
+                        .status,
+                    CompilerArtifactStatus::CompilerObserved
+                );
+                let hygiene = report
+                    .artifact(CompilerEvidenceArtifactKind::MacroHygiene)
+                    .expect("macro hygiene evidence");
+                assert!(
+                    hygiene
+                        .command
+                        .iter()
+                        .any(|arg| arg == "-Zunpretty=expanded,hygiene")
+                );
+                assert!(hygiene.output.as_deref().is_some_and(|output| {
+                    output.contains("Expansions:")
+                        && output.contains("SyntaxContexts:")
+                        && output.contains("add_one_with_hygienic_local")
+                }));
+                assert_eq!(
+                    report
+                        .artifact(CompilerEvidenceArtifactKind::Hir)
+                        .expect("HIR evidence")
+                        .status,
+                    CompilerArtifactStatus::CompilerObserved
+                );
+                assert_eq!(
+                    report
+                        .artifact(CompilerEvidenceArtifactKind::Mir)
+                        .expect("MIR evidence")
+                        .status,
+                    CompilerArtifactStatus::CompilerObserved
+                );
+            }
+            CompilerEvidenceCollectionStatus::EvidenceUnavailable => {
+                assert!(report.semantic_hash.is_none());
+                assert!(report.public_api_hash.is_none());
+                assert!(!report.gaps.is_empty());
+            }
+        }
+    }
+
+    // Defends: the compiler-capture layer is opt-in; its default cannot turn
+    // static inventory into a compiler-observed semantic or public-API claim.
+    #[test]
+    fn compiler_evidence_defaults_to_fail_closed() {
+        let fixture = FixtureWorkspace::new();
+        fixture.write(
+            "src/lib.rs",
+            r#"
+pub fn visible() -> u32 {
+    42
+}
+"#,
+        );
+        let report = capture_compiler_evidence(
+            fixture.root.join("src/lib.rs"),
+            CompilerEvidenceOptions::default(),
+        );
+
+        assert_eq!(
+            report.collection_status,
+            CompilerEvidenceCollectionStatus::EvidenceUnavailable
+        );
+        assert!(report.artifacts.is_empty());
+        assert!(report.semantic_hash.is_none());
+        assert!(report.public_api_hash.is_none());
+        assert!(
+            report
+                .gaps
+                .iter()
+                .any(|gap| gap.reason.contains("disabled"))
+        );
+    }
+
+    // Defends: CDB084 retains named identities across a source shift but refuses to
+    // match scan-order anonymous identities after that shift.
+    #[test]
+    fn identity_scan_reports_anonymous_source_shift_as_conflict() {
+        let fixture = FixtureWorkspace::new();
+        fixture.write(
+            "src/lib.rs",
+            r#"
+struct One;
+struct Two;
+
+impl One {}
+impl Two {}
+"#,
+        );
+        let source_path = fixture.root.join("src/lib.rs");
+        let first = capture_rust_item_scan(&fixture.root, &source_path, "ctx-1").unwrap();
+        let repeated = capture_rust_item_scan(&fixture.root, &source_path, "ctx-1").unwrap();
+        let repeat_comparison = compare_rust_item_scans(&first, &repeated);
+        assert_eq!(
+            repeat_comparison.status,
+            RustIdentityComparisonStatus::RepeatScanVerified
+        );
+        assert!(repeat_comparison.conflicts.is_empty());
+
+        fixture.write(
+            "src/lib.rs",
+            r#"
+struct Zero;
+struct One;
+struct Two;
+
+impl Zero {}
+impl One {}
+impl Two {}
+"#,
+        );
+        let shifted = capture_rust_item_scan(&fixture.root, &source_path, "ctx-1").unwrap();
+        let shifted_comparison = compare_rust_item_scans(&first, &shifted);
+
+        assert_eq!(
+            shifted_comparison.status,
+            RustIdentityComparisonStatus::SourceShiftConflict
+        );
+        assert!(
+            shifted_comparison
+                .stable_matches
+                .iter()
+                .any(|row| row.name == "One")
+        );
+        assert!(
+            shifted_comparison
+                .stable_matches
+                .iter()
+                .any(|row| row.name == "Two")
+        );
+        assert_eq!(shifted_comparison.conflicts.len(), 3);
+        assert!(shifted_comparison.conflicts.iter().all(|conflict| {
+            conflict.kind == RustIdentityConflictKind::UnstableAnonymousSourceShift
+                && conflict.reason.contains("not matched")
+        }));
+    }
+
+    // Defends: CDB085 binds semantic and public-API hashes to compiler HIR/MIR and
+    // rustdoc JSON evidence, but produces no such claim if evidence collection fails.
+    #[test]
+    fn compiler_and_rustdoc_semantic_evidence_tracks_public_api_source_drift() {
+        let fixture = FixtureWorkspace::new();
+        let source_path = fixture.root.join("src/lib.rs");
+        fixture.write(
+            "src/lib.rs",
+            r#"
+pub fn public_api() -> u32 {
+    1
+}
+
+fn private_helper() -> u32 {
+    1
+}
+"#,
+        );
+        let options = CompilerEvidenceOptions {
+            enabled: true,
+            edition: "2024".to_string(),
+            ..CompilerEvidenceOptions::default()
+        };
+        let base = capture_compiler_evidence(&source_path, options.clone());
+
+        fixture.write(
+            "src/lib.rs",
+            r#"
+pub fn public_api() -> u32 {
+    2
+}
+
+fn renamed_private_helper() -> u32 {
+    2
+}
+"#,
+        );
+        let private_shift = capture_compiler_evidence(&source_path, options.clone());
+
+        fixture.write(
+            "src/lib.rs",
+            r#"
+pub fn public_api() -> u64 {
+    2
+}
+
+fn renamed_private_helper() -> u32 {
+    2
+}
+"#,
+        );
+        let public_shift = capture_compiler_evidence(&source_path, options);
+
+        match (
+            base.collection_status,
+            private_shift.collection_status,
+            public_shift.collection_status,
+        ) {
+            (
+                CompilerEvidenceCollectionStatus::CompilerObserved,
+                CompilerEvidenceCollectionStatus::CompilerObserved,
+                CompilerEvidenceCollectionStatus::CompilerObserved,
+            ) => {
+                assert_ne!(base.semantic_hash, private_shift.semantic_hash);
+                assert_eq!(base.public_api_hash, private_shift.public_api_hash);
+                assert_ne!(base.public_api_hash, public_shift.public_api_hash);
+                assert!(
+                    base.semantic_inputs
+                        .iter()
+                        .any(|input| input.starts_with("hir\0"))
+                );
+                assert!(
+                    base.semantic_inputs
+                        .iter()
+                        .any(|input| input.starts_with("mir\0"))
+                );
+                assert!(
+                    base.semantic_inputs
+                        .iter()
+                        .any(|input| input == "edition\x002024")
+                );
+                assert!(
+                    base.public_api_inputs
+                        .iter()
+                        .any(|input| input == "edition\x002024")
+                );
+                assert!(
+                    base.public_api_inputs
+                        .iter()
+                        .any(|input| input.starts_with("rustdoc\0rustdoc "))
+                );
+                assert_eq!(
+                    base.public_api_hash.as_deref(),
+                    Some(hash_lines(&base.public_api_inputs).as_str())
+                );
+                assert!(
+                    base.artifact(CompilerEvidenceArtifactKind::Hir)
+                        .expect("HIR evidence")
+                        .command
+                        .iter()
+                        .any(|arg| arg == "-Zunpretty=hir")
+                );
+                assert!(
+                    base.artifact(CompilerEvidenceArtifactKind::Mir)
+                        .expect("MIR evidence")
+                        .command
+                        .iter()
+                        .any(|arg| arg == "-Zunpretty=mir")
+                );
+                assert!(
+                    base.artifact(CompilerEvidenceArtifactKind::RustdocPublicApi)
+                        .expect("rustdoc JSON evidence")
+                        .output
+                        .as_deref()
+                        .is_some_and(|output| output.contains("public_api"))
+                );
+            }
+            _ => {
+                for report in [&base, &private_shift, &public_shift] {
+                    assert!(report.semantic_hash.is_none());
+                    assert!(report.public_api_hash.is_none());
+                    assert!(!report.gaps.is_empty());
+                }
+            }
+        }
     }
 
     // Defends: CDB023 captures macro_rules definitions/invocations and records gaps for expansion/hygiene.

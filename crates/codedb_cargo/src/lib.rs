@@ -334,9 +334,6 @@ mod tests {
     // Test lane: default
 
     use super::*;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     // Defends: CDB019 must use Cargo's structured metadata output and produce stable package/target rows.
     #[test]
@@ -398,39 +395,5 @@ mod tests {
             )),
             CargoSourceKind::Git
         );
-    }
-
-    struct FixtureWorkspace {
-        root: PathBuf,
-    }
-
-    impl FixtureWorkspace {
-        fn new() -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock before unix epoch")
-                .as_nanos();
-            let root = std::env::temp_dir().join(format!(
-                "codedb_cargo_metadata_fixture_{}_{}",
-                std::process::id(),
-                nonce
-            ));
-            fs::create_dir_all(&root).expect("create fixture root");
-            Self { root }
-        }
-
-        fn write(&self, relative_path: &str, content: &str) {
-            let path = self.root.join(relative_path);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).expect("create fixture parent");
-            }
-            fs::write(path, content).expect("write fixture file");
-        }
-    }
-
-    impl Drop for FixtureWorkspace {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.root);
-        }
     }
 }
