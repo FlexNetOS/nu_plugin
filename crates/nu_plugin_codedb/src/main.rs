@@ -3,8 +3,16 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(unix)]
+use std::ffi::CString;
+#[cfg(unix)]
+use std::os::fd::FromRawFd;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 
 use codedb_cargo::{CargoMetadataCapture, capture_cargo_metadata_json};
 use codedb_context::{
@@ -30,6 +38,13 @@ use toml::Value as TomlValue;
 struct CodeDbPlugin;
 
 type Row = Vec<(&'static str, Value)>;
+
+const MAX_INVENTORY_BYTES: u64 = 256 * 1024;
+const MAX_CONTENT_IMPORT_BYTES: u64 = 1024 * 1024;
+const MAX_STRUCTURED_INPUT_BYTES: usize = 256 * 1024;
+const MAX_STRUCTURED_OUTPUT_BYTES: usize = 256 * 1024;
+const MAX_STRUCTURED_ROWS: usize = 512;
+const REDACTED_VALUE: &str = "[redacted]";
 
 #[derive(Clone)]
 struct PluginRecord {
@@ -611,32 +626,59 @@ fn envctl_inventory_import_rows(
     inventory_path: &Path,
     span: Span,
 ) -> Result<Vec<Row>, LabeledError> {
-    let raw = fs::read_to_string(inventory_path).map_err(|source| {
-        LabeledError::new("failed to read inventory artifact")
-            .with_label(format!("{}: {source}", inventory_path.display()), span)
+    let raw = read_bounded_inventory_artifact(inventory_path, span)?;
+    let inventory: JsonValue = serde_json::from_slice(&raw).map_err(|source| {
+        LabeledError::new("failed to parse inventory artifact").with_label(source.to_string(), span)
     })?;
-    let rows: Vec<JsonValue> = serde_json::from_str(&raw).map_err(|source| {
-        LabeledError::new("failed to parse inventory artifact")
-            .with_label(format!("{}: {source}", inventory_path.display()), span)
-    })?;
+    let approved_roots = approved_inventory_roots(inventory_path, &inventory, span)?;
+    let targets = inventory
+        .get("targets")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| {
+            LabeledError::new("invalid inventory artifact")
+                .with_label("targets must be an array", span)
+        })?;
 
-    rows.iter()
+    targets
+        .iter()
         .enumerate()
-        .map(|(index, row)| envctl_inventory_import_row(index, row, span))
+        .map(|(index, row)| envctl_inventory_import_row(index, row, &approved_roots, span))
         .collect()
 }
 
 fn envctl_inventory_import_row(
     index: usize,
     row: &JsonValue,
+    approved_roots: &BTreeMap<String, PathBuf>,
     span: Span,
 ) -> Result<Row, LabeledError> {
-    let target_id = json_string(row, "target_id");
-    let absolute_path = json_string(row, "absolute_path");
-    let import_mode = json_string(row, "import_mode");
-    let safety_policy = json_string(row, "safety_policy");
-    let path = PathBuf::from(&absolute_path);
-    let metadata = fs::symlink_metadata(&path).ok();
+    let target_id = required_inventory_string(row, "target_id", span)?;
+    let approved_root = required_inventory_string(row, "approved_root", span)?;
+    let relative_path = required_inventory_string(row, "relative_path", span)?;
+    let logical_owner = required_inventory_string(row, "owner", span)?;
+    let source_of_truth_class = required_inventory_string(row, "source_of_truth_class", span)?;
+    let file_kind = required_inventory_string(row, "file_kind", span)?;
+    let parser_hint = required_inventory_string(row, "parser_hint", span)?;
+    let safety_policy = required_inventory_string(row, "safety_policy", span)?;
+    let reproduction_policy = required_inventory_string(row, "reproduction_policy", span)?;
+    let import_mode = required_inventory_string(row, "import_mode", span)?;
+    let normalized_path = required_inventory_string(row, "normalized_logical_path", span)?;
+
+    validate_inventory_metadata(
+        &target_id,
+        &import_mode,
+        &source_of_truth_class,
+        &file_kind,
+        &safety_policy,
+        span,
+    )?;
+    let root = approved_roots.get(&approved_root).ok_or_else(|| {
+        LabeledError::new("invalid inventory target")
+            .with_label("approved_root is not declared in approved_roots", span)
+    })?;
+    let relative_path = validated_relative_path(&relative_path, span)?;
+    let target_path = root.join(&relative_path);
+    let metadata = validated_target_metadata(root, &relative_path, span)?;
     let byte_length = metadata
         .as_ref()
         .filter(|metadata| metadata.is_file())
@@ -645,28 +687,42 @@ fn envctl_inventory_import_row(
     let observed = format!("unix:{}", unix_timestamp_seconds());
     let (content_hash, blob_ref, import_status, skip_reason, bytes) = if import_mode
         == "content_blob"
-        && metadata.as_ref().is_some_and(|metadata| metadata.is_file())
     {
-        let bytes = fs::read(&path).map_err(|source| {
-            LabeledError::new("failed to hash content_blob inventory target")
-                .with_label(format!("{absolute_path}: {source}"), span)
+        let metadata = metadata.as_ref().ok_or_else(|| {
+            LabeledError::new("invalid inventory target")
+                .with_label("content_blob target does not exist", span)
         })?;
-        let hash = format!("{:x}", Sha256::digest(&bytes));
-        (
-            hash.clone(),
-            format!("sha256:{hash}"),
-            "blob_metadata_ready".to_string(),
-            String::new(),
-            Some(bytes),
-        )
-    } else if import_mode == "content_blob" {
-        (
-            String::new(),
-            String::new(),
-            "metadata_only".to_string(),
-            "content_blob target is not a regular file".to_string(),
-            None,
-        )
+        if !metadata.is_file() {
+            return Err(LabeledError::new("invalid inventory target")
+                .with_label("content_blob target is not a regular file", span));
+        }
+        if metadata.len() > MAX_CONTENT_IMPORT_BYTES {
+            (
+                String::new(),
+                String::new(),
+                "metadata_only".to_string(),
+                format!(
+                    "content_blob target exceeds maximum safe file size ({MAX_CONTENT_IMPORT_BYTES} bytes)"
+                ),
+                None,
+            )
+        } else {
+            let bytes = read_validated_target(root, &relative_path, &target_path, span)?;
+            if bytes.len() as u64 > MAX_CONTENT_IMPORT_BYTES {
+                return Err(LabeledError::new(
+                    "content_blob target exceeds maximum safe file size",
+                )
+                .with_label("target changed while it was being read", span));
+            }
+            let hash = format!("{:x}", Sha256::digest(&bytes));
+            (
+                hash.clone(),
+                format!("sha256:{hash}"),
+                "blob_metadata_ready".to_string(),
+                String::new(),
+                Some(bytes),
+            )
+        }
     } else {
         (
             String::new(),
@@ -676,15 +732,14 @@ fn envctl_inventory_import_row(
             None,
         )
     };
-    let structured = bytes
-        .as_deref()
-        .and_then(|bytes| structured_file_rows(&json_string(row, "parser_hint"), bytes, span));
-    let structured_status = if structured.is_some() {
-        "structured_rows_ready"
-    } else if import_mode == "metadata_only" {
-        "metadata_only"
-    } else {
-        "unstructured_blob"
+
+    let (structured_status, structured) = match bytes.as_deref() {
+        Some(bytes) => match structured_file_rows(&parser_hint, bytes, span) {
+            StructuredRows::Ready(rows) => ("structured_rows_ready", rows),
+            StructuredRows::Limited => ("structured_rows_limited", Vec::new()),
+            StructuredRows::Unavailable => ("unstructured_blob", Vec::new()),
+        },
+        None => ("metadata_only", Vec::new()),
     };
 
     Ok(vec![
@@ -697,26 +752,21 @@ fn envctl_inventory_import_row(
             ),
         ),
         ("target_id", string(target_id, span)),
-        ("logical_owner", string(json_string(row, "owner"), span)),
-        ("absolute_path", string(absolute_path, span)),
+        ("logical_owner", string(logical_owner, span)),
+        ("approved_root", string(approved_root, span)),
         (
-            "normalized_path",
-            string(json_string(row, "normalized_logical_path"), span),
+            "relative_path",
+            string(relative_path.to_string_lossy().to_string(), span),
         ),
-        (
-            "source_of_truth_class",
-            string(json_string(row, "source_of_truth_class"), span),
-        ),
-        ("file_kind", string(json_string(row, "file_kind"), span)),
-        ("parser_hint", string(json_string(row, "parser_hint"), span)),
+        ("normalized_path", string(normalized_path, span)),
+        ("source_of_truth_class", string(source_of_truth_class, span)),
+        ("file_kind", string(file_kind, span)),
+        ("parser_hint", string(parser_hint, span)),
         ("content_hash", string(content_hash, span)),
         ("byte_length", int(byte_length, span)?),
         ("blob_ref", string(blob_ref, span)),
         ("import_safety_policy", string(safety_policy, span)),
-        (
-            "reproduction_policy",
-            string(json_string(row, "reproduction_policy"), span),
-        ),
+        ("reproduction_policy", string(reproduction_policy, span)),
         ("import_mode", string(import_mode, span)),
         ("import_status", string(import_status, span)),
         ("skip_reason", string(skip_reason, span)),
@@ -725,17 +775,332 @@ fn envctl_inventory_import_row(
             string("envctl_yazelix_file_structured_rows", span),
         ),
         ("structured_status", string(structured_status, span)),
-        (
-            "structured_row_count",
-            int(structured.as_ref().map_or(0usize, Vec::len), span)?,
-        ),
-        (
-            "structured_rows",
-            list_value(structured.unwrap_or_default(), span),
-        ),
+        ("structured_row_count", int(structured.len(), span)?),
+        ("structured_rows", list_value(structured, span)),
         ("last_observed", string(observed, span)),
         ("provenance", string("yazelix_file_target_inventory", span)),
     ])
+}
+
+fn read_bounded_inventory_artifact(path: &Path, span: Span) -> Result<Vec<u8>, LabeledError> {
+    let metadata = fs::symlink_metadata(path).map_err(|source| {
+        LabeledError::new("failed to inspect inventory artifact")
+            .with_label(source.to_string(), span)
+    })?;
+    if is_symlink_or_reparse_point(&metadata) || !metadata.is_file() {
+        return Err(LabeledError::new("invalid inventory artifact")
+            .with_label("inventory artifact must be a regular non-link file", span));
+    }
+    if metadata.len() > MAX_INVENTORY_BYTES {
+        return Err(
+            LabeledError::new("inventory artifact exceeds maximum safe size")
+                .with_label(format!("maximum is {MAX_INVENTORY_BYTES} bytes"), span),
+        );
+    }
+    let bytes = fs::read(path).map_err(|source| {
+        LabeledError::new("failed to read inventory artifact").with_label(source.to_string(), span)
+    })?;
+    if bytes.len() as u64 > MAX_INVENTORY_BYTES {
+        return Err(
+            LabeledError::new("inventory artifact exceeds maximum safe size")
+                .with_label("artifact changed while it was being read", span),
+        );
+    }
+    Ok(bytes)
+}
+
+fn approved_inventory_roots(
+    inventory_path: &Path,
+    inventory: &JsonValue,
+    span: Span,
+) -> Result<BTreeMap<String, PathBuf>, LabeledError> {
+    let inventory_root = inventory_path
+        .parent()
+        .ok_or_else(|| {
+            LabeledError::new("invalid inventory artifact")
+                .with_label("inventory artifact must have a parent directory", span)
+        })?
+        .canonicalize()
+        .map_err(|source| {
+            LabeledError::new("invalid inventory artifact").with_label(
+                format!("inventory artifact root cannot be canonicalized: {source}"),
+                span,
+            )
+        })?;
+    let roots = inventory
+        .get("approved_roots")
+        .and_then(JsonValue::as_object)
+        .filter(|roots| !roots.is_empty())
+        .ok_or_else(|| {
+            LabeledError::new("invalid inventory artifact")
+                .with_label("approved_roots must be a non-empty object", span)
+        })?;
+    let mut approved = BTreeMap::new();
+    for (name, value) in roots {
+        if name.is_empty() || name.len() > 128 {
+            return Err(LabeledError::new("invalid inventory artifact")
+                .with_label("approved root names must be non-empty and bounded", span));
+        }
+        let declared = value.as_str().ok_or_else(|| {
+            LabeledError::new("invalid inventory artifact")
+                .with_label("approved root paths must be strings", span)
+        })?;
+        let declared = PathBuf::from(declared);
+        if !declared.is_absolute() {
+            return Err(LabeledError::new("invalid inventory artifact")
+                .with_label("approved roots must be absolute canonical paths", span));
+        }
+        let metadata = fs::symlink_metadata(&declared).map_err(|source| {
+            LabeledError::new("invalid inventory artifact")
+                .with_label(format!("approved root cannot be inspected: {source}"), span)
+        })?;
+        if is_symlink_or_reparse_point(&metadata) || !metadata.is_dir() {
+            return Err(LabeledError::new("invalid inventory artifact")
+                .with_label("approved roots must be non-link directories", span));
+        }
+        let canonical = declared.canonicalize().map_err(|source| {
+            LabeledError::new("invalid inventory artifact").with_label(
+                format!("approved root cannot be canonicalized: {source}"),
+                span,
+            )
+        })?;
+        if canonical != declared {
+            return Err(LabeledError::new("invalid inventory artifact")
+                .with_label("approved roots must be supplied in canonical form", span));
+        }
+        if !canonical.starts_with(&inventory_root) {
+            return Err(LabeledError::new("invalid inventory artifact").with_label(
+                "approved roots must be contained by the inventory artifact directory",
+                span,
+            ));
+        }
+        approved.insert(name.clone(), canonical);
+    }
+    Ok(approved)
+}
+
+fn required_inventory_string(
+    row: &JsonValue,
+    field: &'static str,
+    span: Span,
+) -> Result<String, LabeledError> {
+    row.get(field)
+        .and_then(JsonValue::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            LabeledError::new("invalid inventory target")
+                .with_label(format!("{field} must be a non-empty string"), span)
+        })
+}
+
+fn validate_inventory_metadata(
+    target_id: &str,
+    import_mode: &str,
+    source_of_truth_class: &str,
+    file_kind: &str,
+    safety_policy: &str,
+    span: Span,
+) -> Result<(), LabeledError> {
+    match import_mode {
+        "metadata_only" => Ok(()),
+        "content_blob" => {
+            let allowed_source = matches!(
+                source_of_truth_class,
+                "repo_source" | "real_home_user_config" | "managed_user_config"
+            );
+            let allowed_policy = matches!(
+                safety_policy,
+                "source_content_import_allowed"
+                    | "user_config_content_import_allowed"
+                    | "generated_content_import_allowed"
+            );
+            if !allowed_source || !allowed_policy || file_kind != "regular_file" {
+                return Err(
+                    LabeledError::new("invalid inventory target").with_label(
+                        format!(
+                            "{target_id} is not eligible for content import; credential and runtime classes are metadata-only"
+                        ),
+                        span,
+                    ),
+                );
+            }
+            Ok(())
+        }
+        _ => Err(LabeledError::new("invalid inventory target")
+            .with_label("import_mode must be content_blob or metadata_only", span)),
+    }
+}
+
+fn validated_relative_path(relative_path: &str, span: Span) -> Result<PathBuf, LabeledError> {
+    let path = Path::new(relative_path);
+    if path.as_os_str().is_empty() {
+        return Err(LabeledError::new("invalid inventory target")
+            .with_label("relative_path must be a non-empty relative path", span));
+    }
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(component) => normalized.push(component),
+            Component::CurDir
+            | Component::ParentDir
+            | Component::RootDir
+            | Component::Prefix(_) => {
+                return Err(LabeledError::new("invalid inventory target").with_label(
+                    "relative_path must contain only normal relative path components",
+                    span,
+                ));
+            }
+        }
+    }
+    Ok(normalized)
+}
+
+fn validated_target_metadata(
+    root: &Path,
+    relative_path: &Path,
+    span: Span,
+) -> Result<Option<fs::Metadata>, LabeledError> {
+    let mut current = root.to_path_buf();
+    let components = relative_path.components().collect::<Vec<_>>();
+    for (index, component) in components.iter().enumerate() {
+        let Component::Normal(component) = component else {
+            return Err(LabeledError::new("invalid inventory target")
+                .with_label("relative_path was not normalized", span));
+        };
+        current.push(component);
+        let metadata = match fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => {
+                return Err(LabeledError::new("failed to inspect inventory target")
+                    .with_label(source.to_string(), span));
+            }
+        };
+        if is_symlink_or_reparse_point(&metadata) {
+            return Err(LabeledError::new("invalid inventory target")
+                .with_label("target contains a symlink or reparse point", span));
+        }
+        if index + 1 < components.len() && !metadata.is_dir() {
+            return Err(LabeledError::new("invalid inventory target")
+                .with_label("target parent is not a directory", span));
+        }
+        if index + 1 == components.len() {
+            let canonical = current.canonicalize().map_err(|source| {
+                LabeledError::new("failed to canonicalize inventory target")
+                    .with_label(source.to_string(), span)
+            })?;
+            if !canonical.starts_with(root) || canonical != current {
+                return Err(LabeledError::new("invalid inventory target")
+                    .with_label("target resolves outside its approved root", span));
+            }
+            return Ok(Some(metadata));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(windows)]
+fn is_symlink_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
+}
+
+#[cfg(not(windows))]
+fn is_symlink_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
+}
+
+#[cfg(unix)]
+fn read_validated_target(
+    root: &Path,
+    relative_path: &Path,
+    _target_path: &Path,
+    span: Span,
+) -> Result<Vec<u8>, LabeledError> {
+    let root = CString::new(root.as_os_str().as_bytes()).map_err(|_| {
+        LabeledError::new("invalid inventory target")
+            .with_label("approved root contains an unsupported NUL byte", span)
+    })?;
+    // SAFETY: the CString is NUL-terminated and remains alive for the libc call.
+    let mut current_fd = unsafe {
+        libc::open(
+            root.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if current_fd < 0 {
+        return Err(LabeledError::new("failed to open approved root")
+            .with_label(std::io::Error::last_os_error().to_string(), span));
+    }
+
+    let components = relative_path.components().collect::<Vec<_>>();
+    for (index, component) in components.iter().enumerate() {
+        let Component::Normal(component) = component else {
+            // SAFETY: current_fd was returned by open and has not been transferred.
+            unsafe { libc::close(current_fd) };
+            return Err(LabeledError::new("invalid inventory target")
+                .with_label("relative_path was not normalized", span));
+        };
+        let component = CString::new(component.as_bytes()).map_err(|_| {
+            // SAFETY: current_fd was returned by open and has not been transferred.
+            unsafe { libc::close(current_fd) };
+            LabeledError::new("invalid inventory target")
+                .with_label("relative_path contains an unsupported NUL byte", span)
+        })?;
+        let mut flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW;
+        if index + 1 < components.len() {
+            flags |= libc::O_DIRECTORY;
+        }
+        // SAFETY: current_fd is an open directory FD and component is a live NUL-terminated name.
+        let next_fd = unsafe { libc::openat(current_fd, component.as_ptr(), flags) };
+        // SAFETY: ownership remains with this function until the final FD becomes a File.
+        unsafe { libc::close(current_fd) };
+        if next_fd < 0 {
+            return Err(LabeledError::new("failed to open inventory target")
+                .with_label(std::io::Error::last_os_error().to_string(), span));
+        }
+        current_fd = next_fd;
+    }
+
+    // SAFETY: current_fd is an open FD owned by this function and is transferred to File exactly once.
+    let file = unsafe { fs::File::from_raw_fd(current_fd) };
+    let metadata = file.metadata().map_err(|source| {
+        LabeledError::new("failed to inspect inventory target").with_label(source.to_string(), span)
+    })?;
+    if !metadata.is_file() || is_symlink_or_reparse_point(&metadata) {
+        return Err(LabeledError::new("invalid inventory target")
+            .with_label("content_blob target is not a regular non-link file", span));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len().min(MAX_CONTENT_IMPORT_BYTES) as usize);
+    file.take(MAX_CONTENT_IMPORT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| {
+            LabeledError::new("failed to read inventory target")
+                .with_label(source.to_string(), span)
+        })?;
+    Ok(bytes)
+}
+
+#[cfg(not(unix))]
+fn read_validated_target(
+    _root: &Path,
+    _relative_path: &Path,
+    target_path: &Path,
+    span: Span,
+) -> Result<Vec<u8>, LabeledError> {
+    let mut file = fs::File::open(target_path).map_err(|source| {
+        LabeledError::new("failed to open inventory target").with_label(source.to_string(), span)
+    })?;
+    let mut bytes = Vec::new();
+    file.take(MAX_CONTENT_IMPORT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| {
+            LabeledError::new("failed to read inventory target")
+                .with_label(source.to_string(), span)
+        })?;
+    Ok(bytes)
 }
 
 fn unix_timestamp_seconds() -> u64 {
@@ -1180,9 +1545,20 @@ fn nix_flake_validation_row(
     ]
 }
 
-fn structured_file_rows(parser_hint: &str, bytes: &[u8], span: Span) -> Option<Vec<Value>> {
-    let text = std::str::from_utf8(bytes).ok()?;
-    match parser_hint {
+enum StructuredRows {
+    Ready(Vec<Value>),
+    Unavailable,
+    Limited,
+}
+
+fn structured_file_rows(parser_hint: &str, bytes: &[u8], span: Span) -> StructuredRows {
+    if bytes.len() > MAX_STRUCTURED_INPUT_BYTES {
+        return StructuredRows::Limited;
+    }
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return StructuredRows::Unavailable;
+    };
+    let rows = match parser_hint {
         "json" | "jsonc" => {
             json_table_rows(text, span).or_else(|| text_table_rows(parser_hint, text, span))
         }
@@ -1192,6 +1568,18 @@ fn structured_file_rows(parser_hint: &str, bytes: &[u8], span: Span) -> Option<V
             text_table_rows(parser_hint, text, span)
         }
         _ => None,
+    };
+    let Some(rows) = rows else {
+        return StructuredRows::Unavailable;
+    };
+    let output_size = rows
+        .iter()
+        .map(|row| format!("{row:?}").len())
+        .sum::<usize>();
+    if rows.len() > MAX_STRUCTURED_ROWS || output_size > MAX_STRUCTURED_OUTPUT_BYTES {
+        StructuredRows::Limited
+    } else {
+        StructuredRows::Ready(rows)
     }
 }
 
@@ -1204,6 +1592,7 @@ fn json_table_rows(text: &str, span: Span) -> Option<Vec<Value>> {
             .into_iter()
             .enumerate()
             .map(|(idx, (key, value))| {
+                let value = redact_structured_value(&key, value);
                 Value::record(
                     record! {
                         "row_index" => Value::int(idx as i64, span),
@@ -1228,6 +1617,7 @@ fn toml_table_rows(text: &str, span: Span) -> Option<Vec<Value>> {
             .into_iter()
             .enumerate()
             .map(|(idx, (key, value))| {
+                let value = redact_structured_value(&key, value);
                 Value::record(
                     record! {
                         "row_index" => Value::int(idx as i64, span),
@@ -1253,6 +1643,7 @@ fn text_table_rows(parser_hint: &str, text: &str, span: Span) -> Option<Vec<Valu
                 return None;
             }
             let (row_kind, key, value) = text_line_parts(trimmed);
+            let value = redact_structured_value(&key, value);
             Some(Value::record(
                 record! {
                     "row_index" => Value::int(idx as i64, span),
@@ -1266,6 +1657,53 @@ fn text_table_rows(parser_hint: &str, text: &str, span: Span) -> Option<Vec<Valu
         })
         .collect::<Vec<_>>();
     (!rows.is_empty()).then_some(rows)
+}
+
+fn redact_structured_value(key: &str, value: String) -> String {
+    (structured_key_is_sensitive(key) || structured_value_looks_sensitive(&value))
+        .then_some(REDACTED_VALUE.to_string())
+        .unwrap_or(value)
+}
+
+fn structured_key_is_sensitive(key: &str) -> bool {
+    key.split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.to_ascii_lowercase())
+        .any(|segment| {
+            matches!(
+                segment.as_str(),
+                "api"
+                    | "apikey"
+                    | "authorization"
+                    | "cookie"
+                    | "credential"
+                    | "credentials"
+                    | "dsn"
+                    | "key"
+                    | "password"
+                    | "passwd"
+                    | "private"
+                    | "secret"
+                    | "token"
+            ) || segment.ends_with("token")
+                || segment.ends_with("secret")
+                || segment.ends_with("password")
+                || segment.ends_with("credential")
+        })
+}
+
+fn structured_value_looks_sensitive(value: &str) -> bool {
+    let value = value.to_ascii_lowercase();
+    value.starts_with("postgres://")
+        || value.starts_with("postgresql://")
+        || value.starts_with("mysql://")
+        || value.starts_with("mongodb://")
+        || value.contains("password=")
+        || value.contains("api_key=")
+        || value.contains("apikey=")
+        || value.contains("token=")
+        || value.contains("secret=")
+        || value.contains("dsn=")
 }
 
 fn text_line_parts(line: &str) -> (&'static str, String, String) {
@@ -3183,6 +3621,355 @@ mod tests {
         }
     }
 
+    fn inventory_fixture(root: &Path, targets: JsonValue) -> String {
+        let root = root.canonicalize().unwrap();
+        serde_json::json!({
+            "approved_roots": {
+                "fixture_root": root,
+            },
+            "targets": targets,
+        })
+        .to_string()
+    }
+
+    fn safe_content_target(target_id: &str, relative_path: &str, parser_hint: &str) -> JsonValue {
+        serde_json::json!({
+            "target_id": target_id,
+            "approved_root": "fixture_root",
+            "relative_path": relative_path,
+            "normalized_logical_path": format!("repo_source:{relative_path}"),
+            "owner": "yazelix",
+            "source_of_truth_class": "repo_source",
+            "file_kind": "regular_file",
+            "parser_hint": parser_hint,
+            "safety_policy": "source_content_import_allowed",
+            "reproduction_policy": "git_checkout",
+            "import_mode": "content_blob",
+        })
+    }
+
+    fn metadata_only_target(
+        target_id: &str,
+        relative_path: &str,
+        parser_hint: &str,
+        source_of_truth_class: &str,
+        safety_policy: &str,
+    ) -> JsonValue {
+        serde_json::json!({
+            "target_id": target_id,
+            "approved_root": "fixture_root",
+            "relative_path": relative_path,
+            "normalized_logical_path": format!("{source_of_truth_class}:{relative_path}"),
+            "owner": "yazelix",
+            "source_of_truth_class": source_of_truth_class,
+            "file_kind": "regular_file",
+            "parser_hint": parser_hint,
+            "safety_policy": safety_policy,
+            "reproduction_policy": "observed_runtime_state_only",
+            "import_mode": "metadata_only",
+        })
+    }
+
+    fn row_string<'a>(row: &'a Row, field: &str) -> Option<&'a str> {
+        row.iter().find_map(|(key, value)| {
+            (*key == field)
+                .then_some(value)
+                .and_then(|value| match value {
+                    Value::String { val, .. } => Some(val.as_str()),
+                    _ => None,
+                })
+        })
+    }
+
+    fn row_int(row: &Row, field: &str) -> Option<i64> {
+        row.iter().find_map(|(key, value)| {
+            (*key == field)
+                .then_some(value)
+                .and_then(|value| match value {
+                    Value::Int { val, .. } => Some(*val),
+                    _ => None,
+                })
+        })
+    }
+
+    fn structured_values(row: &Row) -> Vec<String> {
+        row.iter()
+            .find_map(|(key, value)| (*key == "structured_rows").then_some(value))
+            .and_then(|value| match value {
+                Value::List { vals, .. } => Some(vals),
+                _ => None,
+            })
+            .into_iter()
+            .flatten()
+            .filter_map(|value| match value {
+                Value::Record { val, .. } => val.get("value"),
+                _ => None,
+            })
+            .filter_map(|value| match value {
+                Value::String { val, .. } => Some(val.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // Defends: content import derives targets from a root-relative path and never accepts
+    // absolute or parent-traversing inventory paths.
+    #[test]
+    fn envctl_inventory_rejects_absolute_and_outside_root_targets() {
+        let root = temp_path("inventory-outside-root");
+        let outside = temp_path("inventory-outside-root-secret");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&outside, "secret").unwrap();
+        let inventory_path = root.join("inventory.json");
+        let mut absolute = safe_content_target("absolute", "/etc/passwd", "json");
+        let mut outside_root =
+            safe_content_target("outside", "../inventory-outside-root-secret", "json");
+        absolute["relative_path"] = JsonValue::String(outside.display().to_string());
+        outside_root["relative_path"] =
+            JsonValue::String("../inventory-outside-root-secret".to_string());
+        fs::write(
+            &inventory_path,
+            inventory_fixture(&root, serde_json::json!([absolute, outside_root])),
+        )
+        .unwrap();
+
+        let error = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap_err();
+        assert!(
+            error.to_string().contains("invalid inventory target"),
+            "unexpected error: {error}"
+        );
+    }
+
+    // Defends: an inventory cannot self-approve an arbitrary host directory as a content root.
+    #[test]
+    fn envctl_inventory_rejects_untrusted_approved_root() {
+        let root = temp_path("inventory-untrusted-root");
+        let outside = temp_path("inventory-untrusted-root-secret");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.json"), r#"{"token":"do-not-read"}"#).unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            serde_json::json!({
+                "approved_roots": {
+                    "fixture_root": outside.canonicalize().unwrap(),
+                },
+                "targets": [safe_content_target("secret", "secret.json", "json")],
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let error = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap_err();
+        assert!(
+            error.to_string().contains("invalid inventory artifact"),
+            "unexpected error: {error}"
+        );
+    }
+
+    // Defends: link traversal cannot turn a root-relative target into an arbitrary file read.
+    #[cfg(unix)]
+    #[test]
+    fn envctl_inventory_rejects_symlink_escape_targets() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_path("inventory-symlink-root");
+        let outside = temp_path("inventory-symlink-outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.json"), r#"{"token":"do-not-read"}"#).unwrap();
+        symlink(&outside, root.join("escape")).unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            inventory_fixture(
+                &root,
+                serde_json::json!([safe_content_target("escape", "escape/secret.json", "json")]),
+            ),
+        )
+        .unwrap();
+
+        let error = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap_err();
+        assert!(
+            error.to_string().contains("invalid inventory target"),
+            "unexpected error: {error}"
+        );
+    }
+
+    // Defends: credential and runtime classifications cannot opt into content import.
+    #[test]
+    fn envctl_inventory_rejects_invalid_content_metadata_combinations() {
+        let root = temp_path("inventory-invalid-metadata");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("session.json"), r#"{"token":"do-not-read"}"#).unwrap();
+        let mut target = safe_content_target("runtime", "session.json", "json");
+        target["source_of_truth_class"] = JsonValue::String("real_home_runtime_state".to_string());
+        target["safety_policy"] = JsonValue::String("runtime_state_no_content_import".to_string());
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            inventory_fixture(&root, serde_json::json!([target])),
+        )
+        .unwrap();
+
+        let error = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("invalid inventory target"),
+            "unexpected error: {error}"
+        );
+    }
+
+    // Defends: JSON, TOML, and line-oriented structured output never exposes nested credentials.
+    #[test]
+    fn envctl_inventory_redacts_nested_json_toml_and_text_secrets() {
+        let root = temp_path("inventory-redaction");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("settings.json"),
+            r#"{"database":{"dsn":"postgres://user:password@db/app"},"auth":{"api_key":"json-secret"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("settings.toml"),
+            "[database]\npassword = \"toml-secret\"\n[auth]\ntoken = \"toml-token\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("settings.conf"),
+            "DSN=postgres://user:password@db/app\nAPI_KEY=text-secret\nsafe=value\n",
+        )
+        .unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            inventory_fixture(
+                &root,
+                serde_json::json!([
+                    safe_content_target("json", "settings.json", "json"),
+                    safe_content_target("toml", "settings.toml", "toml"),
+                    safe_content_target("text", "settings.conf", "conf"),
+                ]),
+            ),
+        )
+        .unwrap();
+
+        let rows = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap();
+        let values = rows.iter().flat_map(structured_values).collect::<Vec<_>>();
+        assert!(values.iter().any(|value| value == "[redacted]"));
+        for secret in [
+            "postgres://user:password@db/app",
+            "json-secret",
+            "toml-secret",
+            "toml-token",
+            "text-secret",
+        ] {
+            assert!(
+                !values.iter().any(|value| value.contains(secret)),
+                "secret leaked in structured output: {secret}"
+            );
+        }
+        assert!(values.iter().any(|value| value == "value"));
+    }
+
+    // Defends: a permitted canonical-root target imports hash and bounded structured rows without
+    // returning a host absolute path.
+    #[test]
+    fn envctl_inventory_imports_valid_in_root_target() {
+        let root = temp_path("inventory-valid-root");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("settings.json"), r#"{"theme":"zed"}"#).unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            inventory_fixture(
+                &root,
+                serde_json::json!([safe_content_target("settings", "settings.json", "json")]),
+            ),
+        )
+        .unwrap();
+
+        let rows = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert!(row_has_hash(row, "content_hash"));
+        assert_eq!(
+            row_string(row, "import_status"),
+            Some("blob_metadata_ready")
+        );
+        assert_eq!(row_string(row, "relative_path"), Some("settings.json"));
+        assert_eq!(row_string(row, "approved_root"), Some("fixture_root"));
+        assert!(
+            row.iter().all(|(key, _)| *key != "absolute_path"),
+            "absolute paths must not return to Nushell"
+        );
+    }
+
+    // Defends: content import never reads a file beyond the bounded file/structured-output budget.
+    #[test]
+    fn envctl_inventory_bounds_oversized_content_imports() {
+        let root = temp_path("inventory-oversized");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("large.json"),
+            vec![b'x'; (MAX_CONTENT_IMPORT_BYTES + 1) as usize],
+        )
+        .unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            inventory_fixture(
+                &root,
+                serde_json::json!([safe_content_target("large", "large.json", "json")]),
+            ),
+        )
+        .unwrap();
+
+        let rows = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap();
+        assert_eq!(row_string(&rows[0], "import_status"), Some("metadata_only"));
+        assert!(
+            row_string(&rows[0], "skip_reason")
+                .is_some_and(|reason| reason.contains("maximum safe file size"))
+        );
+        assert_eq!(row_string(&rows[0], "structured_status"), Some("metadata_only"));
+        assert_eq!(row_string(&rows[0], "content_hash"), Some(""));
+    }
+
+    // Defends: structured values that would exceed the Nushell output budget are withheld.
+    #[test]
+    fn envctl_inventory_bounds_structured_output() {
+        let root = temp_path("inventory-structured-limit");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("large.conf"),
+            format!("safe={}\n", "x".repeat(MAX_STRUCTURED_INPUT_BYTES - 16)),
+        )
+        .unwrap();
+        let inventory_path = root.join("inventory.json");
+        fs::write(
+            &inventory_path,
+            inventory_fixture(
+                &root,
+                serde_json::json!([safe_content_target("large", "large.conf", "conf")]),
+            ),
+        )
+        .unwrap();
+
+        let rows = envctl_inventory_import_rows(&inventory_path, Span::unknown()).unwrap();
+        assert_eq!(
+            row_string(&rows[0], "import_status"),
+            Some("blob_metadata_ready")
+        );
+        assert_eq!(
+            row_string(&rows[0], "structured_status"),
+            Some("structured_rows_limited")
+        );
+        assert_eq!(row_int(&rows[0], "structured_row_count"), Some(0));
+        assert!(structured_values(&rows[0]).is_empty());
+    }
+
     // Defends: envctl inventory import rows preserve blob hashes for safe content and skip unsafe rows.
     #[test]
     fn envctl_inventory_import_rows_hash_content_and_skip_metadata_only() {
@@ -3193,34 +3980,27 @@ mod tests {
         let state_path = root.join("welcome.log");
         fs::write(&state_path, "runtime log\n").unwrap();
         let inventory_path = root.join("inventory.json");
+        let mut content = safe_content_target("settings", "settings.jsonc", "jsonc");
+        content["normalized_logical_path"] =
+            JsonValue::String("real_home_config:settings.jsonc".to_string());
+        content["owner"] = JsonValue::String("user".to_string());
+        content["source_of_truth_class"] = JsonValue::String("real_home_user_config".to_string());
+        content["safety_policy"] =
+            JsonValue::String("generated_content_import_allowed".to_string());
         fs::write(
             &inventory_path,
-            format!(
-                r#"[{{
-                    "target_id":"settings",
-                    "absolute_path":"{}",
-                    "normalized_logical_path":"real_home_config:settings.jsonc",
-                    "owner":"user",
-                    "source_of_truth_class":"real_home_user_config",
-                    "file_kind":"regular_file",
-                    "parser_hint":"jsonc",
-                    "safety_policy":"generated_content_import_allowed",
-                    "reproduction_policy":"user_config_source_or_import",
-                    "import_mode":"content_blob"
-                }},{{
-                    "target_id":"welcome_log",
-                    "absolute_path":"{}",
-                    "normalized_logical_path":"real_home_local:logs/welcome.log",
-                    "owner":"yazelix",
-                    "source_of_truth_class":"real_home_runtime_state",
-                    "file_kind":"regular_file",
-                    "parser_hint":"log",
-                    "safety_policy":"runtime_state_no_content_import",
-                    "reproduction_policy":"observed_runtime_state_only",
-                    "import_mode":"metadata_only"
-                }}]"#,
-                content_path.display(),
-                state_path.display(),
+            inventory_fixture(
+                &root,
+                serde_json::json!([
+                    content,
+                    metadata_only_target(
+                        "welcome_log",
+                        "welcome.log",
+                        "log",
+                        "real_home_runtime_state",
+                        "runtime_state_no_content_import",
+                    ),
+                ]),
             ),
         )
         .unwrap();
@@ -3291,32 +4071,18 @@ mod tests {
         let inventory_path = root.join("inventory.json");
         fs::write(
             &inventory_path,
-            format!(
-                r#"[{{
-                    "target_id":"settings",
-                    "absolute_path":"{}",
-                    "normalized_logical_path":"repo_source:settings.jsonc",
-                    "owner":"yazelix",
-                    "source_of_truth_class":"repo_source",
-                    "file_kind":"regular_file",
-                    "parser_hint":"jsonc",
-                    "safety_policy":"source_content_import_allowed",
-                    "reproduction_policy":"git_checkout",
-                    "import_mode":"content_blob"
-                }},{{
-                    "target_id":"welcome_log",
-                    "absolute_path":"{}",
-                    "normalized_logical_path":"real_home_local:logs/welcome.log",
-                    "owner":"yazelix",
-                    "source_of_truth_class":"real_home_runtime_state",
-                    "file_kind":"regular_file",
-                    "parser_hint":"log",
-                    "safety_policy":"runtime_state_no_content_import",
-                    "reproduction_policy":"observed_runtime_state_only",
-                    "import_mode":"metadata_only"
-                }}]"#,
-                content_path.display(),
-                log_path.display(),
+            inventory_fixture(
+                &root,
+                serde_json::json!([
+                    safe_content_target("settings", "settings.jsonc", "jsonc"),
+                    metadata_only_target(
+                        "welcome_log",
+                        "welcome.log",
+                        "log",
+                        "real_home_runtime_state",
+                        "runtime_state_no_content_import",
+                    ),
+                ]),
             ),
         )
         .unwrap();
@@ -3383,20 +4149,13 @@ tab_width = 2
         let inventory_path = root.join("inventory.json");
         fs::write(
             &inventory_path,
-            format!(
-                r#"[{{
-                    "target_id":"settings_toml",
-                    "absolute_path":"{}",
-                    "normalized_logical_path":"repo_source:settings.toml",
-                    "owner":"yazelix",
-                    "source_of_truth_class":"repo_source",
-                    "file_kind":"regular_file",
-                    "parser_hint":"toml",
-                    "safety_policy":"source_content_import_allowed",
-                    "reproduction_policy":"git_checkout",
-                    "import_mode":"content_blob"
-                }}]"#,
-                content_path.display(),
+            inventory_fixture(
+                &root,
+                serde_json::json!([safe_content_target(
+                    "settings_toml",
+                    "settings.toml",
+                    "toml",
+                )]),
             ),
         )
         .unwrap();
@@ -3435,48 +4194,33 @@ tab_width = 2
         fs::create_dir_all(&local_dir).unwrap();
         let source_path = repo_dir.join("settings.jsonc");
         let runtime_path = local_dir.join("status_bar_cache.json");
+        let package_path = root.join("nix-store/yazelix-runtime");
         fs::write(&source_path, "{ \"theme\": \"zed\" }\n").unwrap();
         fs::write(&runtime_path, "{ \"status\": \"cached\" }\n").unwrap();
+        fs::create_dir_all(package_path.parent().unwrap()).unwrap();
+        fs::write(&package_path, "package output metadata\n").unwrap();
         let inventory_path = root.join("inventory.json");
         fs::write(
             &inventory_path,
-            format!(
-                r#"[{{
-                    "target_id":"settings",
-                    "absolute_path":"{}",
-                    "normalized_logical_path":"repo_source:settings.jsonc",
-                    "owner":"yazelix",
-                    "source_of_truth_class":"repo_source",
-                    "file_kind":"regular_file",
-                    "parser_hint":"jsonc",
-                    "safety_policy":"source_content_import_allowed",
-                    "reproduction_policy":"git_checkout",
-                    "import_mode":"content_blob"
-                }},{{
-                    "target_id":"status_cache",
-                    "absolute_path":"{}",
-                    "normalized_logical_path":"real_home_runtime_state:.local/share/yazelix/sessions/session-1/status_bar_cache.json",
-                    "owner":"yazelix",
-                    "source_of_truth_class":"real_home_runtime_state",
-                    "file_kind":"regular_file",
-                    "parser_hint":"json",
-                    "safety_policy":"runtime_state_no_content_import",
-                    "reproduction_policy":"observed_runtime_state_only",
-                    "import_mode":"metadata_only"
-                }},{{
-                    "target_id":"nix_store_runtime",
-                    "absolute_path":"/nix/store/example-yazelix-runtime",
-                    "normalized_logical_path":"nix_store:/nix/store/example-yazelix-runtime",
-                    "owner":"nix",
-                    "source_of_truth_class":"nix_store_package_output",
-                    "file_kind":"package_output",
-                    "parser_hint":"nix_store_path",
-                    "safety_policy":"nix_store_metadata_only",
-                    "reproduction_policy":"nix_realise",
-                    "import_mode":"metadata_only"
-                }}]"#,
-                source_path.display(),
-                runtime_path.display(),
+            inventory_fixture(
+                &root,
+                serde_json::json!([
+                    safe_content_target("settings", "repo/settings.jsonc", "jsonc"),
+                    metadata_only_target(
+                        "status_cache",
+                        "home/.local/share/yazelix/sessions/session-1/status_bar_cache.json",
+                        "json",
+                        "real_home_runtime_state",
+                        "runtime_state_no_content_import",
+                    ),
+                    metadata_only_target(
+                        "nix_store_runtime",
+                        "nix-store/yazelix-runtime",
+                        "nix_store_path",
+                        "nix_store_package_output",
+                        "nix_store_metadata_only",
+                    ),
+                ]),
             ),
         )
         .unwrap();
