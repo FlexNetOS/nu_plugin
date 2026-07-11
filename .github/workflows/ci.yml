@@ -14,17 +14,17 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
       - name: Test mandatory Cargo and rustc execution context
         run: cargo test -p codedb-context
-      - name: Regenerate repository truth surface
+      - name: Regenerate stale repository truth surface
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        run: python3 scripts/truth_surface.py --write
+        run: python3 scripts/truth_surface.py --check || python3 scripts/truth_surface.py --write
       - name: Commit regenerated truth surface
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: |
@@ -32,7 +32,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add Cargo.lock manifests/CHECKSUMS.sha256 manifests/PACKAGE_VALIDATION.json manifests/PACK_MANIFEST.json
-            git commit -m "chore(manifests): reseal mandatory capability truth surface [skip ci]"
+            git commit -m "chore(manifests): reseal mandatory capability truth surface"
             git push origin HEAD:${{ github.head_ref }}
           fi
 
@@ -45,7 +45,7 @@ jobs:
     name: Truth surface
     runs-on: ${{ vars.CI_FORCE_HOSTED == '1' && 'ubuntu-latest' || ((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","local","flexnetos"]') || 'ubuntu-latest') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Validate repo truth surface
         run: python3 scripts/truth_surface.py --check
 
@@ -53,10 +53,10 @@ jobs:
     name: Rust workspace
     runs-on: ${{ vars.CI_FORCE_HOSTED == '1' && 'ubuntu-latest' || ((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","local","flexnetos"]') || 'ubuntu-latest') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       # dtolnay/rust-toolchain bootstraps rustup when absent — required on the local
       # FlexNetOS runners, whose homes ship no preinstalled rustup (hosted images do).
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test workspace
@@ -68,7 +68,7 @@ jobs:
     name: Nu smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: DeterminateSystems/nix-installer-action@v16
       - name: Syntax gate
         run: nix develop .#ci -c nu tests/test_nushell_syntax_gate.nu
@@ -81,7 +81,7 @@ jobs:
     name: Nix checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: DeterminateSystems/nix-installer-action@v16
       - name: Flake checks
         run: nix flake check --no-write-lock-file
