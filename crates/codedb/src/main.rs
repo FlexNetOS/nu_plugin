@@ -11,7 +11,7 @@ use codedb_cargo::{CargoMetadataCapture, capture_cargo_metadata_json};
 use codedb_context::{
     CapturedCargoContext, CargoContextRequest, capture_context, detect_host_triple,
 };
-use codedb_core::store::BlobStore;
+use codedb_core::store::{BlobStore, prepare_materialization_path};
 use codedb_core::{
     TableRow, capture_gaps, prove_no_mutation, scan_filesystem, schema_rows, table_inventory,
     validation_errors,
@@ -614,7 +614,13 @@ fn materialize_rows(
         if only.is_some_and(|filter| file.relative_path != filter) {
             continue;
         }
-        let out_path = out_dir.join(&file.relative_path);
+        let out_path =
+            prepare_materialization_path(out_dir, &file.relative_path).map_err(|error| {
+                CliError::Message(format!(
+                    "unsafe materialization path {}: {error}",
+                    file.relative_path
+                ))
+            })?;
         let report = store
             .materialize_source_file(&file.relative_path, &out_path)
             .map_err(|e| {
