@@ -8,6 +8,10 @@ rust-version.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[[bin]]
+name = "codedb-mcp"
+path = "src/main.rs"
+
 [dependencies]
 codedb-context.workspace = true
 codedb-cargo = { path = "../codedb_cargo" }
