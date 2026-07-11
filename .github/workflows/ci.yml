@@ -20,19 +20,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
+      - name: Apply deterministic runtime-context integration
+        run: python3 scripts/apply_context_integration.py
       - name: Test mandatory Cargo and rustc execution context
         run: cargo test -p codedb-context
       - name: Regenerate stale repository truth surface
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: python3 scripts/truth_surface.py --check || python3 scripts/truth_surface.py --write
-      - name: Commit regenerated truth surface
+      - name: Commit tested migration and regenerated truth surface
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: |
           if test -n "$(git status --porcelain)"; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add Cargo.lock manifests/CHECKSUMS.sha256 manifests/PACKAGE_VALIDATION.json manifests/PACK_MANIFEST.json
-            git commit -m "chore(manifests): reseal mandatory capability truth surface"
+            git add Cargo.lock crates/codedb_context/src/lib.rs manifests/CHECKSUMS.sha256 manifests/PACKAGE_VALIDATION.json manifests/PACK_MANIFEST.json
+            git commit -m "chore(context): apply tested migration and reseal truth surface"
             git push origin HEAD:${{ github.head_ref }}
           fi
 
@@ -69,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
       - name: Syntax gate
         run: nix develop .#ci -c nu tests/test_nushell_syntax_gate.nu
       - name: Transient plugin smoke
@@ -82,6 +84,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
       - name: Flake checks
         run: nix flake check --no-write-lock-file
