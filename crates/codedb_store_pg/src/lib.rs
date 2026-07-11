@@ -1,108 +1,183 @@
 #![forbid(unsafe_code)]
 
-//! PostgreSQL blob-store backend for CodeDB.
+//! PostgreSQL implementation of CodeDB's backend-neutral content-addressed
+//! [`BlobStore`] contract.
+//!
+//! A logical store name expands to three tables:
+//!
+//! - `<store>_blobs` contains one byte-exact blob per SHA-256 digest.
+//! - `<store>_path_refs` maps captured relative paths to blob digests.
+//! - `<store>_schema_metadata` records the schema version and migration state.
+//!
+//! [`PgStore::open_existing`] is deliberately read-only: it validates that
+//! layout before exposing data and contains no DDL. Schema creation and the
+//! one supported legacy migration are explicit mutating operations.
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::fs;
 use std::path::Path;
 
 use codedb_core::store::{
     BlobStore, MaterializedFile, SourceFileRow, StoreError, StoreMetadataRow,
 };
-use postgres::{Client, NoTls};
+use postgres::{Client, GenericClient, NoTls};
 use sha2::{Digest, Sha256};
 
 pub const DEFAULT_TABLE: &str = "codebase_codedb";
-const ORIGIN: &str = "codedb";
+pub const STORE_SCHEMA_VERSION: &str = "1.0.0";
 
+const ORIGIN: &str = "codedb";
+const CURRENT_MIGRATION_STATE: &str = "current";
+const SCHEMA_LAYOUT: &str = "content_addressed_blobs_plus_path_refs";
+const MAX_IDENTIFIER_BYTES: usize = 63;
+const LONGEST_COMPONENT_SUFFIX: &str = "_schema_metadata";
+const BATCH_METADATA_JSON: &str =
+    "{\"artifact_kind\":\"raw_blob\",\"permission_capture\":\"gap_not_available_for_raw_blob\"}";
+
+#[derive(Clone, Debug)]
+struct StoreTables {
+    base: String,
+    schema_metadata: String,
+    blobs: String,
+    path_refs: String,
+}
+
+impl StoreTables {
+    fn new(table: &str) -> Result<Self, StoreError> {
+        let base = sanitize_table(table)?;
+        Ok(Self {
+            schema_metadata: format!("{base}_schema_metadata"),
+            blobs: format!("{base}_blobs"),
+            path_refs: format!("{base}_path_refs"),
+            base,
+        })
+    }
+}
+
+enum StoreLayout {
+    Fresh,
+    LegacyContentRows,
+    Current,
+    Incomplete,
+}
+
+/// Dynamic PostgreSQL CodeDB store. The connection is intentionally retained so
+/// a capture session can persist many durable batches without reconnecting.
 pub struct PgStore {
     client: RefCell<Client>,
-    table: String,
+    tables: StoreTables,
+}
+
+impl fmt::Debug for PgStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PgStore")
+            .field("tables", &self.tables)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PgStore {
-    /// Explicit mutating initialization path. Capture setup may call this; read
-    /// operations must use [`Self::open_existing`].
+    /// Explicit mutating initialization API.
+    ///
+    /// This creates an empty current-layout store only when the logical store
+    /// has no pre-existing relations. Existing current stores are merely
+    /// validated; legacy or partial stores require explicit remediation.
     pub fn initialize(conn: &str, table: &str) -> Result<Self, StoreError> {
-        let table = sanitize_table(table)?;
+        let tables = StoreTables::new(table)?;
         let mut client = connect_client(conn)?;
-        let ddl = format!(
-            "CREATE TABLE IF NOT EXISTS {table} (\
-                block_id bigserial PRIMARY KEY,\
-                module_path text NOT NULL UNIQUE,\
-                block_type text NOT NULL DEFAULT 'file',\
-                origin text NOT NULL DEFAULT '{ORIGIN}',\
-                content bytea NOT NULL,\
-                sha256 text NOT NULL,\
-                metadata jsonb\
-            );\
-            ALTER TABLE {table} ADD COLUMN IF NOT EXISTS metadata jsonb;"
-        );
-        client
-            .batch_execute(&ddl)
-            .map_err(|error| StoreError::new(format!("initialize table {table}: {error}")))?;
+        match inspect_layout(&mut client, &tables)? {
+            StoreLayout::Fresh => {
+                create_current_schema(&mut client, &tables, "initialize_v1")?;
+            }
+            StoreLayout::Current => {}
+            StoreLayout::LegacyContentRows => {
+                return Err(StoreError::new(format!(
+                    "legacy PostgreSQL CodeDB store {} requires explicit PgStore::migrate",
+                    tables.base
+                )));
+            }
+            StoreLayout::Incomplete => {
+                return Err(incomplete_layout_error(&tables));
+            }
+        }
+        validate_current_schema(&mut client, &tables)?;
         Ok(Self {
             client: RefCell::new(client),
-            table,
+            tables,
         })
     }
 
-    /// Non-mutating open for materialization/report/query paths. It verifies the
-    /// table exists using `to_regclass` and never issues DDL.
-    pub fn open_existing(conn: &str, table: &str) -> Result<Self, StoreError> {
-        let table = sanitize_table(table)?;
+    /// Explicit mutating migration API.
+    ///
+    /// Version 1 migrates the previous single-table content layout into
+    /// deduplicated blobs plus path references. It refuses an unknown/future
+    /// current-layout version rather than guessing a migration.
+    pub fn migrate(conn: &str, table: &str) -> Result<Self, StoreError> {
+        let tables = StoreTables::new(table)?;
         let mut client = connect_client(conn)?;
-        let existing: Option<String> = client
-            .query_one("SELECT to_regclass($1)::text", &[&table])
-            .map_err(|error| StoreError::new(format!("inspect table {table}: {error}")))?
-            .get(0);
-        if existing.is_none() {
-            return Err(StoreError::new(format!(
-                "PostgreSQL CodeDB table does not exist: {table}; run an explicit capture initialization first"
-            )));
+        match inspect_layout(&mut client, &tables)? {
+            StoreLayout::Fresh => {
+                return Err(StoreError::new(format!(
+                    "PostgreSQL CodeDB store {} is not initialized; run PgStore::initialize first",
+                    tables.base
+                )));
+            }
+            StoreLayout::Current => {
+                validate_current_schema(&mut client, &tables)?;
+            }
+            StoreLayout::LegacyContentRows => {
+                migrate_legacy_content_rows(&mut client, &tables)?;
+                validate_current_schema(&mut client, &tables)?;
+            }
+            StoreLayout::Incomplete => {
+                return Err(incomplete_layout_error(&tables));
+            }
         }
         Ok(Self {
             client: RefCell::new(client),
-            table,
+            tables,
         })
     }
 
+    /// Non-mutating open for report, query, and materialization paths.
+    ///
+    /// This function only runs catalog and schema-metadata reads before
+    /// returning a store. It never creates, alters, drops, or migrates a
+    /// relation; an absent, partial, legacy, unknown, or future layout is
+    /// refused before any captured blob/path data can be read.
+    pub fn open_existing(conn: &str, table: &str) -> Result<Self, StoreError> {
+        let tables = StoreTables::new(table)?;
+        let mut client = connect_client(conn)?;
+        match inspect_layout(&mut client, &tables)? {
+            StoreLayout::Current => validate_current_schema(&mut client, &tables)?,
+            StoreLayout::Fresh => {
+                return Err(StoreError::new(format!(
+                    "PostgreSQL CodeDB store {} is not initialized; run explicit PgStore::initialize first",
+                    tables.base
+                )));
+            }
+            StoreLayout::LegacyContentRows => {
+                return Err(StoreError::new(format!(
+                    "legacy PostgreSQL CodeDB store {} requires explicit PgStore::migrate; read-only open will not run DDL",
+                    tables.base
+                )));
+            }
+            StoreLayout::Incomplete => {
+                return Err(incomplete_layout_error(&tables));
+            }
+        }
+        Ok(Self {
+            client: RefCell::new(client),
+            tables,
+        })
+    }
+
+    /// The validated logical store identifier supplied by the caller.
     pub fn table(&self) -> &str {
-        &self.table
+        &self.tables.base
     }
-}
-
-fn connect_client(conn: &str) -> Result<Client, StoreError> {
-    if conn.trim().is_empty() {
-        return Err(StoreError::new("PostgreSQL DSN is required"));
-    }
-    Client::connect(conn, NoTls).map_err(|error| StoreError::new(format!("connect: {error}")))
-}
-
-fn sanitize_table(table: &str) -> Result<String, StoreError> {
-    let ok = !table.is_empty()
-        && table
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    if ok {
-        Ok(table.to_string())
-    } else {
-        Err(StoreError::new(format!(
-            "invalid table name {table:?}: expected [A-Za-z_][A-Za-z0-9_]*"
-        )))
-    }
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
-}
-
-fn batch_metadata_json() -> String {
-    "{\"artifact_kind\":\"raw_blob\",\"permission_capture\":\"gap_not_available_for_raw_blob\"}"
-        .to_string()
 }
 
 impl BlobStore for PgStore {
@@ -113,26 +188,33 @@ impl BlobStore for PgStore {
         let mut client = self.client.borrow_mut();
         let mut tx = client
             .transaction()
-            .map_err(|e| StoreError::new(format!("begin transaction: {e}")))?;
-        let sql = format!(
-            "INSERT INTO {} (module_path, block_type, origin, content, sha256, metadata) \
-             VALUES ($1, 'file', '{ORIGIN}', $2, $3, $4::text::jsonb) \
-             ON CONFLICT (module_path) DO UPDATE SET \
-                content = EXCLUDED.content, \
-                sha256 = EXCLUDED.sha256, \
-                origin = EXCLUDED.origin, \
-                block_type = EXCLUDED.block_type, \
-                metadata = EXCLUDED.metadata",
-            self.table
+            .map_err(|_| database_error("begin batch transaction"))?;
+        let blob_sql = format!(
+            "INSERT INTO {} (sha256, content, bytes) VALUES ($1, $2, $3) \
+             ON CONFLICT (sha256) DO NOTHING",
+            self.tables.blobs
         );
-        let metadata = batch_metadata_json();
-        let mut out = Vec::with_capacity(files.len());
+        let path_sql = format!(
+            "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::jsonb) \
+             ON CONFLICT (module_path) DO UPDATE SET \
+                 sha256 = EXCLUDED.sha256, metadata = EXCLUDED.metadata",
+            self.tables.path_refs
+        );
+
+        let mut rows = Vec::with_capacity(files.len());
         for (relative_path, bytes) in files {
             let sha256 = sha256_hex(bytes);
-            let content: &[u8] = bytes.as_slice();
-            tx.execute(sql.as_str(), &[relative_path, &content, &sha256, &metadata])
-                .map_err(|e| StoreError::new(format!("insert {relative_path}: {e}")))?;
-            out.push(SourceFileRow {
+            let content = bytes.as_slice();
+            let byte_count = i64::try_from(bytes.len())
+                .map_err(|_| StoreError::new("captured blob exceeds PostgreSQL bigint size"))?;
+            tx.execute(blob_sql.as_str(), &[&sha256, &content, &byte_count])
+                .map_err(|_| database_error("insert content-addressed blob"))?;
+            tx.execute(
+                path_sql.as_str(),
+                &[relative_path, &sha256, &BATCH_METADATA_JSON],
+            )
+            .map_err(|_| database_error("upsert path reference"))?;
+            rows.push(SourceFileRow {
                 relative_path: relative_path.clone(),
                 blob_ref: format!("sha256:{sha256}"),
                 sha256,
@@ -140,51 +222,69 @@ impl BlobStore for PgStore {
             });
         }
         tx.commit()
-            .map_err(|e| StoreError::new(format!("commit batch: {e}")))?;
-        Ok(out)
+            .map_err(|_| database_error("commit batch transaction"))?;
+        Ok(rows)
     }
 
     fn captured_paths(&self) -> Result<BTreeSet<String>, StoreError> {
         let mut client = self.client.borrow_mut();
-        let sql = format!("SELECT module_path FROM {}", self.table);
+        let sql = format!(
+            "SELECT module_path FROM {} ORDER BY module_path",
+            self.tables.path_refs
+        );
         let rows = client
             .query(sql.as_str(), &[])
-            .map_err(|e| StoreError::new(format!("captured_paths: {e}")))?;
-        Ok(rows.iter().map(|row| row.get::<_, String>(0)).collect())
+            .map_err(|_| database_error("list captured paths"))?;
+        Ok(rows.into_iter().map(|row| row.get(0)).collect())
     }
 
     fn read_source_file_blob(&self, relative_path: &str) -> Result<Option<Vec<u8>>, StoreError> {
         let mut client = self.client.borrow_mut();
-        let sql = format!("SELECT content FROM {} WHERE module_path = $1", self.table);
+        let sql = format!(
+            "SELECT p.sha256, b.content FROM {} p \
+             LEFT JOIN {} b ON b.sha256 = p.sha256 WHERE p.module_path = $1",
+            self.tables.path_refs, self.tables.blobs
+        );
         let rows = client
             .query(sql.as_str(), &[&relative_path])
-            .map_err(|e| StoreError::new(format!("read_source_file_blob {relative_path}: {e}")))?;
-        Ok(rows.first().map(|row| row.get::<_, Vec<u8>>(0)))
+            .map_err(|_| database_error("read path-reference blob"))?;
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let sha256: String = row.get(0);
+        let content: Option<Vec<u8>> = row.get(1);
+        content
+            .ok_or_else(|| corrupt_path_reference_error(relative_path, &sha256))
+            .map(Some)
     }
 
     fn list_source_files(&self) -> Result<Vec<SourceFileRow>, StoreError> {
         let mut client = self.client.borrow_mut();
         let sql = format!(
-            "SELECT module_path, sha256, octet_length(content) FROM {} ORDER BY module_path",
-            self.table
+            "SELECT p.module_path, p.sha256, b.bytes FROM {} p \
+             LEFT JOIN {} b ON b.sha256 = p.sha256 ORDER BY p.module_path",
+            self.tables.path_refs, self.tables.blobs
         );
         let rows = client
             .query(sql.as_str(), &[])
-            .map_err(|e| StoreError::new(format!("list_source_files: {e}")))?;
-        Ok(rows
-            .iter()
+            .map_err(|_| database_error("list source-file path references"))?;
+        rows.into_iter()
             .map(|row| {
                 let relative_path: String = row.get(0);
                 let sha256: String = row.get(1);
-                let bytes: i32 = row.get(2);
-                SourceFileRow {
+                let bytes: Option<i64> = row.get(2);
+                let bytes =
+                    bytes.ok_or_else(|| corrupt_path_reference_error(&relative_path, &sha256))?;
+                let bytes = u64::try_from(bytes)
+                    .map_err(|_| corrupt_path_reference_error(&relative_path, &sha256))?;
+                Ok(SourceFileRow {
                     relative_path,
                     blob_ref: format!("sha256:{sha256}"),
                     sha256,
-                    bytes: bytes.max(0) as u64,
-                }
+                    bytes,
+                })
             })
-            .collect())
+            .collect()
     }
 
     fn materialize_source_file(
@@ -194,34 +294,37 @@ impl BlobStore for PgStore {
     ) -> Result<MaterializedFile, StoreError> {
         let mut client = self.client.borrow_mut();
         let sql = format!(
-            "SELECT content, sha256, metadata::text FROM {} WHERE module_path = $1",
-            self.table
+            "SELECT p.sha256, b.content, p.metadata::text FROM {} p \
+             LEFT JOIN {} b ON b.sha256 = p.sha256 WHERE p.module_path = $1",
+            self.tables.path_refs, self.tables.blobs
         );
         let rows = client
             .query(sql.as_str(), &[&relative_path])
-            .map_err(|e| StoreError::new(format!("materialize {relative_path}: {e}")))?;
+            .map_err(|_| database_error("read materialization blob"))?;
         let row = rows
             .first()
             .ok_or_else(|| StoreError::new(format!("missing source file: {relative_path}")))?;
-        let content: Vec<u8> = row.get(0);
-        let sha256: String = row.get(1);
-        let metadata_text: Option<String> = row.get(2);
+        let sha256: String = row.get(0);
+        let content: Option<Vec<u8>> = row.get(1);
+        let content =
+            content.ok_or_else(|| corrupt_path_reference_error(relative_path, &sha256))?;
+        let metadata_text: String = row.get(2);
 
         if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| StoreError::new(format!("create dir for {relative_path}: {e}")))?;
+            fs::create_dir_all(parent).map_err(|_| {
+                StoreError::new("failed to create materialization output directory")
+            })?;
         }
         fs::write(output_path, &content)
-            .map_err(|e| StoreError::new(format!("write {}: {e}", output_path.display())))?;
+            .map_err(|_| StoreError::new("failed to write materialized source file"))?;
 
         #[cfg(unix)]
-        if let Some(mode) = metadata_text.as_deref().and_then(parse_unix_mode) {
+        if let Some(mode) = parse_unix_mode(&metadata_text) {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(output_path, fs::Permissions::from_mode(mode))
-                .map_err(|e| StoreError::new(format!("chmod {}: {e}", output_path.display())))?;
+            fs::set_permissions(output_path, fs::Permissions::from_mode(mode)).map_err(|_| {
+                StoreError::new("failed to restore materialized source permissions")
+            })?;
         }
-        #[cfg(not(unix))]
-        let _ = metadata_text;
 
         let materialized_sha256 = sha256_file(output_path)?;
         Ok(MaterializedFile {
@@ -234,41 +337,360 @@ impl BlobStore for PgStore {
 
     fn store_metadata_rows(&self) -> Result<Vec<StoreMetadataRow>, StoreError> {
         let mut client = self.client.borrow_mut();
-        let count_sql = format!("SELECT count(*) FROM {}", self.table);
-        let count: i64 = client
+        let schema_sql = format!(
+            "SELECT key, value FROM {} ORDER BY key",
+            self.tables.schema_metadata
+        );
+        let mut rows = client
+            .query(schema_sql.as_str(), &[])
+            .map_err(|_| database_error("read schema metadata"))?
+            .into_iter()
+            .map(|row| StoreMetadataRow {
+                table: self.tables.schema_metadata.clone(),
+                key: row.get(0),
+                value: row.get(1),
+            })
+            .collect::<Vec<_>>();
+        let count_sql = format!("SELECT count(*) FROM {}", self.tables.path_refs);
+        let source_files: i64 = client
             .query_one(count_sql.as_str(), &[])
-            .map_err(|e| StoreError::new(format!("store_metadata_rows count: {e}")))?
+            .map_err(|_| database_error("count source-file path references"))?
             .get(0);
-        let meta = |key: &str, value: String| StoreMetadataRow {
-            table: "store_metadata".to_string(),
-            key: key.to_string(),
-            value,
-        };
-        Ok(vec![
-            meta("store_backend", "postgresql".to_string()),
-            meta("store_status", "initialized".to_string()),
-            meta("checksum_algorithm", "sha256".to_string()),
-            meta("table", self.table.clone()),
-            meta("origin", ORIGIN.to_string()),
-            meta("source_files", count.to_string()),
-        ])
+        rows.push(StoreMetadataRow {
+            table: self.tables.path_refs.clone(),
+            key: "source_files".to_string(),
+            value: source_files.to_string(),
+        });
+        rows.push(StoreMetadataRow {
+            table: self.tables.schema_metadata.clone(),
+            key: "table".to_string(),
+            value: self.tables.base.clone(),
+        });
+        Ok(rows)
     }
+}
+
+fn connect_client(conn: &str) -> Result<Client, StoreError> {
+    if conn.trim().is_empty() {
+        return Err(StoreError::new("PostgreSQL DSN is required"));
+    }
+    Client::connect(conn, NoTls).map_err(|_| connection_error(conn))
+}
+
+fn connection_error(_conn: &str) -> StoreError {
+    StoreError::new("PostgreSQL connection failed; connection details redacted")
+}
+
+fn database_error(operation: &str) -> StoreError {
+    StoreError::new(format!(
+        "PostgreSQL {operation} failed; database connection details redacted"
+    ))
+}
+
+fn sanitize_table(table: &str) -> Result<String, StoreError> {
+    let valid_identifier = !table.is_empty()
+        && table
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !valid_identifier {
+        return Err(StoreError::new(format!(
+            "invalid table name {table:?}: expected [A-Za-z_][A-Za-z0-9_]*"
+        )));
+    }
+    if table.len() + LONGEST_COMPONENT_SUFFIX.len() > MAX_IDENTIFIER_BYTES {
+        return Err(StoreError::new(format!(
+            "invalid table name {table:?}: logical store name is too long for PostgreSQL component identifiers"
+        )));
+    }
+    Ok(table.to_string())
+}
+
+fn inspect_layout(client: &mut Client, tables: &StoreTables) -> Result<StoreLayout, StoreError> {
+    let base = relation_exists(client, &tables.base)?;
+    let schema_metadata = relation_exists(client, &tables.schema_metadata)?;
+    let blobs = relation_exists(client, &tables.blobs)?;
+    let path_refs = relation_exists(client, &tables.path_refs)?;
+    let component_count = [schema_metadata, blobs, path_refs]
+        .into_iter()
+        .filter(|exists| *exists)
+        .count();
+    match (base, component_count) {
+        (false, 0) => Ok(StoreLayout::Fresh),
+        (true, 0) => Ok(StoreLayout::LegacyContentRows),
+        (false, 3) => Ok(StoreLayout::Current),
+        _ => Ok(StoreLayout::Incomplete),
+    }
+}
+
+fn relation_exists(client: &mut Client, relation: &str) -> Result<bool, StoreError> {
+    let relation: Option<String> = client
+        .query_one("SELECT to_regclass($1)::text", &[&relation])
+        .map_err(|_| database_error("inspect schema relation"))?
+        .get(0);
+    Ok(relation.is_some())
+}
+
+fn incomplete_layout_error(tables: &StoreTables) -> StoreError {
+    StoreError::new(format!(
+        "PostgreSQL CodeDB store {} has an incomplete or mixed schema layout; refusing automatic repair",
+        tables.base
+    ))
+}
+
+fn create_current_schema<C: GenericClient>(
+    client: &mut C,
+    tables: &StoreTables,
+    last_migration: &str,
+) -> Result<(), StoreError> {
+    let ddl = format!(
+        "CREATE TABLE {schema_metadata} (\
+             key text PRIMARY KEY,\
+             value text NOT NULL\
+         );\
+         CREATE TABLE {blobs} (\
+             sha256 text PRIMARY KEY,\
+             content bytea NOT NULL,\
+             bytes bigint NOT NULL CHECK (bytes >= 0)\
+         );\
+         CREATE TABLE {path_refs} (\
+             module_path text PRIMARY KEY,\
+             sha256 text NOT NULL REFERENCES {blobs}(sha256),\
+             metadata jsonb NOT NULL DEFAULT '{{}}'::jsonb\
+         );",
+        schema_metadata = tables.schema_metadata,
+        blobs = tables.blobs,
+        path_refs = tables.path_refs,
+    );
+    client
+        .batch_execute(&ddl)
+        .map_err(|_| database_error("create current schema"))?;
+
+    let metadata_sql = format!(
+        "INSERT INTO {} (key, value) VALUES ($1, $2) \
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        tables.schema_metadata
+    );
+    for (key, value) in [
+        ("store_backend", "postgresql"),
+        ("store_status", "initialized"),
+        ("schema_version", STORE_SCHEMA_VERSION),
+        ("migration_state", CURRENT_MIGRATION_STATE),
+        ("last_migration", last_migration),
+        ("checksum_algorithm", "sha256"),
+        ("schema_layout", SCHEMA_LAYOUT),
+        ("origin", ORIGIN),
+        (
+            "unsupported_schema_behavior",
+            "refuse_unknown_or_future_schema",
+        ),
+    ] {
+        client
+            .execute(metadata_sql.as_str(), &[&key, &value])
+            .map_err(|_| database_error("write schema metadata"))?;
+    }
+    Ok(())
+}
+
+fn validate_current_schema(client: &mut Client, tables: &StoreTables) -> Result<(), StoreError> {
+    validate_relation_shape(
+        client,
+        &tables.schema_metadata,
+        &[("key", "text"), ("value", "text")],
+    )?;
+    validate_relation_shape(
+        client,
+        &tables.blobs,
+        &[
+            ("sha256", "text"),
+            ("content", "bytea"),
+            ("bytes", "bigint"),
+        ],
+    )?;
+    validate_relation_shape(
+        client,
+        &tables.path_refs,
+        &[
+            ("module_path", "text"),
+            ("sha256", "text"),
+            ("metadata", "jsonb"),
+        ],
+    )?;
+
+    let metadata_sql = format!("SELECT key, value FROM {}", tables.schema_metadata);
+    let metadata = client
+        .query(metadata_sql.as_str(), &[])
+        .map_err(|_| database_error("validate schema metadata"))?
+        .into_iter()
+        .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+        .collect::<BTreeMap<_, _>>();
+
+    let schema_version = metadata.get("schema_version").ok_or_else(|| {
+        StoreError::new("PostgreSQL CodeDB schema is missing schema_version metadata")
+    })?;
+    if schema_version != STORE_SCHEMA_VERSION {
+        return Err(StoreError::new(format!(
+            "unsupported PostgreSQL CodeDB schema version {schema_version:?}; this client supports {STORE_SCHEMA_VERSION:?} and refuses unknown or future schemas"
+        )));
+    }
+    for (key, expected) in [
+        ("migration_state", CURRENT_MIGRATION_STATE),
+        ("store_backend", "postgresql"),
+        ("checksum_algorithm", "sha256"),
+        ("schema_layout", SCHEMA_LAYOUT),
+    ] {
+        match metadata.get(key) {
+            Some(value) if value == expected => {}
+            Some(value) => {
+                return Err(StoreError::new(format!(
+                    "unsupported PostgreSQL CodeDB {key} metadata value {value:?}; refusing data access"
+                )));
+            }
+            None => {
+                return Err(StoreError::new(format!(
+                    "PostgreSQL CodeDB schema is missing required {key} metadata"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_relation_shape(
+    client: &mut Client,
+    relation: &str,
+    expected_columns: &[(&str, &str)],
+) -> Result<(), StoreError> {
+    let kind: String = client
+        .query_one(
+            "SELECT relkind::text FROM pg_catalog.pg_class WHERE oid = to_regclass($1)",
+            &[&relation],
+        )
+        .map_err(|_| database_error("validate schema relation kind"))?
+        .get(0);
+    if kind != "r" {
+        return Err(StoreError::new(format!(
+            "PostgreSQL CodeDB relation {relation} is not a table"
+        )));
+    }
+    let columns = client
+        .query(
+            "SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod) \
+             FROM pg_catalog.pg_attribute a \
+             WHERE a.attrelid = to_regclass($1) \
+               AND a.attnum > 0 AND NOT a.attisdropped",
+            &[&relation],
+        )
+        .map_err(|_| database_error("validate schema relation columns"))?
+        .into_iter()
+        .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+        .collect::<BTreeMap<_, _>>();
+    for (column, expected_type) in expected_columns {
+        match columns.get(*column) {
+            Some(observed) if observed == expected_type => {}
+            Some(observed) => {
+                return Err(StoreError::new(format!(
+                    "PostgreSQL CodeDB relation {relation} column {column} has type {observed:?}, expected {expected_type:?}"
+                )));
+            }
+            None => {
+                return Err(StoreError::new(format!(
+                    "PostgreSQL CodeDB relation {relation} is missing required column {column}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn migrate_legacy_content_rows(
+    client: &mut Client,
+    tables: &StoreTables,
+) -> Result<(), StoreError> {
+    validate_legacy_relation(client, &tables.base)?;
+    let mut tx = client
+        .transaction()
+        .map_err(|_| database_error("begin legacy migration transaction"))?;
+    create_current_schema(&mut tx, tables, "legacy_content_rows_to_v1")?;
+    let legacy_sql = format!(
+        "SELECT module_path, content, sha256, COALESCE(metadata, '{{}}'::jsonb)::text \
+         FROM {} ORDER BY module_path",
+        tables.base
+    );
+    let legacy_rows = tx
+        .query(legacy_sql.as_str(), &[])
+        .map_err(|_| database_error("read legacy content rows"))?;
+    let blob_sql = format!(
+        "INSERT INTO {} (sha256, content, bytes) VALUES ($1, $2, $3) \
+         ON CONFLICT (sha256) DO NOTHING",
+        tables.blobs
+    );
+    let path_sql = format!(
+        "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::jsonb)",
+        tables.path_refs
+    );
+    for row in legacy_rows {
+        let relative_path: String = row.get(0);
+        let content: Vec<u8> = row.get(1);
+        let sha256: String = row.get(2);
+        let metadata: String = row.get(3);
+        if sha256 != sha256_hex(&content) {
+            return Err(StoreError::new(format!(
+                "legacy PostgreSQL CodeDB row {relative_path:?} has a content checksum mismatch; refusing migration"
+            )));
+        }
+        let byte_count = i64::try_from(content.len())
+            .map_err(|_| StoreError::new("legacy blob exceeds PostgreSQL bigint size"))?;
+        tx.execute(blob_sql.as_str(), &[&sha256, &content, &byte_count])
+            .map_err(|_| database_error("migrate legacy content-addressed blob"))?;
+        tx.execute(path_sql.as_str(), &[&relative_path, &sha256, &metadata])
+            .map_err(|_| database_error("migrate legacy path reference"))?;
+    }
+    tx.batch_execute(format!("DROP TABLE {}", tables.base).as_str())
+        .map_err(|_| database_error("remove migrated legacy table"))?;
+    tx.commit()
+        .map_err(|_| database_error("commit legacy migration transaction"))?;
+    Ok(())
+}
+
+fn validate_legacy_relation(client: &mut Client, relation: &str) -> Result<(), StoreError> {
+    validate_relation_shape(
+        client,
+        relation,
+        &[
+            ("module_path", "text"),
+            ("content", "bytea"),
+            ("sha256", "text"),
+            ("metadata", "jsonb"),
+        ],
+    )
+}
+
+fn corrupt_path_reference_error(relative_path: &str, sha256: &str) -> StoreError {
+    StoreError::new(format!(
+        "PostgreSQL CodeDB path reference {relative_path:?} points to missing or invalid blob sha256:{sha256}"
+    ))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 #[cfg(unix)]
 fn parse_unix_mode(metadata_text: &str) -> Option<u32> {
     let value = serde_json::from_str::<serde_json::Value>(metadata_text).ok()?;
     let field = value.get("unix_mode")?;
-    if let Some(s) = field.as_str() {
-        u32::from_str_radix(s, 8).ok()
+    if let Some(value) = field.as_str() {
+        u32::from_str_radix(value, 8).ok()
     } else {
-        field.as_u64().map(|v| v as u32)
+        field.as_u64().and_then(|value| u32::try_from(value).ok())
     }
 }
 
 fn sha256_file(path: &Path) -> Result<String, StoreError> {
     let bytes = fs::read(path)
-        .map_err(|e| StoreError::new(format!("re-checksum {}: {e}", path.display())))?;
+        .map_err(|_| StoreError::new("failed to checksum materialized source file"))?;
     Ok(sha256_hex(&bytes))
 }
 
@@ -277,7 +699,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sanitize_table_accepts_bare_identifier() {
+    fn sanitize_table_accepts_safe_logical_store_identifier() {
         assert_eq!(
             sanitize_table("codebase_codedb").unwrap(),
             "codebase_codedb"
@@ -286,11 +708,22 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_table_rejects_injection() {
+    fn sanitize_table_rejects_injection_and_component_name_overflow() {
         assert!(sanitize_table("a; drop table x").is_err());
         assert!(sanitize_table("public.codebase").is_err());
         assert!(sanitize_table("").is_err());
         assert!(sanitize_table("9abc").is_err());
+        assert!(sanitize_table(&"a".repeat(MAX_IDENTIFIER_BYTES)).is_err());
+    }
+
+    #[test]
+    fn connection_diagnostics_do_not_contain_a_supplied_secret() {
+        let secret = "not-a-real-postgresql-password";
+        let dsn = format!("postgresql://codedb:{secret}@db.example.invalid/codedb");
+        let error = connection_error(&dsn);
+        assert!(!error.message().contains(secret));
+        assert!(!error.message().contains("postgres://"));
+        assert!(error.message().contains("redacted"));
     }
 
     #[cfg(unix)]
