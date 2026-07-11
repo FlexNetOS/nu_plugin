@@ -7,9 +7,9 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use codedb_mcp::{
-    handle_request, handle_request_with_backend, serve_json_rpc, McpError, McpRequest,
-    McpServerConfig, ReadOnlyBackend, Row, WorkLimits, DEFAULT_MAX_BYTES, MAX_RESPONSE_BYTES,
-    MAX_ROW_LIMIT,
+    ALLOWED_TOOLS, BLOCKED_TOOLS, DEFAULT_MAX_BYTES, MAX_RESPONSE_BYTES, MAX_ROW_LIMIT, McpError,
+    McpRequest, McpServerConfig, ReadOnlyBackend, Row, WorkLimits, ensure_tool_allowed,
+    handle_request, handle_request_with_backend, serve_json_rpc,
 };
 
 #[test]
@@ -155,25 +155,56 @@ fn bounded_traversal_stops_before_unbounded_repository_work() {
 }
 
 #[test]
-fn raw_source_is_blocked_with_a_sanitized_error() {
+// Defends CDB083: raw source/blob aliases return only bounded policy evidence.
+fn raw_source_and_blob_tools_and_tables_are_denied_without_backend_access() {
     let root = temp_dir("raw-source");
     let config = McpServerConfig::new(root.clone());
+    let backend = FixtureBackend::default();
 
-    let error = handle_request(
-        &config,
-        request(
-            "codedb_get_table_page",
-            None,
-            Some("source_blobs".to_string()),
-        ),
-    )
-    .expect_err("raw source must remain permanently disabled");
+    for tool in BLOCKED_TOOLS {
+        let error = handle_request_with_backend(
+            &config,
+            &backend,
+            request(tool, Some(root.join("not-a-secret")), None),
+        )
+        .expect_err("raw, mutating, dynamic, and unbounded tools must remain disabled");
+        assert!(matches!(error, McpError::BlockedTool));
+        assert_eq!(
+            error.to_string(),
+            "requested operation is disabled by policy"
+        );
+    }
 
-    assert!(matches!(error, McpError::RawSourceDisabled));
-    assert_eq!(
-        error.to_string(),
-        "requested operation is disabled by policy"
-    );
+    for table in [
+        "source_blobs",
+        "artifact_blobs",
+        "blob_refs",
+        "raw_source",
+        "raw_blobs",
+    ] {
+        let response = handle_request_with_backend(
+            &config,
+            &backend,
+            request("codedb_get_table_page", None, Some(table.to_string())),
+        )
+        .expect("blocked tables return a bounded denial row");
+        assert_eq!(response.rows.len(), 1);
+        assert_eq!(
+            response.rows[0].get("table").map(String::as_str),
+            Some("validation_errors")
+        );
+        assert_eq!(
+            response.rows[0].get("code").map(String::as_str),
+            Some("raw_blob_table_blocked")
+        );
+        assert!(
+            !serde_json::to_string(&response)
+                .expect("serialize denial")
+                .contains("not-a-secret")
+        );
+    }
+
+    assert!(backend.calls.lock().expect("calls").is_empty());
     remove_dir(root);
 }
 
@@ -197,6 +228,121 @@ fn backend_boundary_is_read_only_and_backend_neutral() {
         ["codedb_list_tables"]
     );
     remove_dir(root);
+}
+
+#[test]
+// Defends CDB090 and REQ-061: pagination is finite, lossless, and byte bounded.
+fn pagination_is_contiguous_bounded_non_overlapping_and_terminal() {
+    let root = temp_dir("pagination");
+    let config = McpServerConfig::new(root.clone());
+    let backend = PagedBackend;
+    let mut cursor = 0usize;
+    let mut observed = Vec::new();
+
+    loop {
+        let response = handle_request_with_backend(
+            &config,
+            &backend,
+            McpRequest {
+                cursor: Some(cursor),
+                limit: Some(2),
+                max_bytes: Some(2_048),
+                ..request("codedb_list_tables", None, None)
+            },
+        )
+        .expect("bounded page");
+
+        assert!(response.rows.len() <= 2);
+        assert!(
+            serde_json::to_vec(&response)
+                .expect("serialize response")
+                .len()
+                <= 2_048
+        );
+        observed.extend(
+            response
+                .rows
+                .iter()
+                .map(|row| row.get("index").expect("index").clone()),
+        );
+
+        match response.next_cursor {
+            Some(next_cursor) => {
+                assert!(response.truncated);
+                assert_eq!(next_cursor, cursor + response.rows.len());
+                assert!(next_cursor > cursor);
+                cursor = next_cursor;
+            }
+            None => {
+                assert!(!response.truncated);
+                break;
+            }
+        }
+    }
+
+    assert_eq!(observed, ["0", "1", "2", "3", "4"]);
+    remove_dir(root);
+}
+
+#[test]
+// Defends CDB090 and REQ-061: MCP cannot apply, approve, deploy, or execute.
+fn mcp_tool_surface_has_no_mutation_or_dynamic_execution_entrypoint() {
+    let forbidden_fragments = [
+        "apply",
+        "approve",
+        "deploy",
+        "execute",
+        "overwrite",
+        "patch",
+        "raw",
+        "restore",
+        "run",
+        "sync",
+        "unsafe",
+        "write",
+    ];
+
+    for tool in ALLOWED_TOOLS {
+        assert!(ensure_tool_allowed(tool).is_ok());
+        for fragment in forbidden_fragments {
+            assert!(
+                !tool.contains(fragment),
+                "allowed MCP tool {tool} contains forbidden operation fragment {fragment}"
+            );
+        }
+    }
+    for tool in BLOCKED_TOOLS {
+        assert!(matches!(
+            ensure_tool_allowed(tool),
+            Err(McpError::BlockedTool)
+        ));
+    }
+
+    for required_denial in [
+        "raw_source_blob_read",
+        "codedb_get_raw_source",
+        "codedb_get_raw_blob",
+        "unsafe_build_capture",
+        "codedb_execute_build_script",
+        "codedb_execute_proc_macro",
+        "source_overwrite",
+        "patch_apply",
+        "git_mutation",
+        "codedb_apply",
+        "codedb_approve",
+        "codedb_deploy",
+        "codedb_execute",
+        "codedb_refactor_apply",
+        "codedb_restore",
+        "codedb_sync_bidirectional",
+        "codedb_write",
+        "unbounded_table_dump",
+    ] {
+        assert!(
+            BLOCKED_TOOLS.contains(&required_denial),
+            "mandatory denial alias is missing: {required_denial}"
+        );
+    }
 }
 
 #[test]
@@ -226,6 +372,95 @@ fn in_process_stdio_lifecycle_emits_only_json_rpc_messages_and_shuts_down_on_eof
     }
     assert!(messages[3].contains("requested operation is disabled by policy"));
 
+    remove_dir(root);
+}
+
+#[test]
+// Defends CDB090: stdio replies are observable before the client closes stdin.
+fn stdio_flushes_each_response_and_accepts_initialized_notification() {
+    let root = temp_dir("stdio-flush");
+    let config = McpServerConfig::new(root.clone());
+    let input = concat!(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
+    );
+    let mut output = FlushCountingWriter::default();
+
+    let report = serve_json_rpc(&config, &mut Cursor::new(input.as_bytes()), &mut output)
+        .expect("serve protocol");
+
+    assert_eq!(report.status, "eof_shutdown");
+    assert_eq!(report.requests, 3);
+    assert_eq!(
+        String::from_utf8(output.bytes)
+            .expect("utf-8")
+            .lines()
+            .count(),
+        2
+    );
+    assert!(
+        output.flushes >= 3,
+        "each response and EOF shutdown must flush stdio"
+    );
+    remove_dir(root);
+}
+
+#[test]
+fn stdio_request_budget_shuts_down_fail_closed() {
+    let root = temp_dir("stdio-request-budget");
+    let mut config = McpServerConfig::new(root.clone());
+    config.max_requests = 2;
+    let input = concat!(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\",\"params\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/list\",\"params\":{}}\n"
+    );
+    let mut output = Vec::new();
+
+    let report = serve_json_rpc(&config, &mut Cursor::new(input.as_bytes()), &mut output)
+        .expect("bounded shutdown");
+
+    assert_eq!(report.status, "request_limit_shutdown");
+    assert_eq!(report.requests, 3);
+    let messages = String::from_utf8(output).expect("utf-8");
+    assert_eq!(messages.lines().count(), 3);
+    assert!(messages.contains("repository work exceeds a configured safety bound"));
+    assert!(!messages.contains("\"id\":4"));
+    remove_dir(root);
+}
+
+#[test]
+// Defends CDB083/CDB090: untrusted request values never appear in error text.
+fn stdio_errors_do_not_echo_secret_bearing_tool_paths_or_arguments() {
+    let root = temp_dir("secret-safe-errors");
+    let config = McpServerConfig::new(root.clone());
+    let sentinel = "CODEDB_MCP_SECRET_SENTINEL_41f9";
+    let input = format!(
+        concat!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{{}}}}\n",
+            "{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":",
+            "{{\"name\":\"unknown_{sentinel}\",\"arguments\":{{}}}}}}\n",
+            "{{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":",
+            "{{\"name\":\"codedb_get_repo_summary\",\"arguments\":",
+            "{{\"repo_path\":\"/outside/{sentinel}\"}}}}}}\n",
+            "{{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":",
+            "{{\"name\":\"codedb_list_tables\",\"arguments\":",
+            "{{\"password\":\"{sentinel}\"}}}}}}\n"
+        ),
+        sentinel = sentinel
+    );
+    let mut output = Vec::new();
+
+    serve_json_rpc(&config, &mut Cursor::new(input.as_bytes()), &mut output)
+        .expect("serve protocol");
+
+    let stdout = String::from_utf8(output).expect("utf-8");
+    assert!(!stdout.contains(sentinel));
+    assert!(stdout.contains("requested tool is not available"));
+    assert!(stdout.contains("repository path is not permitted"));
+    assert!(stdout.contains("request is invalid"));
     remove_dir(root);
 }
 
@@ -302,6 +537,45 @@ impl ReadOnlyBackend for FixtureBackend {
             ("backend".to_string(), "fixture".to_string()),
             ("status".to_string(), "available".to_string()),
         ])])
+    }
+}
+
+struct PagedBackend;
+
+impl ReadOnlyBackend for PagedBackend {
+    fn read(
+        &self,
+        _tool: &str,
+        _table: Option<&str>,
+        _repo_path: Option<&Path>,
+        _limits: WorkLimits,
+    ) -> Result<Vec<Row>, McpError> {
+        Ok((0..5)
+            .map(|index| {
+                BTreeMap::from([
+                    ("index".to_string(), index.to_string()),
+                    ("status".to_string(), "available".to_string()),
+                ])
+            })
+            .collect())
+    }
+}
+
+#[derive(Default)]
+struct FlushCountingWriter {
+    bytes: Vec<u8>,
+    flushes: usize,
+}
+
+impl Write for FlushCountingWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.bytes.extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.flushes += 1;
+        Ok(())
     }
 }
 

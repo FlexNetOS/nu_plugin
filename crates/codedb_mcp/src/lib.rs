@@ -8,13 +8,13 @@ use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Component, Path, PathBuf};
 
 use codedb_cargo::capture_cargo_metadata_json;
-use codedb_context::{capture_context, detect_host_triple, CargoContextRequest};
+use codedb_context::{CargoContextRequest, capture_context, detect_host_triple};
 use codedb_core::{
-    capture_gaps, prove_no_mutation, schema_rows, table_inventory, validation_errors, TableRow,
+    TableRow, capture_gaps, prove_no_mutation, schema_rows, table_inventory, validation_errors,
 };
 use codedb_rust_static::{capture_build_script_static, capture_rust_items, capture_rust_macros};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub const STATUS: &str = "bounded_read_only_mcp_available";
 pub const DEFAULT_TRANSPORT: &str = "stdio";
@@ -54,11 +54,28 @@ pub const BLOCKED_TOOLS: &[&str] = &[
     "raw_blob_read",
     "source_blob_read",
     "artifact_blob_read",
+    "codedb_get_raw_source",
+    "codedb_get_raw_blob",
+    "codedb_get_source_blob",
+    "codedb_get_artifact_blob",
+    "codedb_read_source",
+    "codedb_read_blob",
     "full_file_dump",
     "unsafe_build_capture",
+    "codedb_capture_build",
+    "codedb_execute_build_script",
+    "codedb_execute_proc_macro",
     "source_overwrite",
     "patch_apply",
     "git_mutation",
+    "codedb_apply",
+    "codedb_approve",
+    "codedb_deploy",
+    "codedb_execute",
+    "codedb_refactor_apply",
+    "codedb_restore",
+    "codedb_sync_bidirectional",
+    "codedb_write",
     "unbounded_table_dump",
 ];
 
@@ -423,9 +440,6 @@ pub fn handle_request_with_backend<B: ReadOnlyBackend + ?Sized>(
 ) -> Result<McpResponse, McpError> {
     let policy = config.policy()?;
     ensure_tool_allowed(&request.tool)?;
-    if request.table.as_deref().is_some_and(is_blocked_table) {
-        return Err(McpError::RawSourceDisabled);
-    }
 
     let limit = request.limit.unwrap_or(config.default_row_limit);
     if limit == 0 || limit > config.max_row_limit || limit > MAX_ROW_LIMIT {
@@ -440,6 +454,15 @@ pub fn handle_request_with_backend<B: ReadOnlyBackend + ?Sized>(
     let cursor = request.cursor.unwrap_or(0);
     if cursor > MAX_CURSOR {
         return Err(McpError::BoundExceeded);
+    }
+    if request.table.as_deref().is_some_and(is_blocked_table) {
+        return bound_response(
+            request.tool,
+            raw_blob_table_denial_rows(),
+            cursor,
+            limit,
+            max_bytes,
+        );
     }
 
     let repo_path = request
@@ -602,6 +625,10 @@ fn process_json_rpc_request(
                 "structuredContent": response,
             }))
         }
+        "notifications/initialized" => {
+            require_ready(*state)?;
+            Ok(Value::Null)
+        }
         _ => Err(McpError::UnknownTool),
     }
 }
@@ -681,7 +708,8 @@ fn write_json_rpc_error<W: Write>(
 
 fn write_json_line<W: Write>(writer: &mut W, value: Value) -> Result<(), McpError> {
     serde_json::to_writer(&mut *writer, &value).map_err(|_| McpError::IoFailure)?;
-    writer.write_all(b"\n").map_err(|_| McpError::IoFailure)
+    writer.write_all(b"\n").map_err(|_| McpError::IoFailure)?;
+    writer.flush().map_err(|_| McpError::IoFailure)
 }
 
 fn rpc_error_code(error: McpError) -> i64 {
@@ -794,6 +822,17 @@ fn static_table_page_rows(
             ),
         ])]),
     }
+}
+
+fn raw_blob_table_denial_rows() -> Vec<Row> {
+    vec![row([
+        ("table", "validation_errors".to_string()),
+        ("code", "raw_blob_table_blocked".to_string()),
+        (
+            "message",
+            "raw source and blob tables are disabled by MCP policy".to_string(),
+        ),
+    ])]
 }
 
 fn repo_summary_rows(repo_path: &Path, limits: WorkLimits) -> Result<Vec<Row>, McpError> {
