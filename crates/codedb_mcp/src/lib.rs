@@ -5,7 +5,8 @@ use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 
-use codedb_cargo::capture_cargo_metadata;
+use codedb_cargo::capture_cargo_metadata_json;
+use codedb_context::{CargoContextRequest, capture_context, detect_host_triple};
 use codedb_core::{
     FileClassification, TableRow, capture_gaps, prove_no_mutation, scan_filesystem, schema_rows,
     table_inventory, validation_errors,
@@ -376,7 +377,17 @@ fn repo_summary_rows(repo_path: &Path) -> Result<Vec<Row>, McpError> {
 }
 
 fn cargo_summary_rows(repo_path: &Path) -> Result<Vec<Row>, McpError> {
-    let metadata = capture_cargo_metadata(repo_path.join("Cargo.toml")).map_err(core_error)?;
+    let target_triple = detect_host_triple().map_err(core_error)?;
+    let context = capture_context(&CargoContextRequest {
+        manifest_path: repo_path.join("Cargo.toml"),
+        target_triple,
+        features: Vec::new(),
+        all_features: false,
+        no_default_features: false,
+        profile: "dev".to_string(),
+    })
+    .map_err(core_error)?;
+    let metadata = capture_cargo_metadata_json(&context.cargo_metadata_json).map_err(core_error)?;
     Ok(vec![
         summary_row("cargo_packages", metadata.packages.len(), "package rows"),
         summary_row(

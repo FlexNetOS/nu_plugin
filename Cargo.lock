@@ -363,6 +363,7 @@ name = "codedb"
 version = "0.1.0"
 dependencies = [
  "codedb-cargo",
+ "codedb-context",
  "codedb-core",
  "codedb-rust-static",
  "codedb-store-pg",
@@ -383,6 +384,7 @@ dependencies = [
 name = "codedb-cargo"
 version = "0.1.0"
 dependencies = [
+ "codedb-context",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -412,6 +414,7 @@ name = "codedb-mcp"
 version = "0.1.0"
 dependencies = [
  "codedb-cargo",
+ "codedb-context",
  "codedb-core",
  "codedb-rust-static",
  "serde",
@@ -1423,6 +1426,7 @@ name = "nu_plugin_codedb"
 version = "0.1.0"
 dependencies = [
  "codedb-cargo",
+ "codedb-context",
  "codedb-core",
  "codedb-rust-static",
  "nu-plugin",

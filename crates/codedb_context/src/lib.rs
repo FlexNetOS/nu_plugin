@@ -95,38 +95,69 @@ pub struct CapturedCargoContext {
 
 #[derive(Debug)]
 pub enum ContextError {
-    MissingManifest { path: PathBuf },
-    MissingLockfile { path: PathBuf },
-    InvalidManifestPath { path: PathBuf },
+    MissingManifest {
+        path: PathBuf,
+    },
+    MissingLockfile {
+        path: PathBuf,
+    },
+    InvalidManifestPath {
+        path: PathBuf,
+    },
     InvalidFeatureSelection,
     EmptyTargetTriple,
     EmptyProfile,
-    ReadFile { path: PathBuf, source: io::Error },
-    Spawn { program: String, source: io::Error },
+    ReadFile {
+        path: PathBuf,
+        source: io::Error,
+    },
+    Spawn {
+        program: String,
+        source: io::Error,
+    },
     CommandFailed {
         program: String,
         status: i32,
         stderr: String,
     },
     MissingHostTriple,
-    InvalidMetadata { message: &'static str },
-    ParseMetadata { source: serde_json::Error },
+    InvalidMetadata {
+        message: &'static str,
+    },
+    ParseMetadata {
+        source: serde_json::Error,
+    },
 }
 
 impl fmt::Display for ContextError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingManifest { path } => {
-                write!(formatter, "Cargo manifest does not exist: {}", path.display())
+                write!(
+                    formatter,
+                    "Cargo manifest does not exist: {}",
+                    path.display()
+                )
             }
             Self::MissingLockfile { path } => {
-                write!(formatter, "Cargo.lock is required for reproducible capture: {}", path.display())
+                write!(
+                    formatter,
+                    "Cargo.lock is required for reproducible capture: {}",
+                    path.display()
+                )
             }
             Self::InvalidManifestPath { path } => {
-                write!(formatter, "Cargo manifest has no parent directory: {}", path.display())
+                write!(
+                    formatter,
+                    "Cargo manifest has no parent directory: {}",
+                    path.display()
+                )
             }
             Self::InvalidFeatureSelection => {
-                write!(formatter, "--all-features and --no-default-features cannot be combined")
+                write!(
+                    formatter,
+                    "--all-features and --no-default-features cannot be combined"
+                )
             }
             Self::EmptyTargetTriple => write!(formatter, "target triple cannot be empty"),
             Self::EmptyProfile => write!(formatter, "Cargo profile cannot be empty"),
@@ -145,7 +176,9 @@ impl fmt::Display for ContextError {
             Self::InvalidMetadata { message } => {
                 write!(formatter, "cargo metadata is missing {message}")
             }
-            Self::ParseMetadata { source } => write!(formatter, "invalid cargo metadata JSON: {source}"),
+            Self::ParseMetadata { source } => {
+                write!(formatter, "invalid cargo metadata JSON: {source}")
+            }
         }
     }
 }
@@ -160,7 +193,9 @@ impl Error for ContextError {
     }
 }
 
-pub fn capture_context(request: &CargoContextRequest) -> Result<CapturedCargoContext, ContextError> {
+pub fn capture_context(
+    request: &CargoContextRequest,
+) -> Result<CapturedCargoContext, ContextError> {
     capture_context_with_runner(request, &SystemCommandRunner)
 }
 
@@ -182,12 +217,13 @@ pub fn capture_context_with_runner<R: CommandRunner + ?Sized>(
             path: request.manifest_path.clone(),
         });
     }
-    let current_dir = request
-        .manifest_path
-        .parent()
-        .ok_or_else(|| ContextError::InvalidManifestPath {
-            path: request.manifest_path.clone(),
-        })?;
+    let current_dir =
+        request
+            .manifest_path
+            .parent()
+            .ok_or_else(|| ContextError::InvalidManifestPath {
+                path: request.manifest_path.clone(),
+            })?;
     let expected_lockfile = current_dir.join("Cargo.lock");
     let lockfile_path = current_dir
         .ancestors()
@@ -202,12 +238,8 @@ pub fn capture_context_with_runner<R: CommandRunner + ?Sized>(
     })?;
     let cargo_lock_sha256 = sha256_hex(&lockfile);
 
-    let cargo_version_output = checked_output(
-        runner,
-        "cargo",
-        &["--version".to_string()],
-        current_dir,
-    )?;
+    let cargo_version_output =
+        checked_output(runner, "cargo", &["--version".to_string()], current_dir)?;
     let cargo_version = first_nonempty_line(&cargo_version_output.stdout).to_string();
 
     let rustc_verbose = checked_output(runner, "rustc", &["-vV".to_string()], current_dir)?;
@@ -346,12 +378,11 @@ fn parse_resolved_features(
             .ok_or(ContextError::InvalidMetadata {
                 message: "resolve.nodes[].id",
             })?;
-        let feature_values = node
-            .get("features")
-            .and_then(Value::as_array)
-            .ok_or(ContextError::InvalidMetadata {
+        let feature_values = node.get("features").and_then(Value::as_array).ok_or(
+            ContextError::InvalidMetadata {
                 message: "resolve.nodes[].features",
-            })?;
+            },
+        )?;
         let mut features = feature_values
             .iter()
             .map(|feature| {
@@ -390,7 +421,14 @@ fn context_identity(
     digest_field(&mut digest, rustc_version);
     digest_field(&mut digest, host_triple);
     digest_field(&mut digest, target_triple);
-    digest_field(&mut digest, if all_features { "all-features" } else { "selected-features" });
+    digest_field(
+        &mut digest,
+        if all_features {
+            "all-features"
+        } else {
+            "selected-features"
+        },
+    );
     digest_field(
         &mut digest,
         if no_default_features {
@@ -424,7 +462,6 @@ fn digest_field(digest: &mut Sha256, value: &str) {
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-
 
 /// Detect the active rustc host triple for callers that want a host-target
 /// context without inventing or hard-coding a target.

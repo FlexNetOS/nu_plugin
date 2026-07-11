@@ -9,6 +9,7 @@ rust-version.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+codedb-context.workspace = true
 codedb-cargo = { path = "../codedb_cargo" }
 codedb-core.workspace = true
 codedb-rust-static = { path = "../codedb_rust_static" }

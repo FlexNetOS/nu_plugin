@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use codedb_cargo::capture_cargo_metadata;
+use codedb_cargo::{CargoMetadataCapture, capture_cargo_metadata_json};
+use codedb_context::{
+    CapturedCargoContext, CargoContextRequest, capture_context, detect_host_triple,
+};
 use codedb_core::store::BlobStore;
 use codedb_core::{
     TableRow, capture_gaps, prove_no_mutation, scan_filesystem, schema_rows, table_inventory,
@@ -54,6 +57,24 @@ impl Display for CliError {
 }
 
 impl StdError for CliError {}
+
+fn capture_repo_cargo(
+    repo_path: &Path,
+) -> Result<(CapturedCargoContext, CargoMetadataCapture), CliError> {
+    let target_triple = detect_host_triple().map_err(|source| CliError::Core(Box::new(source)))?;
+    let context = capture_context(&CargoContextRequest {
+        manifest_path: repo_path.join("Cargo.toml"),
+        target_triple,
+        features: Vec::new(),
+        all_features: false,
+        no_default_features: false,
+        profile: "dev".to_string(),
+    })
+    .map_err(|source| CliError::Core(Box::new(source)))?;
+    let metadata = capture_cargo_metadata_json(&context.cargo_metadata_json)
+        .map_err(|source| CliError::Core(Box::new(source)))?;
+    Ok((context, metadata))
+}
 
 fn main() {
     if let Err(error) = run(std::env::args().skip(1).collect()) {
@@ -646,11 +667,8 @@ fn scan_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
         scan_filesystem(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
     let rust_items = rust_item_rows(repo_path)?;
     let manifest_path = repo_path.join("Cargo.toml");
-    let cargo_metadata = if manifest_path.exists() {
-        Some(
-            capture_cargo_metadata(&manifest_path)
-                .map_err(|source| CliError::Core(Box::new(source)))?,
-        )
+    let cargo_capture = if manifest_path.exists() {
+        Some(capture_repo_cargo(repo_path)?)
     } else {
         None
     };
@@ -669,7 +687,29 @@ fn scan_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
         rust_items.len(),
         "static syntax item scan completed",
     ));
-    if let Some(cargo_metadata) = cargo_metadata {
+    if let Some((context, cargo_metadata)) = cargo_capture {
+        rows.push(row([
+            ("table", "codedb_contexts".to_string()),
+            ("context_id", context.context_id),
+            ("cargo_version", context.cargo_version),
+            ("rustc_version", context.rustc_version),
+            ("host_triple", context.host_triple),
+            ("target_triple", context.target_triple),
+            ("target_cfgs", context.target_cfgs.join(";")),
+            ("requested_features", context.requested_features.join(";")),
+            ("all_features", context.all_features.to_string()),
+            (
+                "no_default_features",
+                context.no_default_features.to_string(),
+            ),
+            ("profile", context.profile),
+            ("cargo_lock_sha256", context.cargo_lock_sha256),
+            (
+                "resolved_package_count",
+                context.resolved_features.len().to_string(),
+            ),
+            ("status", "available".to_string()),
+        ]));
         rows.push(summary_row(
             "cargo_packages",
             "available",
@@ -2388,8 +2428,7 @@ fn rust_item_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
 }
 
 fn cargo_package_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
-    let metadata = capture_cargo_metadata(repo_path.join("Cargo.toml"))
-        .map_err(|source| CliError::Core(Box::new(source)))?;
+    let (_context, metadata) = capture_repo_cargo(repo_path)?;
     Ok(metadata
         .packages
         .into_iter()
@@ -2408,8 +2447,7 @@ fn cargo_package_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
 }
 
 fn cargo_dependency_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
-    let metadata = capture_cargo_metadata(repo_path.join("Cargo.toml"))
-        .map_err(|source| CliError::Core(Box::new(source)))?;
+    let (_context, metadata) = capture_repo_cargo(repo_path)?;
     Ok(metadata
         .dependencies
         .into_iter()
@@ -2434,8 +2472,7 @@ fn cargo_dependency_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
 }
 
 fn cargo_source_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
-    let metadata = capture_cargo_metadata(repo_path.join("Cargo.toml"))
-        .map_err(|source| CliError::Core(Box::new(source)))?;
+    let (_context, metadata) = capture_repo_cargo(repo_path)?;
     Ok(metadata
         .sources
         .into_iter()

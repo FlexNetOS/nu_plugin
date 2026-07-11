@@ -6,7 +6,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codedb_cargo::{CargoContextInput, build_context_rows, capture_cargo_metadata};
+use codedb_cargo::{CargoMetadataCapture, capture_cargo_metadata_json};
+use codedb_context::{
+    CapturedCargoContext, CargoContextRequest, capture_context, detect_host_triple,
+};
 use codedb_core::{
     FileClassification, FilesystemEntry, TableRow, capture_gaps, scan_filesystem, schema_rows,
     table_inventory, validation_errors,
@@ -179,6 +182,32 @@ fn repo_from_flag_or_cwd(call: &EvaluatedCall) -> Result<PathBuf, LabeledError> 
     })
 }
 
+fn capture_repo_cargo(
+    repo_path: &Path,
+    span: Span,
+) -> Result<(CapturedCargoContext, CargoMetadataCapture), LabeledError> {
+    let target_triple = detect_host_triple().map_err(|source| {
+        LabeledError::new("rustc host detection failed").with_label(source.to_string(), span)
+    })?;
+    let context = capture_context(&CargoContextRequest {
+        manifest_path: repo_path.join("Cargo.toml"),
+        target_triple,
+        features: Vec::new(),
+        all_features: false,
+        no_default_features: false,
+        profile: "dev".to_string(),
+    })
+    .map_err(|source| {
+        LabeledError::new("locked Cargo context capture failed")
+            .with_label(source.to_string(), span)
+    })?;
+    let metadata = capture_cargo_metadata_json(&context.cargo_metadata_json).map_err(|source| {
+        LabeledError::new("captured Cargo metadata projection failed")
+            .with_label(source.to_string(), span)
+    })?;
+    Ok((context, metadata))
+}
+
 fn page_rows(rows: Vec<Row>, call: &EvaluatedCall) -> Result<Vec<Row>, LabeledError> {
     let cursor = call.get_flag::<i64>("cursor")?.unwrap_or(0);
     let limit = call.get_flag::<i64>("limit")?.unwrap_or(rows.len() as i64);
@@ -216,7 +245,7 @@ fn scan_summary_rows(repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledEr
     ];
 
     if manifest_path.exists() {
-        let cargo_metadata = capture_cargo_metadata(&manifest_path).map_err(cargo_error)?;
+        let (_context, cargo_metadata) = capture_repo_cargo(repo_path, span)?;
         rows.push(summary_row(
             "cargo_packages",
             "available",
@@ -303,7 +332,7 @@ fn filesystem_row(entry: FilesystemEntry, span: Span) -> Result<Row, LabeledErro
 }
 
 fn cargo_package_rows(repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledError> {
-    let metadata = capture_cargo_metadata(repo_path.join("Cargo.toml")).map_err(cargo_error)?;
+    let (_context, metadata) = capture_repo_cargo(repo_path, span)?;
     Ok(metadata
         .packages
         .into_iter()
@@ -322,7 +351,7 @@ fn cargo_package_rows(repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledE
 }
 
 fn cargo_dependency_rows(repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledError> {
-    let metadata = capture_cargo_metadata(repo_path.join("Cargo.toml")).map_err(cargo_error)?;
+    let (_context, metadata) = capture_repo_cargo(repo_path, span)?;
     Ok(metadata
         .dependencies
         .into_iter()
@@ -353,7 +382,7 @@ fn cargo_dependency_rows(repo_path: &Path, span: Span) -> Result<Vec<Row>, Label
 }
 
 fn cargo_source_rows(repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledError> {
-    let metadata = capture_cargo_metadata(repo_path.join("Cargo.toml")).map_err(cargo_error)?;
+    let (_context, metadata) = capture_repo_cargo(repo_path, span)?;
     Ok(metadata
         .sources
         .into_iter()
@@ -458,50 +487,44 @@ fn macro_inventory_rows(inventory: MacroInventory, span: Span) -> Vec<Row> {
 }
 
 fn rust_cfg_rows(repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledError> {
-    let metadata = capture_cargo_metadata(repo_path.join("Cargo.toml")).map_err(cargo_error)?;
+    let (context, metadata) = capture_repo_cargo(repo_path, span)?;
     let edition = metadata
         .packages
         .first()
         .map(|package| package.edition.clone())
-        .unwrap_or_else(|| "unknown".to_string());
-    let capture = build_context_rows(CargoContextInput {
-        cargo_version: "unknown".to_string(),
-        rustc_version: "unknown".to_string(),
-        host_triple: "unknown".to_string(),
-        target_triple: "unknown".to_string(),
-        cfgs: Vec::new(),
-        features: metadata
-            .features
-            .iter()
-            .map(|feature| feature.feature.clone())
-            .collect(),
-        profile: "static".to_string(),
-        edition,
-        cargo_lock_hash: None,
-    });
+        .unwrap_or_default();
     Ok(vec![
         vec![
             ("table", string("codedb_contexts", span)),
-            ("context_id", string(capture.context.context_id, span)),
-            ("toolchain_id", string(capture.context.toolchain_id, span)),
-            ("target_triple", string(capture.context.target_triple, span)),
+            ("context_id", string(context.context_id.clone(), span)),
+            ("cargo_version", string(context.cargo_version, span)),
+            ("rustc_version", string(context.rustc_version, span)),
+            ("host_triple", string(context.host_triple, span)),
+            ("target_triple", string(context.target_triple, span)),
+            ("target_cfgs", string(context.target_cfgs.join(";"), span)),
             (
-                "feature_set_hash",
-                string(capture.context.feature_set_hash, span),
+                "requested_features",
+                string(context.requested_features.join(";"), span),
             ),
-            ("cfg_hash", string(capture.context.cfg_hash, span)),
-            ("profile", string(capture.context.profile, span)),
-            ("edition", string(capture.context.edition, span)),
+            ("all_features", bool_value(context.all_features, span)),
+            (
+                "no_default_features",
+                bool_value(context.no_default_features, span),
+            ),
+            ("profile", string(context.profile, span)),
+            ("edition", string(edition, span)),
+            ("cargo_lock_sha256", string(context.cargo_lock_sha256, span)),
         ],
         vec![
             ("table", string("feature_sets", span)),
+            ("context_id", string(context.context_id, span)),
             (
-                "feature_set_hash",
-                string(capture.feature_set.feature_set_hash, span),
+                "requested_features",
+                string(context.requested_features.join(";"), span),
             ),
             (
-                "features",
-                string(capture.feature_set.features.join(";"), span),
+                "resolved_package_count",
+                int(context.resolved_features.len(), span)?,
             ),
         ],
     ])

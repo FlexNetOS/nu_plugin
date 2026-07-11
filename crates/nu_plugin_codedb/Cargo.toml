@@ -10,6 +10,7 @@ name = "nu_plugin_codedb"
 path = "src/main.rs"
 
 [dependencies]
+codedb-context.workspace = true
 codedb-cargo = { path = "../codedb_cargo" }
 codedb-core.workspace = true
 codedb-rust-static = { path = "../codedb_rust_static" }
