@@ -30,6 +30,10 @@ class LockedContextIntegrationTest(unittest.TestCase):
         self.assertNotIn('"unknown".to_string()', rust_cfg)
         self.assertNotIn("cargo_lock_hash: None", rust_cfg)
         self.assertIn("cargo_lock_sha256", rust_cfg)
+        self.assertIn('"declared_features"', rust_cfg)
+        self.assertIn('"resolved_features"', rust_cfg)
+        self.assertIn("metadata.features", rust_cfg)
+        self.assertIn("context.resolved_features", rust_cfg)
 
 
 if __name__ == "__main__":
