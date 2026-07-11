@@ -6,40 +6,10 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "bf2270a88beb96952440c655046a7b915f463259caee1fc0e6e9146b06148974",
+  "checksum_scope_files_sha256": "58788b5395b0b3e7e878f5e12b1804e1ad2f352dc23deaa8f12425d2ab3b7554",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 326,
+  "file_count_in_checksum_scope": 320,
   "files": [
-    {
-      "bytes": 4632,
-      "path": ".claude/skills/gitnexus/gitnexus-cli/SKILL.md",
-      "sha256": "58f9f765306b285c661b86777e2097b3efb43dabe9e19d42f795e88faf9081a2"
-    },
-    {
-      "bytes": 3668,
-      "path": ".claude/skills/gitnexus/gitnexus-debugging/SKILL.md",
-      "sha256": "d8090c85e2c8faffd4767fc2dcc52aeb3f3dab3dc7218bc96b29dacf53635d64"
-    },
-    {
-      "bytes": 2978,
-      "path": ".claude/skills/gitnexus/gitnexus-exploring/SKILL.md",
-      "sha256": "21b18eee1f679efff654bf45f9dc32a495c81c014d210ac7e778c58a2a204dbd"
-    },
-    {
-      "bytes": 10265,
-      "path": ".claude/skills/gitnexus/gitnexus-guide/SKILL.md",
-      "sha256": "746d057790de5b034d19d603dfa77eb9b596407918025481b4b29214efee2581"
-    },
-    {
-      "bytes": 2848,
-      "path": ".claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md",
-      "sha256": "09e529505da155532059a3656557811f99bafff0f05c8f9e6e47bb96edc340d3"
-    },
-    {
-      "bytes": 3912,
-      "path": ".claude/skills/gitnexus/gitnexus-refactoring/SKILL.md",
-      "sha256": "544841cf90c9ebe92a2f3018b034593c2bfd8617f968412d3599a22725e3c73e"
-    },
     {
       "bytes": 4284,
       "path": ".github/workflows/ci.yml",
@@ -1641,7 +1611,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-11T02:17:14+00:00",
+  "generated_at_utc": "2026-07-11T02:18:37+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
