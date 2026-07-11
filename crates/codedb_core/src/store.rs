@@ -5,19 +5,13 @@
 //! `codedb_store_redb` so any backend (redb file, PostgreSQL, …) is drop-in:
 //! content-addressed (sha256) blob persistence, a resume skip-set, byte-exact
 //! read-back, and metadata-aware materialization that restores unix modes.
-//!
-//! The error type is deliberately simple — a single `String`-carrying
-//! [`StoreError`] — so backends with unrelated native error enums (redb's
-//! `StoreError`, postgres' `Error`) collapse to one uniform surface at the CLI.
 
 use std::collections::BTreeSet;
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
-use std::path::Path;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 
-/// Uniform, backend-agnostic store error. Backends map their native error into
-/// this via [`StoreError::new`]/`From<E: Display>` at the trait boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreError(String);
 
@@ -39,9 +33,6 @@ impl Display for StoreError {
 
 impl StdError for StoreError {}
 
-/// A persisted source-file row: relative path, content-addressed blob ref
-/// (`sha256:<hex>`), the raw sha256 hex, and the blob byte length. Mirrors
-/// `codedb_store_redb::SourceBlobRow`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFileRow {
     pub relative_path: String,
@@ -50,9 +41,6 @@ pub struct SourceFileRow {
     pub bytes: u64,
 }
 
-/// The outcome of materializing one blob back to disk: the on-disk path, the
-/// blob ref it came from, the sha256 re-checksummed from the written file, and
-/// its byte length. Mirrors `codedb_store_redb::FileMaterializationReport`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MaterializedFile {
     pub path: PathBuf,
@@ -61,8 +49,6 @@ pub struct MaterializedFile {
     pub bytes: u64,
 }
 
-/// One `(table, key, value)` metadata row describing the store itself — the
-/// `store-report` surface. Mirrors `codedb_store_redb::StoreMetadataRow`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreMetadataRow {
     pub table: String,
@@ -70,44 +56,148 @@ pub struct StoreMetadataRow {
     pub value: String,
 }
 
-/// The synchronous, backend-agnostic blob-store contract.
+/// Validate an untrusted stored path before joining it to a materialization root.
 ///
-/// Every method mirrors the exact semantics of the corresponding
-/// `codedb_store_redb` free function so a `Box<dyn BlobStore>` can transparently
-/// front the redb file store or the PostgreSQL store with no behavioral
-/// downgrade.
+/// The accepted grammar is deliberately portable: non-empty `/`-separated normal
+/// components only. Windows separators/prefixes, absolute paths, repeated
+/// separators, `.`/`..`, and NUL are rejected on every host so a database created
+/// on one platform cannot escape when restored on another.
+pub fn safe_materialization_path(
+    output_root: &Path,
+    relative_path: &str,
+) -> Result<PathBuf, StoreError> {
+    if relative_path.is_empty()
+        || relative_path.contains('\0')
+        || relative_path.contains('\\')
+        || relative_path.starts_with('/')
+        || relative_path.ends_with('/')
+        || relative_path.contains("//")
+        || (relative_path.as_bytes().get(1) == Some(&b':')
+            && relative_path
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphabetic))
+    {
+        return Err(StoreError::new(format!(
+            "unsafe materialization path: {relative_path:?}"
+        )));
+    }
+
+    let path = Path::new(relative_path);
+    if path.is_absolute() {
+        return Err(StoreError::new(format!(
+            "absolute materialization path is forbidden: {relative_path:?}"
+        )));
+    }
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(value) if !value.is_empty() => normalized.push(value),
+            _ => {
+                return Err(StoreError::new(format!(
+                    "non-normal materialization component is forbidden: {relative_path:?}"
+                )));
+            }
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        return Err(StoreError::new("empty materialization path is forbidden"));
+    }
+    Ok(output_root.join(normalized))
+}
+
+/// Prepare a safe output path and reject existing symlink ancestors/final paths.
+/// This closes the gap left by lexical `..` validation when an attacker plants a
+/// symlink below the chosen output root.
+pub fn prepare_materialization_path(
+    output_root: &Path,
+    relative_path: &str,
+) -> Result<PathBuf, StoreError> {
+    let lexical = safe_materialization_path(output_root, relative_path)?;
+    fs::create_dir_all(output_root).map_err(|error| {
+        StoreError::new(format!(
+            "create materialization root {}: {error}",
+            output_root.display()
+        ))
+    })?;
+    let canonical_root = fs::canonicalize(output_root).map_err(|error| {
+        StoreError::new(format!(
+            "canonicalize materialization root {}: {error}",
+            output_root.display()
+        ))
+    })?;
+    let relative = lexical
+        .strip_prefix(output_root)
+        .map_err(|_| StoreError::new("materialization path escaped output root"))?;
+    let mut current = canonical_root.clone();
+    let components = relative.components().collect::<Vec<_>>();
+    for component in components.iter().take(components.len().saturating_sub(1)) {
+        current.push(component.as_os_str());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(StoreError::new(format!(
+                    "symlink ancestor is forbidden during materialization: {}",
+                    current.display()
+                )));
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(StoreError::new(format!(
+                    "non-directory ancestor blocks materialization: {}",
+                    current.display()
+                )));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir(&current).map_err(|error| {
+                    StoreError::new(format!("create {}: {error}", current.display()))
+                })?;
+            }
+            Err(error) => {
+                return Err(StoreError::new(format!(
+                    "inspect {}: {error}",
+                    current.display()
+                )));
+            }
+        }
+        let canonical = fs::canonicalize(&current).map_err(|error| {
+            StoreError::new(format!("canonicalize {}: {error}", current.display()))
+        })?;
+        if !canonical.starts_with(&canonical_root) {
+            return Err(StoreError::new(format!(
+                "materialization ancestor escaped output root: {}",
+                current.display()
+            )));
+        }
+    }
+    let output = canonical_root.join(relative);
+    if fs::symlink_metadata(&output)
+        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+    {
+        return Err(StoreError::new(format!(
+            "symlink output is forbidden during materialization: {}",
+            output.display()
+        )));
+    }
+    Ok(output)
+}
+
 pub trait BlobStore {
-    /// Persist a batch of `(relative_path, bytes)` in ONE durable transaction.
-    /// Content-addressed: identical bytes dedup on their sha256. Returns one
-    /// [`SourceFileRow`] per input, in input order.
     fn persist_batch(
         &mut self,
         files: &[(String, Vec<u8>)],
     ) -> Result<Vec<SourceFileRow>, StoreError>;
 
-    /// Relative paths already durably persisted — the resume skip-set. A re-run
-    /// reads this once and skips paths already present so an interrupted capture
-    /// continues from its last checkpoint instead of restarting.
     fn captured_paths(&self) -> Result<BTreeSet<String>, StoreError>;
 
-    /// Raw bytes for a captured relative path, or `None` if the path was never
-    /// captured. Byte-exact — no text normalization.
     fn read_source_file_blob(&self, relative_path: &str) -> Result<Option<Vec<u8>>, StoreError>;
 
-    /// Every persisted source file (relative path + blob ref + sha256 + size),
-    /// in key order — the full-tree read surface behind `materialize`.
     fn list_source_files(&self) -> Result<Vec<SourceFileRow>, StoreError>;
 
-    /// Re-emit one captured file byte-for-byte to `output_path`, restoring the
-    /// stored unix mode when metadata carries one (creates parent dirs). The
-    /// returned sha256 is re-checksummed from the written file.
     fn materialize_source_file(
         &self,
         relative_path: &str,
         output_path: &Path,
     ) -> Result<MaterializedFile, StoreError>;
 
-    /// The store's own metadata/toolchain/validation rows — the `store-report`
-    /// surface.
     fn store_metadata_rows(&self) -> Result<Vec<StoreMetadataRow>, StoreError>;
 }
