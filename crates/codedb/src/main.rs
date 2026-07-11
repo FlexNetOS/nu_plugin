@@ -14,8 +14,8 @@ use codedb_context::{
 use codedb_core::store::{BlobStore, prepare_materialization_path};
 use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
-    TableRow, capture_gaps, prove_no_mutation, scan_filesystem, schema_rows, table_inventory,
-    validation_errors,
+    TableRow, capture_gaps, capture_source_metadata, prove_no_mutation, scan_filesystem,
+    schema_rows, table_inventory, validation_errors,
 };
 use codedb_rust_static::capture_rust_items;
 use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
@@ -496,6 +496,38 @@ fn capture_rows(
                 continue;
             }
             let source = repo_path.join(&entry.relative_path);
+            let source_metadata = capture_source_metadata(repo_path, &source).map_err(|error| {
+                CliError::Message(format!(
+                    "source policy capture failed for {}: {error}",
+                    entry.relative_path
+                ))
+            })?;
+            if source_metadata.has_secret_like_material
+                || sensitive_source_path(&entry.relative_path)
+            {
+                gaps += 1;
+                rows.push(row([
+                    ("table", "source_policy".to_string()),
+                    ("relative_path", entry.relative_path),
+                    ("sha256", source_metadata.sha256),
+                    ("bytes", source_metadata.byte_len.to_string()),
+                    ("mode", source_metadata.default_mode.as_str().to_string()),
+                    (
+                        "has_secret_like_material",
+                        source_metadata.has_secret_like_material.to_string(),
+                    ),
+                    ("raw_blob_persisted", "false".to_string()),
+                    (
+                        "reason",
+                        if source_metadata.has_secret_like_material {
+                            source_metadata.policy_reason
+                        } else {
+                            "sensitive path class is metadata-only by default".to_string()
+                        },
+                    ),
+                ]));
+                continue;
+            }
             let bytes = fs::read(&source).map_err(|e| {
                 CliError::Message(format!("read failed for {}: {e}", entry.relative_path))
             })?;
@@ -567,6 +599,38 @@ fn capture_rows(
         ("status", status.to_string()),
     ]));
     Ok(rows)
+}
+
+fn sensitive_source_path(relative_path: &str) -> bool {
+    let normalized = relative_path.replace('\\', "/").to_ascii_lowercase();
+    let file_name = normalized.rsplit('/').next().unwrap_or_default();
+    normalized == ".git"
+        || normalized.starts_with(".git/")
+        || file_name == ".env"
+        || file_name.starts_with(".env.")
+        || matches!(
+            file_name,
+            "auth.json"
+                | "credentials"
+                | "credentials.json"
+                | "credentials.toml"
+                | "cookies.json"
+                | "id_rsa"
+                | "id_ed25519"
+                | "private_key"
+                | "session.json"
+        )
+        || [
+            "access_token",
+            "api_key",
+            "auth_token",
+            "client_secret",
+            "connection_string",
+            "database_url",
+            "private_key",
+        ]
+        .iter()
+        .any(|needle| file_name.contains(needle))
 }
 
 /// Compare two repo roots' source files by content hash and emit the merge plan:
@@ -3211,6 +3275,49 @@ mod tests {
             .expect_err("misspelled PostgreSQL scheme must be rejected");
 
         assert!(error.to_string().contains("unsupported store URI scheme"));
+    }
+
+    #[test]
+    fn default_capture_keeps_secret_like_files_metadata_only() {
+        let repo = temp_repo();
+        fs::create_dir_all(repo.join("src")).expect("create src");
+        fs::write(repo.join("src/lib.rs"), "pub fn safe() {}\n").expect("safe source");
+        fs::write(repo.join(".env"), "OPENAI_API_KEY=sk-test-secret\n").expect("secret fixture");
+        let store_path = repo.join("capture.redb");
+        let selection = RepoSelection {
+            repo_id: "secret-policy".to_string(),
+            repo_path: repo.clone(),
+            store_path: store_path.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        let config = CaptureConfig {
+            batch_files: 32,
+            batch_bytes: 1024 * 1024,
+            time_budget: None,
+            resume: false,
+        };
+
+        let rows = capture_rows(&selection, &config, &[]).expect("capture rows");
+        let store = CaptureBatcher::open(&store_path).expect("open captured store");
+        let paths = store.captured_paths().expect("captured paths");
+
+        assert!(paths.contains("src/lib.rs"));
+        assert!(!paths.contains(".env"));
+        assert!(rows.iter().any(|row| {
+            row.get("table")
+                .is_some_and(|value| value == "source_policy")
+                && row
+                    .get("relative_path")
+                    .is_some_and(|value| value == ".env")
+                && row
+                    .get("mode")
+                    .is_some_and(|value| value == "redacted-export")
+                && row
+                    .get("raw_blob_persisted")
+                    .is_some_and(|value| value == "false")
+        }));
+
+        let _ = fs::remove_dir_all(repo);
     }
 
     // Test lane: default
