@@ -22,8 +22,12 @@ jobs:
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
       - name: Apply deterministic runtime-context integration
         run: python3 scripts/apply_context_integration.py
-      - name: Test mandatory Cargo and rustc execution context
-        run: cargo test -p codedb-context
+      - name: Format migrated Rust sources
+        run: cargo fmt --all
+      - name: Prove every frontdoor uses locked context authority
+        run: python3 -m unittest tests/test_locked_context_integration.py
+      - name: Test locked context and all affected frontdoors
+        run: cargo test -p codedb-context -p codedb-cargo -p codedb -p nu_plugin_codedb -p codedb-mcp
       - name: Regenerate stale repository truth surface
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: python3 scripts/truth_surface.py --check || python3 scripts/truth_surface.py --write
@@ -33,8 +37,14 @@ jobs:
           if test -n "$(git status --porcelain)"; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add Cargo.lock crates/codedb_context/src/lib.rs manifests/CHECKSUMS.sha256 manifests/PACKAGE_VALIDATION.json manifests/PACK_MANIFEST.json
-            git commit -m "chore(context): apply tested migration and reseal truth surface"
+            git add Cargo.lock \
+              crates/codedb/Cargo.toml crates/codedb/src/main.rs \
+              crates/codedb_cargo/Cargo.toml crates/codedb_cargo/src/lib.rs \
+              crates/codedb_context/src/lib.rs \
+              crates/codedb_mcp/Cargo.toml crates/codedb_mcp/src/lib.rs \
+              crates/nu_plugin_codedb/Cargo.toml crates/nu_plugin_codedb/src/main.rs \
+              manifests/CHECKSUMS.sha256 manifests/PACKAGE_VALIDATION.json manifests/PACK_MANIFEST.json
+            git commit -m "feat(context): use locked runtime identity across every frontdoor"
             git push origin HEAD:${{ github.head_ref }}
           fi
 
@@ -56,8 +66,6 @@ jobs:
     runs-on: ${{ vars.CI_FORCE_HOSTED == '1' && 'ubuntu-latest' || ((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","local","flexnetos"]') || 'ubuntu-latest') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      # dtolnay/rust-toolchain bootstraps rustup when absent — required on the local
-      # FlexNetOS runners, whose homes ship no preinstalled rustup (hosted images do).
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
       - name: Format
         run: cargo fmt --all -- --check
