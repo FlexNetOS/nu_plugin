@@ -424,3 +424,27 @@ fn digest_field(digest: &mut Sha256, value: &str) {
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+
+
+/// Detect the active rustc host triple for callers that want a host-target
+/// context without inventing or hard-coding a target.
+pub fn detect_host_triple() -> Result<String, ContextError> {
+    detect_host_triple_with_runner(&SystemCommandRunner, Path::new("."))
+}
+
+/// Testable host-triple detector using the same command boundary as full
+/// context capture.
+pub fn detect_host_triple_with_runner<R: CommandRunner + ?Sized>(
+    runner: &R,
+    current_dir: &Path,
+) -> Result<String, ContextError> {
+    let rustc_verbose = checked_output(runner, "rustc", &["-vV".to_string()], current_dir)?;
+    rustc_verbose
+        .stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("host:"))
+        .map(str::trim)
+        .filter(|host| !host.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or(ContextError::MissingHostTriple)
+}
