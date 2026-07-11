@@ -20,14 +20,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
-      - name: Apply deterministic runtime-context integration
+      - name: Apply deterministic tested migrations
         run: python3 scripts/run_context_integration.py
       - name: Format migrated Rust sources
         run: cargo fmt --all
-      - name: Prove every frontdoor uses locked context authority
-        run: python3 -m unittest tests/test_locked_context_integration.py
-      - name: Test locked context and all affected frontdoors
-        run: cargo test -p codedb-context -p codedb-cargo -p codedb -p nu_plugin_codedb -p codedb-mcp
+      - name: Prove locked context and materialization safety wiring
+        run: python3 -m unittest tests/test_locked_context_integration.py tests/test_materialization_safety.py
+      - name: Test affected crates and frontdoors
+        run: cargo test -p codedb-core -p codedb-context -p codedb-cargo -p codedb -p nu_plugin_codedb -p codedb-mcp
       - name: Regenerate stale repository truth surface
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: python3 scripts/truth_surface.py --check || python3 scripts/truth_surface.py --write
@@ -44,7 +44,7 @@ jobs:
               crates/codedb_mcp/Cargo.toml crates/codedb_mcp/src/lib.rs \
               crates/nu_plugin_codedb/Cargo.toml crates/nu_plugin_codedb/src/main.rs \
               manifests/CHECKSUMS.sha256 manifests/PACKAGE_VALIDATION.json manifests/PACK_MANIFEST.json
-            git commit -m "feat(context): use locked runtime identity across every frontdoor"
+            git commit -m "feat(safety): apply tested mandatory migration and reseal truth surface"
             git push origin HEAD:${{ github.head_ref }}
           fi
 
