@@ -60,22 +60,18 @@ def patch_feature_evidence() -> None:
         .first()
         .map(|package| package.edition.clone())
         .unwrap_or_default();
-    let mut declared_features = metadata
-        .features
-        .iter()
-        .map(|feature| format!("{}={}", feature.package_id, feature.feature))
-        .collect::<Vec<_>>();
+    let mut declared_features = Vec::new();
+    for feature in &metadata.features {
+        declared_features.push(format!("{}={}", feature.package_id, feature.feature));
+    }
     declared_features.sort();
     declared_features.dedup();
-    let resolved_features = context
-        .resolved_features
-        .iter()
-        .flat_map(|(package_id, features)| {
-            features
-                .iter()
-                .map(move |feature| format!("{package_id}={feature}"))
-        })
-        .collect::<Vec<_>>();
+    let mut resolved_features = Vec::new();
+    for (package_id, features) in &context.resolved_features {
+        for feature in features {
+            resolved_features.push(format!("{package_id}={feature}"));
+        }
+    }
     Ok(vec![
 """
     if text.count(old) != 1:
