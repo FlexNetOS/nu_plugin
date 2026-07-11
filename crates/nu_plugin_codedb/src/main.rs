@@ -493,6 +493,18 @@ fn rust_cfg_rows(repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledError>
         .first()
         .map(|package| package.edition.clone())
         .unwrap_or_default();
+    let mut declared_features = Vec::new();
+    for feature in &metadata.features {
+        declared_features.push(format!("{}={}", feature.package_id, feature.feature));
+    }
+    declared_features.sort();
+    declared_features.dedup();
+    let mut resolved_features = Vec::new();
+    for (package_id, features) in &context.resolved_features {
+        for feature in features {
+            resolved_features.push(format!("{package_id}={feature}"));
+        }
+    }
     Ok(vec![
         vec![
             ("table", string("codedb_contexts", span)),
@@ -521,6 +533,14 @@ fn rust_cfg_rows(repo_path: &Path, span: Span) -> Result<Vec<Row>, LabeledError>
             (
                 "requested_features",
                 string(context.requested_features.join(";"), span),
+            ),
+            (
+                "declared_features",
+                string(declared_features.join(";"), span),
+            ),
+            (
+                "resolved_features",
+                string(resolved_features.join(";"), span),
             ),
             (
                 "resolved_package_count",
