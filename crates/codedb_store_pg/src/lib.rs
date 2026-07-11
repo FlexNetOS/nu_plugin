@@ -1,20 +1,6 @@
 #![forbid(unsafe_code)]
 
 //! PostgreSQL blob-store backend for CodeDB.
-//!
-//! Implements the backend-agnostic [`BlobStore`] contract against a PostgreSQL
-//! table shaped like the live `codebase` table (`module_path` unique, `content`
-//! bytea, `sha256` text, `origin`), plus a `metadata jsonb` column added via an
-//! idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. Persist is one
-//! `INSERT ... ON CONFLICT (module_path) DO UPDATE` per file inside a single
-//! transaction — the batch analog of redb's one-durable-commit-per-batch.
-//!
-//! The default table is `codebase_codedb` (NOT the production `codebase`) so a
-//! capture never collides with the unified-tree data living in `codebase`.
-//!
-//! Synchronous throughout (rust-postgres). `Client` query methods need `&mut`,
-//! but the [`BlobStore`] read methods borrow `&self`; a `RefCell<Client>`
-//! bridges that for the single-threaded CLI without changing the trait.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -27,31 +13,20 @@ use codedb_core::store::{
 use postgres::{Client, NoTls};
 use sha2::{Digest, Sha256};
 
-/// Default connection string: the live cluster over its unix socket.
-pub const DEFAULT_CONN: &str =
-    "host=/home/flexnetos/lifeos/var/lib/postgresql port=5432 user=flexnetos dbname=ruvector";
-
-/// Default table — a dedicated table, never the production `codebase`.
 pub const DEFAULT_TABLE: &str = "codebase_codedb";
-
-/// Origin tag written for every codedb-captured row.
 const ORIGIN: &str = "codedb";
 
-/// A PostgreSQL-backed [`BlobStore`].
 pub struct PgStore {
     client: RefCell<Client>,
     table: String,
 }
 
 impl PgStore {
-    /// Connect and ensure the target table exists with the `codebase`-shaped
-    /// columns plus a `metadata jsonb` column (idempotent — safe to re-run).
-    pub fn connect(conn: &str, table: &str) -> Result<Self, StoreError> {
+    /// Explicit mutating initialization path. Capture setup may call this; read
+    /// operations must use [`Self::open_existing`].
+    pub fn initialize(conn: &str, table: &str) -> Result<Self, StoreError> {
         let table = sanitize_table(table)?;
-        let mut client =
-            Client::connect(conn, NoTls).map_err(|e| StoreError::new(format!("connect: {e}")))?;
-        // Same shape as the live `codebase` table (minus the optional embedding
-        // column), with an explicit metadata jsonb column for capture facts.
+        let mut client = connect_client(conn)?;
         let ddl = format!(
             "CREATE TABLE IF NOT EXISTS {table} (\
                 block_id bigserial PRIMARY KEY,\
@@ -66,21 +41,45 @@ impl PgStore {
         );
         client
             .batch_execute(&ddl)
-            .map_err(|e| StoreError::new(format!("ensure table {table}: {e}")))?;
+            .map_err(|error| StoreError::new(format!("initialize table {table}: {error}")))?;
         Ok(Self {
             client: RefCell::new(client),
             table,
         })
     }
 
-    /// The table this store reads/writes.
+    /// Non-mutating open for materialization/report/query paths. It verifies the
+    /// table exists using `to_regclass` and never issues DDL.
+    pub fn open_existing(conn: &str, table: &str) -> Result<Self, StoreError> {
+        let table = sanitize_table(table)?;
+        let mut client = connect_client(conn)?;
+        let existing: Option<String> = client
+            .query_one("SELECT to_regclass($1)::text", &[&table])
+            .map_err(|error| StoreError::new(format!("inspect table {table}: {error}")))?
+            .get(0);
+        if existing.is_none() {
+            return Err(StoreError::new(format!(
+                "PostgreSQL CodeDB table does not exist: {table}; run an explicit capture initialization first"
+            )));
+        }
+        Ok(Self {
+            client: RefCell::new(client),
+            table,
+        })
+    }
+
     pub fn table(&self) -> &str {
         &self.table
     }
 }
 
-/// Reject any table identifier that is not a plain `[A-Za-z_][A-Za-z0-9_]*` —
-/// the name is interpolated into DDL/DML, so it must be a safe bare identifier.
+fn connect_client(conn: &str) -> Result<Client, StoreError> {
+    if conn.trim().is_empty() {
+        return Err(StoreError::new("PostgreSQL DSN is required"));
+    }
+    Client::connect(conn, NoTls).map_err(|error| StoreError::new(format!("connect: {error}")))
+}
+
 fn sanitize_table(table: &str) -> Result<String, StoreError> {
     let ok = !table.is_empty()
         && table
@@ -101,9 +100,6 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-/// Fixed metadata JSON mirroring redb's batch-capture metadata (raw blob, no
-/// per-file permission captured in the batch path). Materialize restores a unix
-/// mode only if a future writer records `unix_mode` here.
 fn batch_metadata_json() -> String {
     "{\"artifact_kind\":\"raw_blob\",\"permission_capture\":\"gap_not_available_for_raw_blob\"}"
         .to_string()
@@ -218,10 +214,6 @@ impl BlobStore for PgStore {
         fs::write(output_path, &content)
             .map_err(|e| StoreError::new(format!("write {}: {e}", output_path.display())))?;
 
-        // Restore the stored unix mode when metadata carries one — the exec-bit
-        // wrinkle. The batch path records no mode (matching redb), so this is a
-        // no-op for batch captures; a per-file writer that records `unix_mode`
-        // gets full exec-bit restoration.
         #[cfg(unix)]
         if let Some(mode) = metadata_text.as_deref().and_then(parse_unix_mode) {
             use std::os::unix::fs::PermissionsExt;
@@ -232,7 +224,6 @@ impl BlobStore for PgStore {
         let _ = metadata_text;
 
         let materialized_sha256 = sha256_file(output_path)?;
-
         Ok(MaterializedFile {
             path: output_path.to_path_buf(),
             blob_ref: format!("sha256:{sha256}"),
@@ -264,9 +255,6 @@ impl BlobStore for PgStore {
     }
 }
 
-/// Pull an octal or decimal `unix_mode` out of the metadata jsonb text without a
-/// full JSON parse of arbitrary shape — accepts `"unix_mode":"755"` (octal
-/// string, redb convention) or `"unix_mode":493` (decimal number).
 #[cfg(unix)]
 fn parse_unix_mode(metadata_text: &str) -> Option<u32> {
     let value = serde_json::from_str::<serde_json::Value>(metadata_text).ok()?;
@@ -290,10 +278,7 @@ mod tests {
 
     #[test]
     fn sanitize_table_accepts_bare_identifier() {
-        assert_eq!(
-            sanitize_table("codebase_codedb").unwrap(),
-            "codebase_codedb"
-        );
+        assert_eq!(sanitize_table("codebase_codedb").unwrap(), "codebase_codedb");
         assert_eq!(sanitize_table("_x9").unwrap(), "_x9");
     }
 
