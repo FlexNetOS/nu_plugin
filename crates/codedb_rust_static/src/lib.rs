@@ -1382,7 +1382,9 @@ pub fn capture_approved_compiler_evidence(
         ("cleanup_plan", request.cleanup_plan.as_str()),
     ] {
         if value.trim().is_empty() {
-            return Err(format!("approved compiler evidence requires non-empty {field}"));
+            return Err(format!(
+                "approved compiler evidence requires non-empty {field}"
+            ));
         }
     }
 
@@ -2042,7 +2044,7 @@ fn kernel_random_32() -> Result<[u8; 32], String> {
 }
 
 fn default_bwrap_path() -> PathBuf {
-    [
+    let mut candidates = vec![
         "/home/flexnetos/.nix-profile/bin/bwrap",
         "/run/current-system/sw/bin/bwrap",
         "/usr/bin/bwrap",
@@ -2050,8 +2052,14 @@ fn default_bwrap_path() -> PathBuf {
     ]
     .into_iter()
     .map(PathBuf::from)
-    .find(|path| path.is_file())
-    .unwrap_or_else(|| PathBuf::from("/usr/bin/bwrap"))
+    .collect::<Vec<_>>();
+    if let Some(path) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&path).map(|directory| directory.join("bwrap")));
+    }
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("/usr/bin/bwrap"))
 }
 
 struct CompilerSandboxPlan {
@@ -2155,7 +2163,7 @@ impl CompilerSandboxPlan {
             "SOURCE_DATE_EPOCH".to_string(),
             "1".to_string(),
             "--chdir".to_string(),
-            scratch,
+            "/tmp".to_string(),
         ]);
         Ok(Self {
             executable,
@@ -2482,6 +2490,8 @@ fn rustc_base_args(context: &CompilerContextProvenance) -> Vec<String> {
         context.edition.clone(),
         "--target".to_string(),
         context.target.clone(),
+        "-C".to_string(),
+        format!("metadata={}", context.context_sha256),
     ];
     push_cfg_args(&mut args, &context.cfgs, &context.features);
     for path in &context.library_search_paths {

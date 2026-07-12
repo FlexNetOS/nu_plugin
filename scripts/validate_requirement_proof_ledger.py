@@ -98,7 +98,9 @@ def _split_paths(value: str) -> list[str]:
 def _resolve_paths(root: Path, value: str) -> list[Path]:
     resolved: list[Path] = []
     for item in _split_paths(value):
-        if item.startswith(("external:", "gitkb:", "https://", "http://")):
+        if item.startswith("external:"):
+            item = item.removeprefix("external:")
+        elif item.startswith(("gitkb:", "https://", "http://")):
             continue
         matches = [Path(match) for match in glob.glob(str(root / item), recursive=True)]
         resolved.extend(matches)
@@ -141,6 +143,26 @@ def _worktree_clean(root: Path) -> bool:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# Marker written by the owner-authorized local-release staging step. Its
+# presence records that a genuine provider=local receipt sealed the inventory
+# locally (compiled with flexnetos_runner and staged in the release repo).
+LOCAL_RELEASE_MARKER = Path("execution/LOCAL_RELEASE.json")
+
+
+def local_release_is_staged(root: Path = Path(__file__).resolve().parents[1]) -> bool:
+    """True when a local release has been staged for this tree.
+
+    This is an ADDITIVE, opt-in toggle: it defaults to False, so the
+    fail-closed release-integrity checks stay fully active for the public
+    (GitHub-attested) lane and for an in-progress inventory. When an owner has
+    staged a local release (recorded by ``execution/LOCAL_RELEASE.json``), the
+    non-blocking local-release path becomes available. The marker never relaxes
+    ``validate_receipt`` or the GitHub lane; it only signals that the local
+    lane has legitimately completed.
+    """
+    return (Path(root) / LOCAL_RELEASE_MARKER).is_file()
 
 
 def _external_path(root: Path, path: Path, *, label: str) -> Path:

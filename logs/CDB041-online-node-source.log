@@ -1,0 +1,64 @@
+2026-07-12T17:08:24-05:00
+task=CDB041
+purpose=verify and capture the latest trusted first-party RuVector/Cognitum Node distribution used as CodeDB source input
+notebooklm_access=not_used
+
+source_owner=FlexNetOS/RuVector/Cognitum first-party organization sources confirmed by operator
+registry_client=bun 1.3.14 (0d9b296a)
+staging_root=/home/flexnetos/meta/var/lib/ruvector/online-node-source
+install_command=bun add --exact ruvector@latest @ruvector/core@latest @ruvector/node@latest @ruvector/cli@latest @ruvector/ruvllm@latest @ruvector/rvf@latest @ruvector/rvf-wasm@latest @ruvector/postgres-cli@latest agentdb@latest @cognitum-one/sdk@latest
+trusted_script_command=bun pm trust --all
+lock_verification=bun install --frozen-lockfile
+lock_verification_result=449 installs across 424 packages checked; no changes
+
+direct_dependency_versions:
+  ruvector=0.2.34
+  @ruvector/core=0.1.31
+  @ruvector/node=0.1.24
+  @ruvector/cli=0.1.29
+  @ruvector/ruvllm=2.6.0
+  @ruvector/rvf=0.2.3
+  @ruvector/rvf-wasm=0.1.7
+  @ruvector/postgres-cli=0.2.9
+  agentdb=3.0.0-alpha.17
+  @cognitum-one/sdk=0.2.1
+
+runtime_load_smoke:
+  ruvector=loaded,204_exports
+  @ruvector/core=loaded,7_exports
+  @ruvector/node=loaded,8_exports,commonjs_entry
+  @ruvector/ruvllm=loaded,68_exports
+  @ruvector/rvf=loaded,7_exports
+  agentdb=loaded,71_exports
+  @cognitum-one/sdk=loaded,14_exports
+
+package_json_sha256=4d33e538a434f77529d5e8dd473310f3b68f8b535e8370e9837a9df04958eae0
+bun_lock_sha256=adc40aed1a249f7c74fa3f4d19cf0dfc8873fb3416b032778ef8fa19bb4b2320
+
+codedb_capture_command=cargo run -q -p codedb -- capture /home/flexnetos/meta/var/lib/ruvector/online-node-source --store /home/flexnetos/meta/var/lib/ruvector/codedb-online-node-20260712.redb --raw-persistence safe-source --batch-files 1024 --batch-bytes 134217728 --format json
+codedb_store=/home/flexnetos/meta/var/lib/ruvector/codedb-online-node-20260712.redb
+codedb_store_sha256=d8c31cf9dd2019746b43484bfe6cd21079268c0670501c040fd4ebb828041752
+repository_snapshot_id=sha256:f83d704e2f8bc6be69c4358161caffb7a2c7ffba1813c5d91b8b069d5f928685
+classified_paths=29688
+source_blobs_persisted=20381
+source_bytes_persisted=81182690
+metadata_only_paths=9307
+batches_committed=20
+resumed_skips=0
+capture_gaps=27
+capture_gap_class=symlink_not_captured_as_blob
+capture_gap_scope=Bun-generated node_modules/.bin links only; link targets are present in the captured package tree
+capture_status=complete_with_gaps
+
+source_tree_mutation=none; CodeDB store was the only capture write target
+result=verified latest locked online Node source is locally installed, loadable, checksum-bound, and captured for CodeDB use
+
+registry_recheck_timestamp=2026-07-12T17:31:46-05:00
+registry_recheck_method=Bun fetch against the primary npm registry /latest documents
+registry_recheck_result=all ten /latest versions exactly match package.json and bun.lock
+native_loader=@ruvector/core/index.js selects ruvector-core-linux-x64-gnu on this host
+native_package=ruvector-core-linux-x64-gnu@0.1.29
+native_binary=node_modules/ruvector-core-linux-x64-gnu/ruvector.node
+native_binary_sha256=7bab1162c44557183809988838dafdf563ce91e66d4dbf35af0e0b788979ee1f
+native_repository=https://github.com/ruvnet/ruvector.git
+source_path_decision=use the freshly pulled locked online Node distribution as CodeDB input; do not substitute the older local source checkout for registry-only updates

@@ -73,17 +73,17 @@
       "context_sha256": "5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f",
       "pin_sha256": "3ba4bf0807698d351d1918c0b313d7b41fd6be11ad317dc3f7cb5d1c7d4d5c33",
       "file": "macro_expansion.txt",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Zunpretty=expanded,identified /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f -Zunpretty=expanded,identified /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
     },
     {
       "kind": "macro_resolution",
       "status": "compiler_observed",
-      "evidence_sha256": "67ffb3f94fbe2123b92221ac3b6e97990265facbea35cfc3b2958924d065a209",
-      "evidence_bytes": 3034,
+      "evidence_sha256": "29fcc7620c3423f4d2339b9154e06a5c4502b9e92be6443500bca089e400408e",
+      "evidence_bytes": 2981,
       "context_sha256": "5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f",
-      "pin_sha256": "1dea15e52a0cfce2341be28396d8bc13e2b16c546eecf631f953289257a40795",
+      "pin_sha256": "16cc3eb6f501760561d1a335cb27188bb0162a90200c10e6bea86828b38153ff",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu --emit=metadata -o /tmp/codedb_compiler_evidence_3202735_1783889546776252494/metadata.rmeta /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f --emit=metadata -o /tmp/codedb_compiler_evidence_62263_1783896228847410085/metadata.rmeta /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
     },
     {
       "kind": "macro_hygiene",
@@ -93,7 +93,7 @@
       "context_sha256": "5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f",
       "pin_sha256": "7e7359b503907a8c460b7c73ad888ce8a2eb802a200ed5031c8ffc294d780c5a",
       "file": "macro_hygiene.txt",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Zunpretty=expanded,hygiene /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f -Zunpretty=expanded,hygiene /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
     },
     {
       "kind": "hir",
@@ -103,7 +103,7 @@
       "context_sha256": "5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f",
       "pin_sha256": "f30addaf8926221a55621ac3336610371ef86dc20579ef45a8b861f978dacaf1",
       "file": "hir.txt",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Zunpretty=hir /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f -Zunpretty=hir /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
     },
     {
       "kind": "mir",
@@ -113,7 +113,7 @@
       "context_sha256": "5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f",
       "pin_sha256": "ab70702940a43b4ff0adf35281fa8792f3986b75510ebf791bd85d347e2b1f4b",
       "file": "mir.txt",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Zunpretty=mir /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f -Zunpretty=mir /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
     },
     {
       "kind": "rustdoc_public_api",
@@ -123,7 +123,7 @@
       "context_sha256": "5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f",
       "pin_sha256": "6faefe2a54e106e63c30db9f0ea18be54fca00c7d3cb324c27dd3b197179da04",
       "file": "rustdoc_public_api.json",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_3202735_1783889546776252494/rustdoc /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_62263_1783896228847410085/rustdoc /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
     }
   ],
   "capture_gaps": []

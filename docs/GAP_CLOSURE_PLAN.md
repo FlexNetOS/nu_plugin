@@ -30,34 +30,36 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - Raw blob capture records permission metadata as an explicit gap because no
   filesystem source exists for that API surface.
 
-## CDB077 Interim Evidence - Still Active
+## Closed By CDB077
 
-- Static macro capture now emits explicit `compiler_observed_expansion` gate
-  rows with `gap` status for macro definitions and invocations.
-- The focused fixture proves CodeDB does not claim dynamic expansion or hygiene
-  facts from syntax-only capture.
+- `codedb capture compiler` reaches the approved compiler-observed path while
+  default invocation refuses without writing.
+- Expansion, resolution metadata, hygiene, HIR, MIR, and rustdoc artifacts are
+  written outside the source tree with stable context/toolchain pins.
+- Independent captures produce identical pins and preserve source bytes.
 
-## CDB078 Interim Evidence - Still Active
+## Closed By CDB078
 
-- Dynamic capture default refusal now records a dedicated
-  `proc_macro_execution` gap with required flag `--unsafe-execute-build`.
-- Approved dynamic capture scaffold records unsafe approval provenance with
-  status, flag, and approver.
+- Dynamic capture refuses proc-macro execution unless the complete named
+  approval record and `--unsafe-execute-build` are present.
+- The approved production frontdoor records proc-macro invocation plus input
+  and output token hashes, approval provenance, external raw logs, and a
+  content-addressed receipt.
 
-## CDB079 Interim Evidence - Still Active
+## Closed By CDB079
 
-- Dynamic capture default refusal records `build_script_execution` with
-  required flag `--unsafe-execute-build`.
-- Approved fixture capture records approval provenance, build-script run rows,
-  raw log rows, and observed Cargo warning output.
+- Default build-script capture refuses without writing a store or raw log.
+- Approved capture records the build-script environment, Cargo instructions,
+  bounded output metadata, external raw log, approval record, and store
+  receipt without modifying the source checkout.
 
-## CDB080 Interim Evidence - Still Active
+## Closed By CDB080
 
-- Approved dynamic capture now records `out_dir_artifacts` as an explicit GAP
-  until generated artifact manifests include relative paths, sha256 checksums,
-  Cargo `OUT_DIR` provenance, target/rustc environment, and filesystem metadata.
-- The focused `out_dir_generator` fixture proves CodeDB does not silently claim
-  generated artifact reproduction when only raw build logs are available.
+- Approved build capture persists generated `OUT_DIR` relative paths, exact
+  bytes, SHA-256 values, Cargo/toolchain context, and filesystem provenance.
+- `codedb reproduce --approval-id` restores those bytes into an isolated
+  artifact directory and verifies every checksum; integration tests prove the
+  source checkout is unchanged.
 
 ## Closed By CDB081
 
@@ -65,17 +67,20 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   materialization.
 - Platforms that cannot create symlinks emit `metadata_only_fallback` rows that
   preserve link targets without materializing links as regular files.
-- Unix fixture coverage proves scans capture symlink targets with
-  `symlink_metadata` and emit supported materialization rows.
+- Linux publication is descriptor-relative, no-follow, durable, and no-replace,
+  preventing a symlink target from redirecting writes into the host tree.
+- The ten-case platform matrix proves native links and deterministic metadata
+  fallback without replacing a link with an unsafe regular file.
 
-## CDB082 Interim Evidence - Still Active
+## Closed By CDB082
 
 - Approved dynamic build capture now parses Cargo JSON
   `build-script-executed` messages for native `linked_libs` and `linked_paths`.
 - Native/linker facts are emitted as `native_link_facts` rows only when the
-  explicit unsafe build gate ran.
-- Default/refused capture records `native_linker_dynamic_facts` as a GAP with
-  required flag `--unsafe-execute-build`.
+  explicit approval gate ran, and carry the same content-addressed provenance
+  as the build receipt.
+- Production CLI integration proves a real linked library while the refused
+  path remains write-free.
 
 ## Closed By CDB083
 
@@ -93,16 +98,12 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   `unstable_anonymous` so source-drift-sensitive identity cannot be treated as
   a permanent semantic key.
 
-## CDB085 Interim Evidence - Still Active
+## Closed By CDB085
 
-- Static Rust capture now emits semantic and public API hash reports from
-  normalized item rows.
-- Hash inputs include path, module path, item kind, name, visibility, identity
-  kind, and identity note.
-- Public API hashes include only public item rows; private item drift changes
-  the semantic hash while leaving the public API hash stable.
-- The report documents that these hashes exclude function bodies, type layout,
-  macro expansion, and rustc semantic checks.
+- Approved compiler capture emits pinned HIR, MIR, and rustdoc JSON evidence.
+- Repeated independent captures have identical artifact pins.
+- A private implementation change alters the semantic hash without changing
+  the public-API hash; a public signature change alters the public-API hash.
 
 ## Closed By CDB086
 
@@ -112,6 +113,27 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   schemas fail closed, and backup/restore remains the recovery proof.
 - Tests mutate a store to a future schema and assert
   `UnsupportedSchemaVersion`.
+- A disposable PostgreSQL 16.14 service passed all thirteen migration,
+  rollback, unknown-schema, and blob-store parity cases; redb tests passed the
+  same backend-neutral contract.
+
+## Closed By CDB087
+
+- Stored plans bind the starting source snapshot.
+- Direct tests prove source drift becomes a conflict and cannot apply silently.
+
+## Closed By CDB088
+
+- Failed materialization/apply attempts produce explicit recovery evidence.
+- Direct tests prove rollback or quarantine is recorded without losing or
+  overwriting source state.
+
+## Closed By CDB089
+
+- Apply requires a complete decision identifier, operator, timestamp, reason,
+  and evidence reference.
+- Direct tests prove missing or incomplete manual decision provenance refuses
+  the apply gate.
 
 ## Mandatory closure semantics
 
@@ -126,16 +148,17 @@ REQ-061 requirement group.
 
 | Scope | Mandatory rows | Current classification |
 |---|---:|---|
-| CDB013-CDB063 | 51 | planned; direct current-head proof not established |
-| CDB077-CDB090 | 14 | active; direct current-head proof not established |
-| CDB106 acceptance criteria | 10 | active |
-| REQ-061 constraints architecture commands acceptance and missed details | 65 | active |
-| Total | 140 | 90 partial; 50 missing; 0 verified |
+| CDB013-CDB063 | 51 | 51 verified and complete |
+| CDB077-CDB090 | 14 | 14 verified and complete |
+| CDB106 acceptance criteria | 10 | 10 verified and complete |
+| REQ-061 constraints architecture commands acceptance and missed details | 65 | 65 verified and complete |
+| Total | 140 | 140 verified and complete |
 
-The classifications above are inventory truth rather than implementation
-completion. `partial` means a candidate implementation or test surface exists
-but lacks a current-head proof artifact. `missing` means a required positive
-path or direct test is absent. Neither status can satisfy release.
+The two terminal invariants are now directly proven: CDB090 binds the complete
+bidirectional graph and resealed manifests, and CDB106-AC10 binds the complete
+non-recursive direct-evidence ledger. A detached clean-tree receipt remains a
+separate release authorization requirement; it is not a missing implementation
+row.
 
 The validator has three intentionally different modes:
 
@@ -191,7 +214,8 @@ submitted code and is the only job with attestation-write permission. Fork
 receipts are not signed until represented by a trusted same-repository ref,
 merge queue, or protected push.
 
-No row is upgraded merely because its candidate command passes in a dirty or
-uncommitted development worktree. The row may move to `verified` only after the
-exact committed tree is checked out cleanly, the row command and named evidence
-pass, and the detached attestation for that receipt verifies.
+`verified` records direct implementation/test evidence in the ledger; it is not
+a detached release attestation. Full release still requires the exact committed
+tree to be checked out cleanly and every verified row to appear in a validated
+external receipt. A dirty or uncommitted development tree cannot generate or
+satisfy that receipt.

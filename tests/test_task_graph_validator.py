@@ -69,7 +69,7 @@ def mutate_csv(
         fieldnames = list(reader.fieldnames or [])
         rows = list(reader)
     for row in rows:
-        if row.get("task_id") == task_id:
+        if row.get("task_id", row.get("requirement_id")) == task_id:
             row.update(updates)
             break
     else:
@@ -100,20 +100,26 @@ class TaskGraphValidatorTest(unittest.TestCase):
         }
         self.assertEqual(before, after)
 
-    def test_release_mode_fails_closed_on_graph_and_proof_rows(self) -> None:
+    def test_release_mode_accepts_complete_graph_and_proof_rows(self) -> None:
         issues = audit_task_graph(ROOT, release=True)
-        self.assertIn("release graph row incomplete", rules(issues))
-        self.assertIn("release proof row incomplete", rules(issues))
-        proof_details = [
-            issue.detail
-            for issue in issues
-            if issue.rule == "release proof row incomplete"
-        ]
-        self.assertTrue(proof_details)
-        self.assertFalse(
-            any("proof_head_sha=<empty>" in detail for detail in proof_details),
-            "empty deprecated proof_head_sha must not block detached-attestation release",
-        )
+        self.assertNotIn("release graph row incomplete", rules(issues))
+        self.assertNotIn("release proof row incomplete", rules(issues))
+
+        # Always enforced, independent of the live tree: a deliberately-
+        # incomplete graph row and unverified proof row block release.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            copy_contract(root)
+            mutate_csv(root, "execution/TASK_GRAPH.csv", "CDB013", {"status": "planned"})
+            mutate_csv(
+                root,
+                "execution/REQUIREMENT_PROOF_LEDGER.csv",
+                "CDB013",
+                {"evidence_status": "partial", "task_status": "planned"},
+            )
+            issues = audit_task_graph(root, release=True)
+            self.assertIn("release graph row incomplete", rules(issues))
+            self.assertIn("release proof row incomplete", rules(issues))
 
     def test_duplicate_ids_and_graph_map_drift_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -169,7 +175,12 @@ class TaskGraphValidatorTest(unittest.TestCase):
                 root,
                 "execution/TASK_GRAPH.csv",
                 "CDB013",
-                {"future_artifact_paths": ""},
+                {
+                    "status": "planned",
+                    "future_artifact_paths": "",
+                    "path_resolution_status": "planned_future_paths_declared",
+                    "evidence_status": "pending_task_execution",
+                },
             )
 
             issue_rules = rules(audit_task_graph(root, release=False))
@@ -266,9 +277,27 @@ class TaskGraphValidatorTest(unittest.TestCase):
             capture_output=True,
             check=False,
         )
-        self.assertNotEqual(0, release.returncode)
-        self.assertIn("release graph row incomplete", release.stderr)
-        self.assertIn("release proof row incomplete", release.stderr)
+        self.assertEqual(0, release.returncode, release.stdout + release.stderr)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            copy_contract(root)
+            mutate_csv(root, "execution/TASK_GRAPH.csv", "CDB013", {"status": "planned"})
+            mutate_csv(
+                root,
+                "execution/REQUIREMENT_PROOF_LEDGER.csv",
+                "CDB013",
+                {"evidence_status": "partial", "task_status": "planned"},
+            )
+            release = subprocess.run(
+                [sys.executable, str(script), "--root", str(root), "--release"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(0, release.returncode)
+            self.assertIn("release graph row incomplete", release.stderr)
+            self.assertIn("release proof row incomplete", release.stderr)
 
 
 if __name__ == "__main__":

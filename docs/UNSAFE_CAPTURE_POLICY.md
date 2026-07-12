@@ -44,6 +44,12 @@ keeps dynamic execution out of MCP. `--store` optionally persists the exact
 row receipt; `codedb reproduce --approval-id ... --artifact-dir ...` restores
 captured OUT_DIR artifacts into a new declared artifact directory.
 
+`codedb capture compiler <source.rs>` applies the same explicit flag and named
+provenance fields. It additionally requires `--repo-path`, a new
+`--evidence-dir` outside that repository, and `--store`. The public approved
+front door validates those boundaries, while the request-bound authority,
+capability, and raw compiler executor remain private to `codedb-rust-static`.
+
 ## Evidence required
 
 Unsafe capture must preserve stdout/stderr, Cargo instructions, native

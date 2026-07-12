@@ -4,8 +4,9 @@ Task: CDB105
 
 ## Current State
 
-The V1.1 implementation baseline remains the same: the last verified code-and-release
-slice progressed through CDB047, with CDB068 later repairing package CSV truth surfaces.
+The V1.1 implementation graph is complete through CDB069, with CDB068's CSV
+truth repair retained and the CDB047 manifests resealed after final
+reconciliation.
 
 The current change set adds a separate V1.2 planning package for the polyglot-import
 lane requested by issue 215. This package is documentation, task-graph, and issue-draft
@@ -14,8 +15,8 @@ Task: CDB070
 
 ## Current State
 
-The V1.1 implementation slice has progressed through CDB069 and issue 212 has
-opened the bidirectional roadmap rail CDB070-CDB090.
+The V1.1 implementation slice is complete through CDB069 and the issue 212
+bidirectional rail CDB070-CDB090 is directly proven complete.
 
 Completed local release block:
 
@@ -93,12 +94,14 @@ Known V1.1 gaps are explicit by design:
 - native linker facts that require dynamic build execution
 - raw source/blob reads through MCP, which remain blocked by default
 
-## Next Work
+## Current State
 
-Two execution lanes now exist:
+The implementation and bidirectional rails are complete in their authoritative
+CSV graphs. The remaining release operation is intentionally external:
+generate and attest a proof receipt from the exact clean committed tree.
 
-- V1.1 implementation lane: continue from `execution/TASK_GRAPH.csv` at CDB049 for runtime/plugin/Codex/envctl work.
-- V1.2 planning lane: use `execution/POLYGLOT_TASK_GRAPH.csv` and the polyglot docs package for issue-215 delivery, review, and future implementation scoping.
+The V1.2 polyglot package remains a separate planning rail for issue 215; it
+does not reopen or substitute for the completed V1.1 implementation evidence.
 Continue from `execution/TASK_GRAPH.csv`. For issue 212 bidirectional work,
 also use `execution/BIDIRECTIONAL_TASK_GRAPH.csv` and
 `execution/BIDIRECTIONAL_TASK_FILE_MAP.csv`.
@@ -126,4 +129,8 @@ implementation tasks.
 
 ## Mandatory completion override
 
-All historical GAP and MVP deferral language is non-terminal. CDB077-CDB090 are active until positive implementation and current-head proof exist. The original task graph, bidirectional task graph, checklist, manifests, and release gate must be reconciled before completion.
+All historical GAP and MVP deferral language is non-terminal. CDB077-CDB090 now
+have positive implementation and direct current-tree proof, and the task graph,
+bidirectional graph, proof ledger, projection, and manifests are reconciled.
+Release still requires a detached receipt for the exact clean committed tree;
+direct evidence in an uncommitted worktree does not self-authorize publication.

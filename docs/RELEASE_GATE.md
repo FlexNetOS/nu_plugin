@@ -201,9 +201,9 @@ Release is blocked until these proofs exist:
 - redb backup/restore smoke passes;
 - envctl export JSON/NUON/CSV validates;
 - package manifest/checksums/link report validate.
-- `bidirectional_issue_212` runner proof row is `satisfied`, with CDB070-CDB090
-  complete or explicitly represented as GAP/QUESTION evidence, read-only
-  defaults proven, and hidden mutation forbidden.
+- `bidirectional_issue_212` runner proof row is `satisfied`, with every
+  CDB070-CDB090 row complete, read-only defaults proven, and hidden mutation
+  forbidden. GAP/QUESTION evidence does not substitute for completion.
 
 ## CDB090 Bidirectional Gate
 
@@ -217,10 +217,8 @@ with `gate_id = bidirectional_issue_212`, `status = satisfied`,
 
 Release is blocked by any unresolved compiler/Cargo/macro/build/generated-artifact/HIR/MIR/rustdoc/database-parity/reproduction GAP. CDB090 cannot be satisfied by documentation, refusal-only tests, or a GAP-compatible validation gate. Every completed task must identify a current-head executable test and provenance artifact.
 
-The same rule applies to REQ-061. The existing Nu bridge for envctl roots,
-query, and fail-closed refactor-plan display is only partial evidence. Release
-also requires the issue's engine-owned symbol and occurrence index, impact
-query, guarded refactor apply, hook discovery/deploy, widgets, persistence,
-managed-tool, GUI-shared-API, no-C, and wide-test requirements. Missing plugin
-commands or external envctl implementation cannot be represented as completed
-by a read-only three-command bridge.
+The same rule applies to REQ-061. Every atomic engine, command, guarded-apply,
+hook, widget, persistence, managed-tool, shared-API, no-C, documentation, and
+wide-test row must be verified and complete. External envctl documentation and
+tests are resolved as explicit sibling-repository evidence; classification as
+external never bypasses existence or direct-test checks.

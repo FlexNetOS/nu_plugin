@@ -13,8 +13,8 @@
 
 - Generated deterministically from: `execution/TASK_GRAPH.csv`
 - Task rows: `70`
-- Status counts: `{'complete': 65, 'planned': 5}`
-- First incomplete implementation task: `CDB013`
+- Status counts: `{'complete': 70}`
+- First incomplete implementation task: `none`
 - Package repair task: `CDB068`
 
 ## Tasks
@@ -34,7 +34,7 @@
 | CDB010 | complete | docs | Write security and unsafe capture policies | CDB006 | docs/SECURITY_AND_SECRET_POLICY.md | source blob and unsafe gates covered | logs/CDB010-security.log;docs/SECURITY_AND_SECRET_POLICY.md | complete_current_paths_exact |
 | CDB011 | complete | docs | Write compatibility bridge docs | CDB009 | docs/CODEX_BRIDGE.md | Codex/Nu/Yazelix conflicts bridged | logs/CDB011-bridge.log;docs/CODEX_BRIDGE.md | complete_current_paths_exact |
 | CDB012 | complete | docs | Write test and fixture matrix | CDB007 | docs/TEST_PLAN.md | all required fixtures listed | logs/CDB012-tests-docs.log;docs/TEST_PLAN.md | complete_current_paths_exact |
-| CDB013 | planned | workspace | Create Rust workspace skeleton | CDB006;CDB068 | Cargo.toml | cargo metadata succeeds | logs/CDB013-workspace.log;Cargo.toml | planned_future_paths_declared |
+| CDB013 | complete | workspace | Create Rust workspace skeleton | CDB006;CDB068 | Cargo.toml | cargo metadata succeeds | logs/CDB013-workspace.log;Cargo.toml | complete_exact_paths_resolved |
 | CDB014 | complete | core | Implement codedb-core schemas | CDB013;CDB007 | codedb-core | unit tests pass | logs/CDB014-core.log;codedb-core | complete_exact_paths_resolved |
 | CDB015 | complete | store | Implement redb store init | CDB014 | codedb-store-redb | store init/metadata tests pass | logs/CDB015-redb-init.log;codedb-store-redb | complete_exact_paths_resolved |
 | CDB016 | complete | store | Implement redb schema version, locks, backup, restore | CDB015 | backup/restore API | backup restore smoke passes | logs/CDB016-redb-restore.log;backup/restore API | complete_exact_paths_resolved |
@@ -61,17 +61,17 @@
 | CDB037 | complete | integration | Implement Codex bridge docs and sample MCP config | CDB032 | Codex bridge docs | manual config lint passes | logs/CDB037-codex-bridge.log;Codex bridge docs | complete_exact_paths_resolved |
 | CDB038 | complete | integration | Implement Yazelix placement docs | CDB031 | Yazelix docs | host/runtime Nu distinction documented | logs/CDB038-yazelix.log;Yazelix docs | complete_exact_paths_resolved |
 | CDB039 | complete | integration | Implement runner proof contract | CDB028;CDB029;CDB032 | proof export | runner-readable proof manifest exists | logs/CDB039-runner.log;proof export | complete_exact_paths_resolved |
-| CDB040 | planned | integration | Implement GitKB/RTK/Kache/wild/Fenix docs | CDB009 | integration docs | facts/export boundaries clear | logs/CDB040-tooling.log;integration docs | planned_future_paths_declared |
+| CDB040 | complete | integration | Implement GitKB/RTK/Kache/wild/Fenix docs | CDB009 | docs/INTEGRATION_CONTRACTS.md | facts/export boundaries clear | logs/CDB040-tooling.log;docs/INTEGRATION_CONTRACTS.md | complete_exact_paths_resolved |
 | CDB041 | complete | fixtures | Create fixture matrix | CDB012;CDB013 | fixture workspace | fixtures present and documented | logs/CDB041-fixtures.log;fixture workspace | complete_exact_paths_resolved |
 | CDB042 | complete | tests | Add deterministic scan tests | CDB041;CDB029 | test outputs | repeat scan checksums stable | logs/CDB042-determinism.log;test outputs | complete_exact_paths_resolved |
 | CDB043 | complete | tests | Add security/no-leak tests | CDB041;CDB032 | test outputs | MCP/source secret tests pass | logs/CDB043-security-tests.log;test outputs | complete_exact_paths_resolved |
 | CDB044 | complete | tests | Add no-mutation tests | CDB028;CDB041 | test outputs | clean/dirty no-mutation tests pass | logs/CDB044-no-mutation-tests.log;test outputs | complete_exact_paths_resolved |
 | CDB045 | complete | tests | Add unsafe capture tests | CDB033;CDB034;CDB041 | test outputs | unsafe capture gate tests pass | logs/CDB045-unsafe-tests.log;test outputs | complete_exact_paths_resolved |
-| CDB046 | planned | release | Run full local validation | CDB042;CDB043;CDB044;CDB045 | validation logs | fmt/clippy/test/doctor pass | logs/CDB046-validation.log;validation logs | planned_future_paths_declared |
-| CDB047 | planned | release | Generate release manifest | CDB046 | release manifest | manifest checksums match | logs/CDB047-manifest.log;release manifest | planned_future_paths_declared |
+| CDB046 | complete | release | Run full local validation | CDB042;CDB043;CDB044;CDB045 | logs/CDB046-validation.log | fmt/clippy/test/doctor pass | logs/CDB046-validation.log | complete_exact_paths_resolved |
+| CDB047 | complete | release | Generate release manifest | CDB046 | manifests/PACK_MANIFEST.json | manifest checksums match | logs/CDB047-manifest.log;manifests/CHECKSUMS.sha256;manifests/PACK_MANIFEST.json;manifests/PACKAGE_VALIDATION.json | complete_exact_paths_resolved |
 | CDB048 | complete | release | Prepare handoff and backlog | CDB047 | handoff docs | capture gaps and MVP2 listed | logs/CDB048-handoff.log;handoff docs | complete_exact_paths_resolved |
 | CDB049 | complete | yazelix-nu | Inspect Yazelix Nushell runtime bridge | CDB038 | YAZELIX_NUSHELL_RUNTIME.md | report cites runtime nu/config/initializer boundaries | cross-reference report;YAZELIX_NUSHELL_RUNTIME.md | complete_exact_paths_resolved |
-| CDB050 | planned | packaging | Package nu_plugin_codedb as runtime tool | CDB049;CDB030 | nu_plugin_codedb runtime package | runtime tool metadata and `codedb --version` smoke pass | runtime package metadata;plugin/CLI smoke output | planned_future_paths_declared |
+| CDB050 | complete | packaging | Package nu_plugin_codedb as runtime tool | CDB049;CDB030 | nu_plugin_codedb runtime package | runtime tool metadata and `codedb --version` smoke pass | runtime package metadata;plugin/CLI smoke output | complete_exact_paths_resolved |
 | CDB051 | complete | compat | Validate host Nu vs Yazelix runtime Nu protocol | CDB050 | codedb doctor --nu --yazelix | doctor reports protocol/runtime status and mismatch degrades explicitly | doctor output;protocol status row | complete_exact_paths_resolved |
 | CDB052 | complete | nu-plugin | Implement transient nu --plugins smoke test | CDB051 | nu --plugins smoke | transient plugin command returns table-shaped output | test log;Nu output | complete_exact_paths_resolved |
 | CDB053 | complete | nu-plugin | Implement temp-HOME plugin registry smoke test | CDB051 | temp HOME plugin add/use | registry test passes in isolated HOME and leaves real HOME unchanged | temp HOME artifact;test log | complete_exact_paths_resolved |
