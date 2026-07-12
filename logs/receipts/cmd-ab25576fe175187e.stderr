@@ -1,0 +1,7 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `/home/flexnetos/meta/src/envctl/target/debug/envctl db widget refs --symbol META_ROOT --json`
+error: unexpected argument '--symbol' found
+
+Usage: envctl db widget refs [OPTIONS]
+
+For more information, try '--help'.

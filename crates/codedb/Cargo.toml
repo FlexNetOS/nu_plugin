@@ -10,6 +10,7 @@ name = "codedb"
 path = "src/main.rs"
 
 [dependencies]
+codedb-build-capture = { path = "../codedb_build_capture" }
 codedb-context.workspace = true
 codedb-cargo = { path = "../codedb_cargo" }
 codedb-core.workspace = true

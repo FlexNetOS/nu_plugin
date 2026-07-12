@@ -1,0 +1,116 @@
+
+running 9 tests
+test tests::malformed_dsn_diagnostics_never_echo_credentials_or_hosts ... ok
+test tests::connection_diagnostics_do_not_contain_a_supplied_secret ... ok
+test tests::empty_ca_bundle_fails_closed_without_disclosing_its_path ... ok
+test tests::sanitize_table_rejects_injection_and_component_name_overflow ... ok
+test tests::sanitize_table_accepts_safe_logical_store_identifier ... ok
+test tests::tls_policy_parses_only_explicit_unix_socket_as_plaintext ... ok
+test tests::parse_unix_mode_reads_octal_string_and_decimal ... ok
+test tests::tls_policy_rejects_weaker_mixed_duplicate_and_relative_ca_configuration ... ok
+test tests::tls_policy_parses_verified_tcp_url_and_keyword_dsn ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test concurrent_initializers_serialize_and_all_observe_one_complete_store ... FAILED
+test explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs ... FAILED
+test failed_postgresql_migration_rolls_back_schema_and_backup_creation ... FAILED
+test future_or_unknown_schema_is_refused_before_blob_access ... FAILED
+test injected_initialization_failure_rolls_back_every_relation_and_allows_retry ... FAILED
+test pg_blobstore_contract_is_content_addressed_and_reopenable ... FAILED
+test migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store ... FAILED
+test postgresql_concurrent_materializations_have_exactly_one_complete_winner ... FAILED
+test postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file ... FAILED
+test readonly_open_never_initializes_or_runs_migrations ... FAILED
+test postgresql_list_order_matches_rust_byte_order_across_letter_case ... FAILED
+test redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations ... FAILED
+test redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update ... FAILED
+
+failures:
+
+---- concurrent_initializers_serialize_and_all_observe_one_complete_store stdout ----
+
+thread 'concurrent_initializers_serialize_and_all_observe_one_complete_store' (665383) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs stdout ----
+
+thread 'explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs' (665384) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- failed_postgresql_migration_rolls_back_schema_and_backup_creation stdout ----
+
+thread 'failed_postgresql_migration_rolls_back_schema_and_backup_creation' (665385) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- future_or_unknown_schema_is_refused_before_blob_access stdout ----
+
+thread 'future_or_unknown_schema_is_refused_before_blob_access' (665386) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- injected_initialization_failure_rolls_back_every_relation_and_allows_retry stdout ----
+
+thread 'injected_initialization_failure_rolls_back_every_relation_and_allows_retry' (665387) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- pg_blobstore_contract_is_content_addressed_and_reopenable stdout ----
+
+thread 'pg_blobstore_contract_is_content_addressed_and_reopenable' (665389) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store stdout ----
+
+thread 'migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store' (665388) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- postgresql_concurrent_materializations_have_exactly_one_complete_winner stdout ----
+
+thread 'postgresql_concurrent_materializations_have_exactly_one_complete_winner' (665390) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file stdout ----
+
+thread 'postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file' (665391) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- readonly_open_never_initializes_or_runs_migrations stdout ----
+
+thread 'readonly_open_never_initializes_or_runs_migrations' (665393) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- postgresql_list_order_matches_rust_byte_order_across_letter_case stdout ----
+
+thread 'postgresql_list_order_matches_rust_byte_order_across_letter_case' (665392) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations stdout ----
+
+thread 'redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations' (665394) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update stdout ----
+
+thread 'redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update' (665395) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+
+failures:
+    concurrent_initializers_serialize_and_all_observe_one_complete_store
+    explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs
+    failed_postgresql_migration_rolls_back_schema_and_backup_creation
+    future_or_unknown_schema_is_refused_before_blob_access
+    injected_initialization_failure_rolls_back_every_relation_and_allows_retry
+    migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store
+    pg_blobstore_contract_is_content_addressed_and_reopenable
+    postgresql_concurrent_materializations_have_exactly_one_complete_winner
+    postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file
+    postgresql_list_order_matches_rust_byte_order_across_letter_case
+    readonly_open_never_initializes_or_runs_migrations
+    redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations
+    redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update
+
+test result: FAILED. 0 passed; 13 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

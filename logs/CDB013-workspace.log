@@ -41,3 +41,20 @@ crates/nu_plugin_codedb/Cargo.toml
    Compiling codedb v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb)
    Compiling codedb-mcp v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb_mcp)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s
+
+## Current-tree direct contract — 2026-07-12T21:25:33Z
+
+The historical receipt above is retained as history and is superseded by this
+current-tree gate.
+
+- Exact workspace members: 11.
+- Resolver: 3.
+- Workspace version: 0.1.0.
+- Edition: 2024.
+- License: MIT.
+- Rust version: 1.93.1.
+- Negative mutation fixture: removing one member is rejected.
+- `python3 -m unittest -v tests.test_workspace_manifest`: 3 passed.
+- `cargo metadata --format-version 1 --no-deps`: exit 0 and the same 11 members.
+
+No crate source or root manifest was modified to produce this proof.

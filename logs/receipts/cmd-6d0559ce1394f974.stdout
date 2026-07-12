@@ -1,0 +1,10 @@
+╭──────────────────────────────┬───────────────────────────────────────────────╮
+│ status                       │ passed                                        │
+│ real_home_registry_unchanged │ true                                          │
+│ real_before                  │ {record 2 fields}                             │
+│ real_after                   │ {record 2 fields}                             │
+│ temp_plugin_config           │ /tmp/tmp.SHQM0ugvrS/plugins.msgpackz          │
+│ temp_plugin_config_sha256    │ b27c90531b5e5d13136251fb813dc9dacbc7b992d3517 │
+│                              │ 876abe77c3653beb1e1                           │
+│ plugin_table_rows            │ 36                                            │
+╰──────────────────────────────┴───────────────────────────────────────────────╯

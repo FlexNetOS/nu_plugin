@@ -208,6 +208,30 @@ approval provenance with status, flag, and approver.
 
 Validation evidence is in `logs/CDB078-proc-macro-gate.log`.
 
+### 2026-07-12T21:13:36Z — CDB078 — Proc-macro evidence boundary hardening
+
+Added a failing exploit regression that demonstrated a sandboxed proc macro
+could replace its evidence log with a symlink and make the host overwrite the
+symlink target. Evidence capture now uses a bounded descriptor-relative
+`O_NOFOLLOW` read of a regular file and keeps its sanitized summary in memory;
+the host no longer rewrites guest-controlled paths. The malicious-symlink,
+oversized-file, redaction, full unit, and compile-fail doctest lanes pass.
+
+CDB078 remains active: this security repair does not supply the still-missing
+authenticated production approval and execution frontdoor.
+
+Validation evidence is appended to `logs/CDB078-proc-macro-gate.log`.
+
+### 2026-07-12T21:19:47Z — CDB078 — Execution seal made non-exportable
+
+Added an external unsafe fabrication doctest. It reproduced that the public
+zero-sized frontdoor type could be fabricated with `MaybeUninit`, then turned
+green after both the token type and dynamic entry function became crate-private.
+The public library surface is now refusal-only. This closes the forged-token
+path without overclaiming a production broker; CDB078 remains active.
+
+Validation evidence is appended to `logs/CDB078-proc-macro-gate.log`.
+
 ## 2026-07-02T18:18:26Z — CDB079 — Build-script execution gate
 
 Added a build-script-specific unsafe gate assertion in `codedb_build_capture`.
@@ -285,6 +309,37 @@ migration matrix and backup/restore recovery proof.
 
 Validation evidence is in `logs/CDB086-store-migrations.log`.
 
+## 2026-07-02T19:47:15Z — CDB087 — Source drift versus stored plans
+
+Made stale approved plans fail closed against source drift. An
+`approved_for_apply` plan whose stored source snapshot no longer matches the
+current source is refused with `ApplyGateError::SourceDrift`, and the same stale
+plan emits a `source_drift` `plan_conflicts` row. Operator approval,
+stop-condition proof, and recovery references cannot override snapshot drift.
+
+Validation evidence is in `logs/CDB087-source-drift-conflicts.log`.
+
+## 2026-07-02T19:49:30Z — CDB088 — Failed materialization/apply recovery
+
+Added failed materialization/apply recovery rows to `codedb_core`. Failed
+attempts produce an `apply_attempts` row with `failed` status and failure
+evidence; completed recovery produces a `recovery_rows` row with `recovered`
+status, observed partial snapshot, restored source/worktree snapshot, and
+quarantine reference. Recovery is refused unless the restored snapshot matches
+the stored plan source snapshot.
+
+Validation evidence is in `logs/CDB088-failed-apply-recovery.log`.
+
+## 2026-07-02T19:51:45Z — CDB089 — Operator approval and manual decision provenance
+
+Added `decided_at` to `OperatorDecision` and hardened `validate_apply_gate` to
+refuse apply intent when the decision ID, actor, timestamp, evidence reference,
+or manual-decision reference is blank. `operator_decisions` rows carry the
+decision timestamp in their bounded provenance note, and the approval provenance
+contract is documented in the change-plan schema and bidirectional architecture.
+
+Validation evidence is in `logs/CDB089-approval-provenance.log`.
+
 ## 2026-07-11T20:55:25Z - CDB106 - Mandatory security, backend, and proof-control wave
 
 This stopping wave preserves the execution tables as authoritative executable
@@ -340,3 +395,110 @@ receipts, and protected GitHub signer-environment policy remain mandatory.
 PR #21 remains draft and auto-merge remains disabled.
 
 Detailed evidence is in `logs/CDB106-mandatory-security-backend-proof-wave.log`.
+
+
+
+## 2026-07-12T18:39:05+00:00 — Release-inventory closure: proof-ledger migration, task-graph de-glob (corrected)
+
+Migrated the requirement-proof ledger to `verified` with real, captured evidence and de-globbed/completed the implemented task-graph rows. Every verification command was executed THIS session against the final tree; stdout/stderr captured under `logs/receipts/` (per-row `<rid>-stdout.log`/`-stderr.log`; dedup `cmd-<hash>.*`; `_command_results.json`).
+
+Final counts:
+- `REQUIREMENT_PROOF_LEDGER.csv`: **118/140 verified/complete** (was 2). Typed `proof_artifacts` authored for every previously-empty cell; CDB077/078/085/CDB106-AC04 additionally bind `file:` artifacts under `logs/compiler-observed/`.
+- `TASK_GRAPH.csv`: **66 complete / 4 planned** (46 rows flipped planned->complete + CDB046). Glob `allowed_files` replaced with exact on-disk files; `current_artifact_paths` set to those; `future_artifact_paths` cleared; `path_resolution_status=complete_exact_paths_resolved`; mirrored in `TASK_FILE_MAP.csv`.
+- `BIDIRECTIONAL_TASK_GRAPH.csv`: **left at 7 complete / 14 active (unchanged).**
+
+CRITICAL FINDING — bidirectional gate cannot be flipped this session: `crates/codedb/src/main.rs` embeds `execution/BIDIRECTIONAL_TASK_GRAPH.csv` via `include_str!` (line 2949), and the frozen test `runner_proof_manifest_keeps_bidirectional_release_gate_pending_until_all_tasks_complete` asserts `active_task_count == 14`. Flipping any CDB077-090 row to complete recompiles that constant and breaks `cargo test -p codedb` / `cargo test --workspace`, which crates/ (frozen this session) cannot absorb. The CDB077-089 verification commands are individually green (receipts captured), but the rows stay `active` in both graph and ledger to preserve the green cargo suite. Closing them requires updating that crates/ test in the same change — out of this closure's scope.
+
+Command corrections (objectively-broken invocations fixed, re-run green, documented): `-p engine` -> `-p envctl-engine` (no `engine` package exists; 24 rows); `bash ../envctl/ci/gates/no-c.sh` -> `cd ../envctl && bash ci/gates/no-c.sh` (gate must run in the envctl workspace; 2 rows); and 7 envctl `db` example invocations corrected to the current CLI contract (`--repo-root` global before the subcommand; `db --repo-root ../envctl symbols --json`; `db --repo-root ../envctl widget refs --json`; `db deploy --kind hooks --target <tmp> --json`; `db --repo-root ../envctl scan --json && db --repo-root ../envctl watch --json`; `db --repo-root ../envctl refactor --from META_ROOT --to LIFE_OS_ROOT [--render-out <tmp>] --json`) — all rc=0 with real JSON (REQ-061-CMD04/CMD06/CMD07/CMD09/CMD11, REQ-061-AC04/AC05). CDB046 flipped after the fmt gate was fixed workspace-wide (fmt+clippy+`cargo test --workspace` all green).
+
+22 residuals remain honestly non-verified with exact reasons:
+- Bidirectional gate frozen (13): CDB077-CDB089 — commands green but must stay active (see CRITICAL FINDING); CDB086 additionally needs live PostgreSQL.
+- Pinned non-verified by the test suite (3): CDB047 (missing/planned), CDB090 (missing/active, terminal release gate), CDB106-AC10 (partial/active).
+- Path-policy fixture row kept planned (1): CDB013 (its `cargo metadata` gate is green).
+- Fail-closed recursive `--direct-evidence` validators (2): CDB040, REQ-061-ARCH18.
+- Live PostgreSQL (`pg-integration`) unavailable (2): CDB106-AC05, CDB106-AC09 (13 store-pg parity tests need a live PG).
+- `nix flake check` truth-surface checksum/byte drift for the execution CSVs + WORKLOG (1): CDB050.
+
+Verification at this stopping point: `pytest` (4 validator suites) 50 passed / 23 subtests; `validate_task_graph.py` (structure) PASSED; `cargo test -p codedb` rc=0 (confirms the 14-active codedb bin test stays green); `git diff --check` clean. `validate_requirement_proof_ledger.py` (release) and `validate_bidirectional_package.py` remain fail-closed BY DESIGN.
+
+Terminal residual (CDB090 + HEAD-bound receipts for CDB106-AC06/AC07): `generate_requirement_proof_receipt.py` refuses a dirty worktree; committing is forbidden this session. Exact remaining step: one clean commit at HEAD, then run the receipt generator (output outside the repo) + `gh attestation`, and feed receipt+bundle+signer-workflow to `validate_requirement_proof_ledger.py`.
+
+## 2026-07-12T18:57:06+00:00 — Live PostgreSQL provisioned: 3 PG-gated rows verified
+
+Live PostgreSQL 17.10 was provisioned via nix as a disposable Unix-socket instance (role `codedb`, pg_ctl-managed), DSN form `postgresql://codedb:codedbtest@%2Ftmp%2F<socketdir>/codedb` (env `CODEDB_PG_CONN`). The three PostgreSQL-gated verification commands were run green (rc=0) with the live DSN; receipts captured under `logs/receipts/` (cdb086-live-pg-*, cdb106-ac05-*, cdb106-ac09-full-*, cdb106-ac09-allfeatures-*):
+- CDB086 `cargo test -p codedb-store-redb -p codedb-store-pg --features codedb-store-pg/pg-integration` -> rc=0.
+- CDB106-AC05 `cargo test -p codedb-store-redb -p codedb-store-pg -p codedb --all-features` -> rc=0.
+- CDB106-AC09 `cargo fmt --all --check && cargo clippy --workspace --all-targets --all-features && cargo test --workspace --all-features` -> rc=0 (245/0 all-feature tests).
+
+CDB106-AC05 and CDB106-AC09 are now `verified/complete`. CDB086 is `verified/active`: its ledger evidence is proven, but its `task_status` must stay `active` to agree with its BIDIRECTIONAL_TASK_GRAPH row, which is frozen `active` by the codedb `active_task_count==14` embedded test. New totals: 120/140 verified+complete, 121 verified overall (CDB086 verified/active).
+
+## 2026-07-12T19:00:17+00:00 — Gap-closure evidence upgraded to verified/active
+
+Flipped CDB077-CDB085, CDB087, CDB088, CDB089 (12 rows) to evidence_status=verified with task_status kept `active`, binding each row's green receipt captured this session (cargo test -p codedb-rust-static / -p codedb-build-capture / -p codedb-core --test materialization_paths / -p codedb-core -p codedb / nu test_security_no_leak.nu). Honest state: the capability evidence is proven; the task stays `active` to preserve agreement with the frozen BIDIRECTIONAL_TASK_GRAPH row (codedb `active_task_count==14` embedded test). The bidirectional graph and the frozen test were not touched. With CDB086 (verified/active, live PG) this makes all 13 non-terminal gap-closure rows evidence-verified. New totals: 120/140 verified+complete, 133 evidence-verified overall.
+
+## 2026-07-12T21:03:01Z — CDB068 — Execution-control truth repair
+
+Reopened the CDB068 package-repair gate after an independent CSV audit found
+four classes of drift that the structure validator did not reject: malformed
+command-ledger row widths, complete tasks retaining `pending_task_execution`,
+ignored Python bytecode recorded as current package artifacts, and a stale
+Markdown projection.
+
+The TDD loop added four focused failing regressions before implementation, then
+hardened `validate_task_graph.py` and added an idempotent CDB068 repair command.
+The repair removed all `__pycache__`/`.pyc` paths from task contracts, aligned
+all 66 complete base rows to `evidence_files_present`, repaired the two
+unquoted CDB105 ledger notes, and regenerated all 70 Markdown projection rows
+from the authoritative CSV. The permanent repair `--check` is read-only and
+fails on future drift.
+
+Verification: all 15 task-graph validator tests passed, the repair idempotence
+check passed, `validate_task_graph.py --structure-only` passed, and
+`git diff --check` passed. Evidence is retained in
+`logs/CDB068-csv-source-of-truth-repair.log`.
+
+## 2026-07-12T21:05:37Z — CDB074 — Parallel fixture collision repair
+
+The default-parallel workspace suite exposed a CDB074 regression in
+`codedb-core`: `temp_fixture_root()` derived paths only from the current clock
+and did not reserve them, so sibling tests could receive the same directory and
+delete each other's live source checkout. A new concurrency test reproduced 24
+duplicate roots in one 128-allocation run before the fix.
+
+The allocator now combines process ID with an atomic sequence and reserves each
+directory using `create_dir`, retrying only an existing name. This preserves all
+eight existing test callers while making ownership explicit. The focused test
+passed after the fix, and the complete 25-test core library suite passed 50
+times under default concurrency (1,250 tests, zero failures).
+
+Evidence is retained in `logs/CDB074-isolated-worktree-patches.log`.
+
+## 2026-07-12T21:25:33Z — CDB013 — Workspace contract completed
+
+Replaced stale nine-crate indirect evidence with a direct current-tree test for
+the exact eleven-member workspace, resolver, workspace package metadata, and
+Cargo metadata parity. The test includes a negative member-removal fixture.
+Three unit tests and the standalone Cargo metadata gate pass. CDB013 is now
+complete in the authoritative graph and proof ledger.
+
+Evidence is appended to `logs/CDB013-workspace.log`.
+
+## 2026-07-12T21:25:33Z — CDB040 — Integration contract completed
+
+Added a fail-closed document validator plus nine positive and negative tests
+for GitKB, RTK, Kache, wild, and Fenix ownership, boundaries, forbidden
+crossings, exported facts, validation gates, and evidence paths. The live
+integration document passes. CDB040 is now complete in the authoritative graph
+and proof ledger.
+
+Evidence is appended to `logs/CDB040-tooling.log`.
+
+## 2026-07-12T21:25:33Z — CDB050 — Runtime packaging completed
+
+Added a portable packaging-contract test for flake exports, package/check
+wiring, installed commands, generated metadata, and version alignment. Three
+tests, the narrow Nix runtime smoke, and both active profile-owned frontdoors
+pass without mutating any profile or plugin registry. CDB050 is now complete in
+the authoritative graph and proof ledger.
+
+Evidence is appended to `logs/CDB050-runtime-tool.log`.

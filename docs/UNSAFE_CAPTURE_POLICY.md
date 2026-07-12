@@ -4,7 +4,9 @@ Source: PRD sections 10.7, 10.8, and 15.2.
 
 ## Default refusal
 
-Build scripts and proc macros may execute arbitrary compile-time code. Therefore:
+Build scripts and proc macros execute compile-time code and may generate build
+artifacts. Therefore dynamic observation remains an explicit operator action,
+including for trusted first-party sources:
 
 ```text
 codedb capture build
@@ -17,7 +19,13 @@ must refuse by default.
 Unsafe capture may run only with a deliberately named flag such as:
 
 ```text
-codedb capture build --unsafe-execute-build
+codedb capture build /repo \
+  --unsafe-execute-build \
+  --approver operator-name \
+  --task-id CDB078,CDB079,CDB080,CDB082 \
+  --before-state source-snapshot-recorded \
+  --cleanup-plan remove-isolated-sandbox \
+  --raw-log /evidence/capture.log
 ```
 
 and only after the selected task declares:
@@ -29,6 +37,12 @@ and only after the selected task declares:
 - output artifact path;
 - cleanup plan;
 - operator approval evidence.
+
+The implementation enforces the raw-log destination outside the source tree,
+runs Cargo in the isolated build directory, removes the sandbox afterward, and
+keeps dynamic execution out of MCP. `--store` optionally persists the exact
+row receipt; `codedb reproduce --approval-id ... --artifact-dir ...` restores
+captured OUT_DIR artifacts into a new declared artifact directory.
 
 ## Evidence required
 

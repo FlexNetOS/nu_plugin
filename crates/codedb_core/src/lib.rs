@@ -2257,7 +2257,6 @@ fn collect_manifest_hash_entries(
 mod tests {
     use super::*;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     // Test lane: default
     // Defends: the core schema models stay structured and stable for the package workspace.
@@ -2955,12 +2954,49 @@ mod tests {
         fs::remove_dir_all(&root).ok();
     }
 
+    // Defends: parallel CodeDB core tests reserve fixture roots before use so
+    // one test can never delete another test's live source checkout.
+    #[test]
+    fn temp_fixture_roots_are_reserved_and_collision_free() {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                std::thread::spawn(|| (0..16).map(|_| temp_fixture_root()).collect::<Vec<_>>())
+            })
+            .collect();
+        let roots: Vec<PathBuf> = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().expect("fixture allocator thread"))
+            .collect();
+        let mut unique = roots.clone();
+        unique.sort();
+        unique.dedup();
+
+        assert_eq!(unique.len(), roots.len(), "fixture roots must be unique");
+        assert!(
+            roots.iter().all(|root| root.is_dir()),
+            "the allocator must reserve every returned root before exposing it"
+        );
+
+        for root in roots {
+            fs::remove_dir_all(root).expect("remove reserved fixture root");
+        }
+    }
+
     fn temp_fixture_root() -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("codedb_core_fs_fixture_{stamp}"))
+        static NEXT_FIXTURE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        loop {
+            let sequence = NEXT_FIXTURE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "codedb_core_fs_fixture_{}_{}",
+                std::process::id(),
+                sequence
+            ));
+            match fs::create_dir(&root) {
+                Ok(()) => return root,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => panic!("reserve unique fixture root {}: {error}", root.display()),
+            }
+        }
     }
 
     fn init_git_fixture(root: &Path) {

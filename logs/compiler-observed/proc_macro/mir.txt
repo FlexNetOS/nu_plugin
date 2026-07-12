@@ -1,0 +1,53 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn generated_by_macro_rules() -> u32 {
+    let mut _0: u32;
+
+    bb0: {
+        _0 = const 42_u32;
+        return;
+    }
+}
+
+const CODEDB_SANDBOX_NETWORK_DENIED: bool = const true;
+
+const CODEDB_SANDBOX_HOME_HIDDEN: bool = const true;
+
+const CODEDB_SANDBOX_SOURCE_READ_ONLY: bool = const true;
+
+const CODEDB_SANDBOX_EXTERN_READ_ONLY: bool = const true;
+
+fn generated_by_observed_proc_macro() -> u32 {
+    let mut _0: u32;
+
+    bb0: {
+        _0 = const 77_u32;
+        return;
+    }
+}
+
+fn call_generated_items() -> u32 {
+    let mut _0: u32;
+    let mut _1: u32;
+    let mut _2: u32;
+    let mut _3: (u32, bool);
+
+    bb0: {
+        _1 = generated_by_macro_rules() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = generated_by_observed_proc_macro() -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        _3 = AddWithOverflow(copy _1, copy _2);
+        assert(!move (_3.1: bool), "attempt to compute `{} + {}`, which would overflow", move _1, move _2) -> [success: bb3, unwind continue];
+    }
+
+    bb3: {
+        _0 = move (_3.0: u32);
+        return;
+    }
+}

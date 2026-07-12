@@ -1,0 +1,9 @@
+╭────────────────────┬─────────────────────────────────────────────────────────╮
+│ status             │ passed                                                  │
+│ row_count          │ 36                                                      │
+│ relative_row_count │ 5                                                       │
+│ first_table        │ codedb_contexts                                         │
+│ temp_plugin_config │ /tmp/tmp.frgLTiw4YW/plugins.msgpackz                    │
+│ plugin             │ /home/flexnetos/meta/src/nu_plugin/target/debug/nu_plug │
+│                    │ in_codedb                                               │
+╰────────────────────┴─────────────────────────────────────────────────────────╯

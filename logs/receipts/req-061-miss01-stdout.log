@@ -1,0 +1,300 @@
+
+running 152 tests
+test addrepo::tests::ai_argv_is_confined_never_yolo ... ok
+test agent::doctor::tests::build_update_check_unknown_without_cache ... ok
+test catalog::tests::jsonc_parser_keeps_strings_and_removes_comments_and_trailing_commas ... ok
+test agent::init::tests::init_path_global_uses_agent_env_config_dir ... ok
+test agent::doctor::tests::format_age_boundaries ... ok
+test agent::doctor::tests::doctor_report_json_round_trips_full_field_set ... ok
+test dashboard::tests::deploy_dry_run_writes_nothing ... ok
+test dashboard::tests::deploy_apply_writes_and_backs_up_owned_file ... ok
+test catalog::tests::ingest_nix_profile_adds_frontdoor_and_store_provenance_rows ... ok
+test dashboard::tests::deploy_refuses_foreign_file_without_force ... ok
+test agent::doctor::tests::is_writable_walks_up_to_existing_ancestor ... ok
+test catalog::tests::render_refuses_output_inside_repo ... ok
+test addrepo::tests::root_refusal_is_testable ... ok
+test agent::tests::from_flags_maps_each_flag ... ok
+test dashboard::tests::locate_walks_up ... ok
+test db::json_contract::enum_wire_tags_are_stable ... ok
+test dashboard::tests::reader_preserves_declaration_order_not_lexicographic ... ok
+test db::json_contract::query_result_json_is_machine_stable ... ok
+test catalog::tests::table_name_aliases_accept_kebab_case ... ok
+test agent::doctor::tests::doctor_runs_config_less ... ok
+test db::tests::multi_root_model_holds_observed_and_release_simultaneously ... ok
+test db::tests::root_var_normalization_and_token_forms ... ok
+test dashboard::tests::grouping_untagged_go_to_meta_core ... ok
+test catalog::tests::lock_check_reports_drift_without_writes ... ok
+test dashboard::tests::render_has_fixed_overview_tab_first ... ok
+test catalog::tests::sync_apply_refuses_without_verifier_gate ... ok
+test catalog::tests::lock_apply_updates_envctl_lock ... ok
+test db::tests::scaffold_seams_are_wired_and_fail_closed ... ok
+test agent::init::tests::init_path_defaults_to_local_config ... ok
+test db::json_contract::root_row_json_shape_is_stable ... ok
+test db_atomic::tests::new_file_write_makes_no_backup_and_verifies ... ok
+test dashboard::tests::reader_parses_projects_map_and_url_forms ... ok
+test dashboard::tests::golden_kdl ... ok
+test db_atomic::tests::existing_file_is_backed_up_then_replaced_and_verified ... ok
+test db_deploy::tests::empty_stage_is_empty_plan_not_error ... ok
+test db_index::tests::index_store_load_of_missing_file_is_typed_error ... ok
+test db_components::tests::detect_finds_present_tools_and_records_source_and_path ... ok
+test dashboard::tests::spill_into_numbered_subtabs_when_over_cap ... ok
+test db_index::tests::scan_of_missing_root_is_empty_not_error ... ok
+test db_query::tests::glob_match_anchors_correctly ... ok
+test db_deploy::tests::apply_backs_up_existing_target_for_rollback ... ok
+test db_components::tests::manifest_matches_canonical_inventory ... ok
+test catalog::tests::scan_projects_nix_components_into_dedicated_table ... ok
+test db_index::tests::scan_indexes_hashes_classifies_and_skips_heavy_trees ... ok
+test db_deploy::tests::plan_classifies_ready_queued_refused_and_apply_is_fail_closed ... ok
+test db_atomic::tests::no_temp_file_is_left_behind ... ok
+test db_refactor::tests::plan_refuses_identity_rewrite ... ok
+test catalog::tests::scan_imports_yazelix_config_files_without_manifest ... ok
+test db_index::tests::index_store_save_load_reload_roundtrip_is_lossless ... ok
+test db_refactor::tests::plan_emits_diff_for_safe_files_and_refuses_protected ... ok
+test db_ops::tests::snapshot_serves_query_and_plans_off_one_index ... ok
+test db_refactor::tests::apply_is_fail_closed_without_confirm_and_approval ... ok
+test db_symbols::tests::extracts_root_tokens_with_alias_normalization_and_safe_policy ... ok
+test db_refactor::tests::render_writes_new_tree_never_in_place_and_normalizes_alias ... ok
+test db_watch::tests::diff_paths_is_deterministic_and_hash_based ... ok
+test detect::tests::meta_boundary_normalizes_meta_managed_worktree_root ... ok
+test db_symbols::tests::impact_maps_blast_radius_split_by_rewrite_safety ... ok
+test db_query::tests::preset_and_filter_queries_are_deterministic_with_explain ... ok
+test detect::tests::proc_nvidia_driver_version_from_str_parses_version_token ... ok
+test detect::tests::proc_nvidia_driver_version_from_str_rejects_non_version_tokens ... ok
+test detect::tests::meta_boundary_accepts_meta_usr_bin_real_file_inside_meta_root ... ok
+test db_symbols::tests::syn_pass_extracts_rust_items_imports_and_clap_derives ... ok
+test detect::tests::meta_boundary_refuses_meta_usr_bin_symlink_into_meta_root ... ok
+test db_watch::tests::tick_invalidates_only_changed_added_removed_rows ... ok
+test detect_build::tests::cargo_beats_flake ... ok
+test detect::tests::meta_boundary_refuses_symlink_target_outside_meta_root ... ok
+test db_widget::tests::roots_refs_and_hooks_widgets_are_populated_and_deterministic ... ok
+test detect_build::tests::go_mod_detected ... ok
+test detect_build::tests::no_signal_no_cmd_bails ... ok
+test detect_build::tests::override_forces_system_and_empty_cmd_uses_default ... ok
+test drift::tests::boundary_violations_become_high_severity_drift ... ok
+test drift::tests::summary_counts_by_severity ... ok
+test drift::tests::summary_display_wording ... ok
+test drift::tests::summary_empty_is_zero ... ok
+test drift::tests::summary_is_clean ... ok
+test db_watch::tests::poll_persisted_uses_dbindexstore_baseline_and_invalidates_only_changes ... ok
+test drift::tests::summary_worst_severity ... ok
+test executor::tests::resolve_peer_routes_by_owner_and_honors_mode_override ... ok
+test install::tests::install_name_must_be_a_single_component ... ok
+test guard::tests::strip_subvol_handles_btrfs_and_bind_suffixes ... ok
+test install::tests::legacy_managed_symlink_needs_canonical_containment ... ok
+test install::tests::rename_cannot_shadow_a_well_known_command ... ok
+test layout::tests::expand_meta_path_retargets_home_tokens_to_meta_root ... ok
+test install::tests::install_regular_frontdoor_writes_executable_wrapper ... ok
+test catalog::tests::scan_catalogs_envctl_home_managed_sources_and_frontdoors ... ok
+test layout::tests::component_prefix_materializer_rejects_escaped_ids ... ok
+test layout::tests::exports_registry_path_variables ... ok
+test layout::tests::registry_marks_legacy_prefixes_as_compatibility ... ok
+test layout::tests::resolves_standard_tree_inside_meta ... ok
+test install::tests::well_known_names_are_shadowed ... ok
+test layout::tests::usr_mirror_completes_the_fhs_skeleton ... ok
+test executor::tests::wiring_present_probes_meta_root_bashrc_not_os_home ... ok
+test migration::tests::classify_line_flags_all_real_home_local_spellings ... ok
+test catalog::tests::import_report_wraps_scan_without_writes ... ok
+test catalog::tests::diff_reports_parse_and_lock_drift_without_writes ... ok
+test catalog::tests::scan_normalizes_current_file_shapes_without_writes ... ok
+test layout::tests::ensure_dirs_materializes_canonical_tree_only ... ok
+test peer::tests::canonicalizes_to_ssh ... ok
+test peer::tests::grep_guards_detect_existing ... ok
+test peer::tests::meta_entry_omits_empty_keys ... ok
+test peer::tests::insert_after_projects_is_idempotent_by_caller ... ok
+test peer::tests::owned_routing ... ok
+test self_uninstall::tests::exe_stem_extracts_known_binaries ... ok
+test self_uninstall::tests::guard_recognizes_only_known_stems ... ok
+test self_uninstall::tests::remove_dir_if_exists_is_noop_on_missing ... ok
+test self_uninstall::tests::preview_writes_nothing_and_guard_refuses_non_envctl_binary ... ok
+test self_update::tests::current_target_returns_nonempty_string ... ok
+test self_update::tests::is_newer_detects_major_bump ... ok
+test self_update::tests::is_newer_detects_minor_bump ... ok
+test self_uninstall::tests::remove_dir_if_exists_deletes_a_temp_tree ... ok
+test self_update::tests::is_newer_returns_false_for_older_version ... ok
+test peer::tests::parse_https_and_ssh ... ok
+test self_update::tests::is_newer_returns_false_for_same_version ... ok
+test self_update::tests::is_newer_detects_patch_bump ... ok
+test self_update::tests::plan_self_update_maps_status ... ok
+test migration::tests::apply_materializes_only_canonical_dirs_and_writes_ledger ... ok
+test self_update::tests::verify_checksum_fails_on_mismatch ... ok
+test self_update::tests::verify_checksum_fails_when_asset_not_in_checksums ... ok
+test self_update::tests::verify_checksum_passes_on_match ... ok
+test update_notifier::tests::fresh_cache_within_ttl ... ok
+test update_notifier::tests::missing_cache_returns_none ... ok
+test update_notifier::tests::cache_round_trip ... ok
+test self_update::tests::verify_checksum_handles_multiple_entries ... ok
+test migration::tests::scan_reports_layout_and_protects_loop_lib ... ok
+test peer::tests::preview_mutates_nothing ... ok
+test migration_db::tests::target_validation_refuses_bad_specs ... ok
+test migration_db::tests::duplicate_target_id_conflicts ... ok
+test migration_db::tests::illegal_transitions_refuse ... ok
+test migration_db::tests::idempotent_operation_returns_existing ... ok
+test peer::tests::register_peer_apply_is_idempotent ... ok
+test secrets::tests::resolve_secretctl_rejects_host_global_home_and_path_entries ... ok
+test secrets::tests::missing_binary_emits_failclosed_result_not_panic ... ok
+test secrets::tests::resolve_secretctl_accepts_meta_usr_bin_target ... ok
+test update_notifier::tests::available_update_uses_env_override_and_compares ... ok
+test runner::tests::enforced_meta_env_retargets_home_and_strips_host_global_path_entries ... ok
+test migration_db::tests::operations_append_hash_chained_events ... ok
+test migration_db::tests::run_lifecycle_and_replay_verify ... ok
+test migration_db::tests::denial_is_terminal_for_the_operation ... ok
+test migration_db::tests::evidence_artifacts_validations_rollbacks_recorded_and_queryable ... ok
+test migration_db::tests::r3_gate_blocks_until_agent_approval_decides_as_events ... ok
+test catalog::tests::render_can_retarget_layout_paths_and_env_exports ... ok
+test catalog::tests::sync_preview_reports_actions_without_mutation ... ok
+test catalog::tests::render_imports_yazelix_config_files_without_manifest ... ok
+test graph::tests::impact_closure_and_cascade ... ok
+test graph::tests::dot_and_json_export ... ok
+test graph::tests::analyze_finds_roots_and_critical_path ... ok
+test lock::tests::diff_detects_changed_and_removed ... ok
+test lock::tests::generate_is_deterministic_and_diff_clean ... ok
+test catalog::tests::render_writes_deterministic_projection_files_outside_repo ... ok
+test detect::tests::run_capture_timeout_returns_output ... ok
+test detect::tests::run_capture_timeout_drains_noisy_output ... ok
+test detect::tests::run_capture_timeout_times_out ... ok
+
+test result: ok. 152 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+
+running 24 tests
+test c07_add_locked_without_no_sync_refused ... ok
+test c07_add_at_ref_conflicts_with_ref_flag ... ok
+test c08_remove_by_kind_not_found_in_section ... ok
+test c07_add_already_exists_refused ... ok
+test c07_add_dry_run_writes_nothing ... ok
+test c07_add_ref_and_branch_mutually_exclusive ... ok
+test c12_split_at_ref_https_tag ... ok
+test c08_remove_dry_run_writes_nothing ... ok
+test c12_engine_verbs_reject_remote_config_accept_local ... ok
+test c12_split_at_ref_local_path_no_at ... ok
+test c12_split_at_ref_ssh_round_trips ... ok
+test c12_split_at_ref_trailing_at_ignored ... ok
+test c08_remove_whole_source_not_found_in_any_list ... ok
+test c12_split_at_ref_userinfo_and_ref ... ok
+test c12_split_at_ref_userinfo_url_round_trips ... ok
+test c13_init_path_defaults_to_local_config ... ok
+test c13_init_path_global_uses_agent_env_config_dir ... ok
+test c09_lock_check_locked_is_zero_network_clean ... ok
+test c09_lock_check_reports_drift_without_writing ... ok
+test c12_sync_after_runs_plain_sync_post_edit ... ok
+test c10_list_filters_by_kind_and_scope_readonly ... ok
+test c11_c14_clean_preview_then_apply_removes_tracked_only ... ok
+test c13_init_global_uses_agent_env_config_dir ... ok
+test c13_init_writes_starter_template_and_refuses_overwrite ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test agent_remove_preview_emits_agent_edited_event ... ok
+test mcp_sync_is_additive_never_clobbers_existing_servers ... ok
+test live_agent_skills_mcp_pack_preserves_mesh_servers_and_enforces_yazelix_mirror ... ok
+test never_prune_when_a_source_fails ... ok
+test skills_failure_does_not_prune_installed_mcps ... ok
+test agent_list_emits_agent_listed_event ... ok
+test skills_failure_does_not_prune_installed_commands ... ok
+test lock_check_reports_drift_then_clean ... ok
+test remove_then_sync_after_prunes_skill ... ok
+test sync_preview_writes_nothing_then_apply_installs ... ok
+test locked_mode_fails_closed_without_lock_then_passes_when_locked ... ok
+test clean_preview_keeps_then_apply_removes_tracked_only ... ok
+test m22_fallback_resolves_default_config_from_cwd ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 15 tests
+test c01_dry_run_writes_nothing_but_reports_plan ... ok
+test c02_locked_errors_when_skill_absent_from_lock ... ok
+test c03_locked_errors_when_command_absent_from_lock ... ok
+test c04_mcp_merge_is_additive_new_servers_added_existing_survive ... ok
+test c02_locked_succeeds_when_satisfiable ... ok
+test c02_first_run_installs_then_unchanged_without_source ... ok
+test c03_second_run_unchanged_without_source_no_fetch ... ok
+test c01_c05_never_prune_when_a_source_fails ... ok
+test c02_missing_second_dest_repaired_locally_without_source ... ok
+test c04_needs_fetch_when_absent_then_satisfied ... ok
+test c04_mcp_resync_no_new_servers_is_unchanged ... ok
+test c02_tampered_dest_is_repaired_from_source ... ok
+test c03_commands_write_to_supported_agents_skip_unsupported_then_prune ... ok
+test c02_wildcard_holds_to_locked_set_on_plain_sync ... ok
+test c02_wildcard_update_prunes_removed_skill ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test cli_and_gui_roots_surface_is_identical ... ok
+test cli_and_gui_watch_deltas_are_identical ... ok
+test cli_and_gui_query_paths_produce_identical_json ... ok
+test cli_and_gui_refactor_plans_are_identical_and_fail_closed ... ok
+test cli_and_gui_symbols_surface_is_identical ... ok
+test cli_and_gui_deploy_plans_are_identical_and_fail_closed ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 1 test
+test apply_over_fixture_matrix_rewrites_safe_files_backs_them_up_and_refuses_protected ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 24 tests
+test dropin_filters_injection_in_relinks ... ok
+test detached_engine_renders_dashboard_without_manifest ... ok
+test manifest_extends_detects_cycles ... ok
+test manifest_extends_enforces_depth_guard ... ok
+test manifest_extends_merges_components_by_id ... ok
+test runsummary_ok_counts_incomplete ... ok
+test runtime_record_and_load_roundtrip ... ok
+test tagged_enums_round_trip_through_toml ... ok
+test refused_target_that_is_a_survivors_prereq_is_not_removed ... ok
+test reset_target_does_not_tear_down_its_prerequisites ... ok
+test reset_refusal_does_not_orphan_remove_prereqs ... ok
+test guard_verify_path_uuid_fail_closed ... ok
+test guards_fail_closed ... ok
+test manifest_phase3_wiring_loads ... ok
+test drift_flags_missing_and_unhealthy ... ok
+test group_ai_clis_does_not_require_node_via_bun ... ok
+test node_real_component_exists_with_empty_requires ... ok
+test reverse_dependents_transitive ... ok
+test add_repo_paths_reject_traversal_and_option_injection ... ok
+test manifest_loads_and_topo_sorts ... ok
+test graph_analyze_real_manifest ... ok
+test untargeted_reset_refused_without_all_confirm ... ok
+test manifest_path_entries_are_meta_root_hosted ... ok
+test lock_roundtrip_no_drift_against_self ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+
+running 2 tests
+test hub_registry_flags_missing_component_as_drift ... ok
+test hub_registry_loads_and_reconciles_components ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test action_phase_streams_and_tees_to_log ... ok
+test command_hook_is_argv_no_shell ... ok
+test failure_message_falls_back_to_stdout_tail ... ok
+test exit_code_success_and_failure ... ok
+test failure_message_is_stderr_tail ... ok
+test login_vs_nonlogin_shell_flag ... ok
+test lossy_utf8_output_does_not_panic ... ok
+test long_multibyte_stderr_truncates_without_panic ... ok
+test per_hook_env_is_visible_to_child ... ok
+test readonly_phase_is_quiet ... ok
+test setsid_reaps_the_whole_process_group ... ok
+test spawn_failure_is_failed_not_panic ... ok
+test timeout_synthesizes_exit_124 ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

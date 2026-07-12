@@ -1,0 +1,39 @@
+{
+  "symbol": "META_ROOT",
+  "normalized_symbol": "META_ROOT",
+  "files": [
+    {
+      "file_id": "file:8296ec64fcf9b8b495c6aac0df16e5f2e5061ee14b5c961d1891ed90e389f3a2",
+      "absolute_path": "./logs/receipts/cmd-fdd42e7890360763.stdout",
+      "repo_relative_path": "logs/receipts/cmd-fdd42e7890360763.stdout",
+      "mutable_policy": "read_only",
+      "occurrence_count": 2,
+      "safe": 0,
+      "refused": 2
+    }
+  ],
+  "files_affected": 1,
+  "occurrences_total": 2,
+  "safe_occurrences": 0,
+  "refused_occurrences": 2,
+  "definitions": [
+    {
+      "symbol_id": "sym:path:META_ROOT",
+      "kind": "path_token",
+      "name": "META_ROOT",
+      "normalized_name": "META_ROOT",
+      "file_id": "file:8296ec64fcf9b8b495c6aac0df16e5f2e5061ee14b5c961d1891ed90e389f3a2",
+      "absolute_path": "./logs/receipts/cmd-fdd42e7890360763.stdout",
+      "line_start": 11,
+      "line_end": 11,
+      "byte_start": 7,
+      "byte_end": 17,
+      "value": null,
+      "scope": null,
+      "owner_component": null,
+      "target_profile": null,
+      "confidence": "parsed",
+      "mutable_policy": "read_only"
+    }
+  ]
+}

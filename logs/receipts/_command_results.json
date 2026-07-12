@@ -1,0 +1,714 @@
+{
+ "cargo metadata --format-version 1 --no-deps": {
+  "slug": "9298f673acb9f00a",
+  "rc": 0,
+  "ids": [
+   "CDB013"
+  ],
+  "stdout_sha256": "aec45e542008ab313dd6c9871fb231f3c28eaa6eaf982f6914386de64f341671",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 25065,
+  "stderr_bytes": 0
+ },
+ "cargo test -p codedb-core": {
+  "slug": "bbe5665d6cc12e54",
+  "rc": 0,
+  "ids": [
+   "CDB014",
+   "CDB017",
+   "CDB018"
+  ],
+  "stdout_sha256": "a35ba26044515af0e968172ebcdfac5c7f9b832f27aa1e012aa1c585c823017a",
+  "stderr_sha256": "25426abfc4d8a83fc08a0e413c51c42a76a5928f8531407151be8673ea168f89",
+  "stdout_bytes": 5199,
+  "stderr_bytes": 733
+ },
+ "cargo test -p codedb-store-redb": {
+  "slug": "0238cd695452c395",
+  "rc": 0,
+  "ids": [
+   "CDB015",
+   "CDB016"
+  ],
+  "stdout_sha256": "d3089db7f0f8c3d8cb8dc8cd9f412f16ee1edd95bd80c97f708db614d3a90b58",
+  "stderr_sha256": "734e197c0bc155d04bcf18c83774a1424f46dab6c7242ddd3ea209407d9e6b06",
+  "stdout_bytes": 1228,
+  "stderr_bytes": 193
+ },
+ "cargo test -p codedb-cargo": {
+  "slug": "cc25310e9d71ecff",
+  "rc": 0,
+  "ids": [
+   "CDB019",
+   "CDB020"
+  ],
+  "stdout_sha256": "ee85d4200b7c40d3dd1fcad31fbc012363bc33d3fabb88effe24969ad22c087c",
+  "stderr_sha256": "33861a2963a4c15035b65106ca7e310c5a6dfa47c2d43ee7dd050db14bad3dde",
+  "stdout_bytes": 361,
+  "stderr_bytes": 550
+ },
+ "cargo test -p codedb-cargo -p codedb-core": {
+  "slug": "63fb1c9372357d75",
+  "rc": 0,
+  "ids": [
+   "CDB021"
+  ],
+  "stdout_sha256": "8d6b6a72a093def8c53700b3330928489e92d51bf3bf486f9e580f66804e8f9d",
+  "stderr_sha256": "f03f3e63637f6c6b444953eeebb0fc9d1954ea098ccd284335e030907607f605",
+  "stdout_bytes": 5560,
+  "stderr_bytes": 843
+ },
+ "cargo test -p codedb-rust-static": {
+  "slug": "1addaef2cac7b2ed",
+  "rc": 0,
+  "ids": [
+   "CDB022",
+   "CDB023",
+   "CDB024",
+   "CDB025",
+   "CDB026",
+   "CDB027",
+   "CDB077",
+   "CDB106-AC04"
+  ],
+  "stdout_sha256": "9d88ae5be4b092d102cdfa8c90532b3868e429e25de761543bb26851b55ec152",
+  "stderr_sha256": "3519f1889e1f257791814703a2ea22818fdf2962f7cacd7ae5e02ebcefb9e1ac",
+  "stdout_bytes": 2073,
+  "stderr_bytes": 195
+ },
+ "nu --no-config-file tests/test_no_mutation.nu": {
+  "slug": "67cfa63e0affffbd",
+  "rc": 0,
+  "ids": [
+   "CDB028",
+   "CDB044"
+  ],
+  "stdout_sha256": "2622a6b524dcda4b988ea7aecac22f2a118bb705098f3be86677989af3b933df",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1008,
+  "stderr_bytes": 0
+ },
+ "cargo test -p codedb": {
+  "slug": "cc8050caa02dc92a",
+  "rc": 0,
+  "ids": [
+   "CDB029",
+   "CDB031",
+   "CDB035",
+   "CDB036",
+   "CDB039",
+   "CDB051",
+   "CDB063"
+  ],
+  "stdout_sha256": "6e0982a8a8f48c8842f9dffa1c6fec4e05bbb82cfe901b55b85ce84d8c4f4026",
+  "stderr_sha256": "4353d09dd24299e8234c11ef8623183eb03d590c9c5515ce15dfe4c7c118d21d",
+  "stdout_bytes": 2268,
+  "stderr_bytes": 327
+ },
+ "nu --no-config-file tests/test_transient_plugin.nu": {
+  "slug": "5700e500272fd590",
+  "rc": 0,
+  "ids": [
+   "CDB030",
+   "CDB052"
+  ],
+  "stdout_sha256": "1f30e7775c3f9360ab46040ffa6b6dbb12b0ff283a7a564bb57b01b62c2e35ac",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1091,
+  "stderr_bytes": 0
+ },
+ "nu --no-config-file tests/test_codex_bounded_bridge.nu": {
+  "slug": "f6e09176dac6744c",
+  "rc": 0,
+  "ids": [
+   "CDB032",
+   "CDB037",
+   "CDB062",
+   "CDB106-AC06"
+  ],
+  "stdout_sha256": "2e263c2dee6883d167fc6d4e9744f138f06a6fb64e1fcfb4495e48acbbf79569",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1164,
+  "stderr_bytes": 0
+ },
+ "nu --no-config-file tests/test_unsafe_capture.nu": {
+  "slug": "27e56d81576f63f1",
+  "rc": 0,
+  "ids": [
+   "CDB033",
+   "CDB045"
+  ],
+  "stdout_sha256": "34b563cbebc4ab0c56dea4a5d063bbf2063a6d2469f4b8fe040584a83e9a4cfb",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1189,
+  "stderr_bytes": 0
+ },
+ "cargo test -p codedb-build-capture": {
+  "slug": "7e46b0fa89397561",
+  "rc": 0,
+  "ids": [
+   "CDB034",
+   "CDB078",
+   "CDB079",
+   "CDB080",
+   "CDB106-AC03"
+  ],
+  "stdout_sha256": "57a52173bdeb03713892ffdb0529e6a33652f58a5aa636d8c28571095453b4ae",
+  "stderr_sha256": "73f1f84ac5b4b4e1446eb4203edf8272f168ba794acd798782dc0c448e98b572",
+  "stdout_bytes": 3347,
+  "stderr_bytes": 199
+ },
+ "nu --no-config-file tests/test_yazelix_enabled_smoke.nu": {
+  "slug": "6e95cd07c36448a7",
+  "rc": 0,
+  "ids": [
+   "CDB038",
+   "CDB049",
+   "CDB059"
+  ],
+  "stdout_sha256": "8e006a76f68e5aff2ed2456bb45c6421ecf275682add119be0f0c6e6c70e1b15",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1265,
+  "stderr_bytes": 0
+ },
+ "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence": {
+  "slug": "3988072e0f4294e5",
+  "rc": 1,
+  "ids": [
+   "CDB040",
+   "CDB047",
+   "CDB106-AC10",
+   "REQ-061-ARCH18"
+  ],
+  "stdout_sha256": "b08b667ea6b753b8f4b0d41d115e02e5d5d4c116f687b4b71b44c534076b791a",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 14224,
+  "stderr_bytes": 0
+ },
+ "cargo test --workspace": {
+  "slug": "2d6eb063bb0f72f7",
+  "rc": 0,
+  "ids": [
+   "CDB041"
+  ],
+  "stdout_sha256": "8826c0671d63f0a084fd2c12f88bff0ecd831f687664bcf184f9e4b88fa374ed",
+  "stderr_sha256": "defcef9d1a715337089c9c5a0d2b46aa40d2653f0890cd6a1dda433c6de8f74d",
+  "stdout_bytes": 21272,
+  "stderr_bytes": 3247
+ },
+ "nu --no-config-file tests/test_deterministic_scan.nu": {
+  "slug": "33a6a9373285b9ef",
+  "rc": 0,
+  "ids": [
+   "CDB042"
+  ],
+  "stdout_sha256": "80599adb8d4bd5625870c9eeb051b77ec7585a0163490d58e7ed33e9d1a83d27",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1362,
+  "stderr_bytes": 0
+ },
+ "nu --no-config-file tests/test_security_no_leak.nu": {
+  "slug": "9c20d50a08c7ea1b",
+  "rc": 0,
+  "ids": [
+   "CDB043",
+   "CDB083"
+  ],
+  "stdout_sha256": "3ebd77397c2b64671dcbef6941e28c12526e26d7c9821f0c2cf41d13cfea3cda",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 2216,
+  "stderr_bytes": 0
+ },
+ "python3 scripts/validate_requirement_proof_ledger.py --structure-only": {
+  "slug": "2c9894eea2394f42",
+  "rc": 0,
+  "ids": [
+   "CDB048",
+   "CDB106-AC01"
+  ],
+  "stdout_sha256": "85979141a4f191c177e03795ef5920832ba4953f1dd8fd0a91cc645cad568cac",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 87,
+  "stderr_bytes": 0
+ },
+ "nix flake check": {
+  "slug": "c189cb519220c44b",
+  "rc": 1,
+  "ids": [
+   "CDB050"
+  ],
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "d6afb6f55e8e7254c2676e98f3663da185d7b0f5648bfc843fd5d0317eb09509",
+  "stdout_bytes": 0,
+  "stderr_bytes": 12040
+ },
+ "nu --no-config-file tests/test_plugin_registry.nu": {
+  "slug": "dd9e3d5a464d2e07",
+  "rc": 0,
+  "ids": [
+   "CDB053"
+  ],
+  "stdout_sha256": "7d7d26176b7bddff243ac51d3e81f35313d0aa63f8815b990fec767019173c4f",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1178,
+  "stderr_bytes": 0
+ },
+ "nu --no-config-file tests/test_init_provenance.nu": {
+  "slug": "1a1e33b26f4511ab",
+  "rc": 0,
+  "ids": [
+   "CDB054",
+   "CDB055"
+  ],
+  "stdout_sha256": "130f1cf8c8b93b159658fa2e583fc3de1723492fe6c7d4a1cca1ab806cfb91d3",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1265,
+  "stderr_bytes": 0
+ },
+ "nu --no-config-file tests/test_nushell_syntax_gate.nu": {
+  "slug": "54c58cf9a64f6d2d",
+  "rc": 0,
+  "ids": [
+   "CDB056"
+  ],
+  "stdout_sha256": "6f1f6cde4b6dd4cd239b57cbdeabdb031fd8cfe74652c9745bd52c3b9286f5ea",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 653,
+  "stderr_bytes": 0
+ },
+ "nu --no-config-file tests/test_no_real_home_plugin_registration.nu": {
+  "slug": "6d0559ce1394f974",
+  "rc": 0,
+  "ids": [
+   "CDB057"
+  ],
+  "stdout_sha256": "54e8405f0f577754df74353406e430f0b0da4128e150577cb23123c247275f9f",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1178,
+  "stderr_bytes": 0
+ },
+ "nu --no-config-file tests/test_yazelix_disabled_smoke.nu": {
+  "slug": "c14f9f95b67bdbca",
+  "rc": 0,
+  "ids": [
+   "CDB058"
+  ],
+  "stdout_sha256": "411746823b24793323b6be157e8f89796eab7b3317ecbffd2bd8f8b2b071e757",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1178,
+  "stderr_bytes": 0
+ },
+ "nu --no-config-file tests/test_plugin_secret_guard.nu": {
+  "slug": "dae3448cf5fa8a19",
+  "rc": 0,
+  "ids": [
+   "CDB060"
+  ],
+  "stdout_sha256": "a6f490b6a4ea469fafc66f90210fbbe1e1e04f533a125508537224d56e3b610a",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1816,
+  "stderr_bytes": 0
+ },
+ "nu --no-config-file tests/test_redb_lifecycle.nu": {
+  "slug": "7ae35ec9f0319161",
+  "rc": 0,
+  "ids": [
+   "CDB061"
+  ],
+  "stdout_sha256": "0484370b52dc6ca688ce57d550917a1afcc954ab520a3da37b7cad4eb8e19ede",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 1188,
+  "stderr_bytes": 0
+ },
+ "cargo test -p codedb-core --test materialization_paths": {
+  "slug": "5b7ba41837108b32",
+  "rc": 0,
+  "ids": [
+   "CDB081"
+  ],
+  "stdout_sha256": "35d463b649dc4a0cea6969c7147fabd70dea0b872984c00f9f8bf0da56accaa1",
+  "stderr_sha256": "1abcad62c07d119b8f4626ce72b52d7daba22e09f7c222b6689eacf0a900b4e8",
+  "stdout_bytes": 589,
+  "stderr_bytes": 176
+ },
+ "cargo test -p codedb-build-capture -p codedb-rust-static": {
+  "slug": "a5a06f7280ec4776",
+  "rc": 0,
+  "ids": [
+   "CDB082"
+  ],
+  "stdout_sha256": "c64ba074ad854afb6113a9af3ebf013edc33cb81dbd0f533355a8a537faa0c37",
+  "stderr_sha256": "3688377e0567e3cdb3a15270093b7a34c32e225415569e4d7fb091add2fb8cac",
+  "stdout_bytes": 5420,
+  "stderr_bytes": 321
+ },
+ "cargo test -p codedb-rust-static -p codedb-core": {
+  "slug": "48555d55ed17f2e2",
+  "rc": 0,
+  "ids": [
+   "CDB084",
+   "CDB085"
+  ],
+  "stdout_sha256": "2748bc6fb724f8ba6b00f62504910521e10ebabf5fab3f69501178aa7f9e3143",
+  "stderr_sha256": "331abe6e9d2deee067df588a50926807e67cdb8006df86c7924584cf3ae3a711",
+  "stdout_bytes": 7272,
+  "stderr_bytes": 855
+ },
+ "cargo test -p codedb-store-redb -p codedb-store-pg --features codedb-store-pg/pg-integration": {
+  "slug": "539537ccaafc744b",
+  "rc": 101,
+  "ids": [
+   "CDB086"
+  ],
+  "stdout_sha256": "27cae9b327da931cfdf0a23acc97a2976ceae1b728f2ab6f1e1a047898d5ea9c",
+  "stderr_sha256": "7594aa2871ca0bd96a53ad479955e3fd0aaf1a7972b891fdee6bc882823037f0",
+  "stdout_bytes": 7380,
+  "stderr_bytes": 1293
+ },
+ "cargo test -p codedb-core -p codedb": {
+  "slug": "91b1c1f9cbd5d786",
+  "rc": 0,
+  "ids": [
+   "CDB087",
+   "CDB088",
+   "CDB089"
+  ],
+  "stdout_sha256": "e7d75b69118969bb7c50a56314c0ba70c7b915d36d4dc3198e38c96d28cfc58e",
+  "stderr_sha256": "8ade4280a1f2bf5d28aac30a998f9c2b1efdbb9de7c6ea03cf7e6a6e42a56499",
+  "stdout_bytes": 7467,
+  "stderr_bytes": 997
+ },
+ "python3 scripts/validate_bidirectional_package.py --direct-evidence": {
+  "slug": "839cdb8428143590",
+  "rc": 1,
+  "ids": [
+   "CDB090"
+  ],
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "a92596bf08f826a4067f25f8a7c485d8b88eb7e2f2ca2112469eafc387f49361",
+  "stdout_bytes": 0,
+  "stderr_bytes": 21652
+ },
+ "cargo test -p codedb-rust-static -p codedb-build-capture": {
+  "slug": "b7cfbba921d6c746",
+  "rc": 0,
+  "ids": [
+   "CDB106-AC02"
+  ],
+  "stdout_sha256": "03e69136b32475eb92c052261e14eaee551f330c48b585b4015f033fe0a9d326",
+  "stderr_sha256": "3688377e0567e3cdb3a15270093b7a34c32e225415569e4d7fb091add2fb8cac",
+  "stdout_bytes": 5420,
+  "stderr_bytes": 321
+ },
+ "cargo test -p codedb-store-redb -p codedb-store-pg -p codedb --all-features": {
+  "slug": "37cb717ef719a09b",
+  "rc": 101,
+  "ids": [
+   "CDB106-AC05"
+  ],
+  "stdout_sha256": "cc35da5861a8fa62221b5ac34214f23595967d1f7202d83b7b015317fdb67377",
+  "stderr_sha256": "c7f9bd630a33d2b27158e8be71ba5dd99f49a7b1b5d2b938d8c1828d5b576639",
+  "stdout_bytes": 9648,
+  "stderr_bytes": 682
+ },
+ "python3 tests/test_materialization_safety.py": {
+  "slug": "e7008b03f1876575",
+  "rc": 0,
+  "ids": [
+   "CDB106-AC07"
+  ],
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "d10ffbd9f0faa72cd6837063279524e199b59fbc3d035051302a1e8dbc4b36ad",
+  "stdout_bytes": 0,
+  "stderr_bytes": 98
+ },
+ "cargo test -p codedb --all-features": {
+  "slug": "9ffa71fff1c24048",
+  "rc": 0,
+  "ids": [
+   "CDB106-AC08"
+  ],
+  "stdout_sha256": "77f6fe8fca93360ea81a2ba6640b3a9d1d995dfb0df24c997f0a8d8772c9aba4",
+  "stderr_sha256": "b0a72f171ed84d4e13c98cd31336335c8edf1c19be076371cabd54c8800717b8",
+  "stdout_bytes": 2268,
+  "stderr_bytes": 249
+ },
+ "cargo test --manifest-path ../envctl/Cargo.toml --workspace": {
+  "slug": "3c5883388b8553d5",
+  "rc": 0,
+  "ids": [
+   "REQ-061-NFR01",
+   "REQ-061-NFR02",
+   "REQ-061-NFR03",
+   "REQ-061-NFR04",
+   "REQ-061-NFR05",
+   "REQ-061-NFR06",
+   "REQ-061-NFR07",
+   "REQ-061-NFR08",
+   "REQ-061-ARCH10",
+   "REQ-061-ARCH11",
+   "REQ-061-ARCH16",
+   "REQ-061-ARCH17",
+   "REQ-061-AC09",
+   "REQ-061-AC12",
+   "REQ-061-MISS11",
+   "REQ-061-MISS12",
+   "REQ-061-MISS13"
+  ],
+  "stdout_sha256": "214af1131aa986bccd1b48b5a395a735824e6fc7792b43bfb03af63187ab4d18",
+  "stderr_sha256": "08664b031f2eaa975850f4670eb3f85953cf7ce1e370b337cd210ef246b46318",
+  "stdout_bytes": 72675,
+  "stderr_bytes": 5633
+ },
+ "cargo fmt --manifest-path ../envctl/Cargo.toml --all --check && cargo test --manifest-path ../envctl/Cargo.toml --workspace": {
+  "slug": "c802773b1dde8f9f",
+  "rc": 0,
+  "ids": [
+   "REQ-061-NFR09",
+   "REQ-061-ARCH19"
+  ],
+  "stdout_sha256": "50c41beb5ee4e354fcc94f053c37b41a98f4d3e9c9d8788843580cf9ee1b6385",
+  "stderr_sha256": "8fe3eb885cbe6100a340a07d4e25897f2d1cdc3640b258039c7e6a5914f4d401",
+  "stdout_bytes": 72676,
+  "stderr_bytes": 5633
+ },
+ "cargo test --manifest-path ../envctl/Cargo.toml -p envctl": {
+  "slug": "02f34020b4ab082f",
+  "rc": 0,
+  "ids": [
+   "REQ-061-ARCH15",
+   "REQ-061-AC10",
+   "REQ-061-AC11"
+  ],
+  "stdout_sha256": "980f2fd0f30e6c9d5b0801214f0362c953aa7074bb3b2f55297787525f8fc20c",
+  "stderr_sha256": "39da87bde3e4c048416b6d1c7f4ae8e832a621c3e7789520df4b7a272eca32ab",
+  "stdout_bytes": 4208,
+  "stderr_bytes": 1152
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db scan --json": {
+  "slug": "cc7d70d3a7a22474",
+  "rc": 0,
+  "ids": [
+   "REQ-061-CMD01",
+   "REQ-061-AC01"
+  ],
+  "stdout_sha256": "6e4940ed8a461d7092aac242583a150ac662417f79aefe5314a811dbbdb4f7af",
+  "stderr_sha256": "918d34872c22e1d1c5e911d15a7470480e4a6500ec9737567dd3323a08d98733",
+  "stdout_bytes": 502094,
+  "stderr_bytes": 154
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db roots --json": {
+  "slug": "fdd42e7890360763",
+  "rc": 0,
+  "ids": [
+   "REQ-061-CMD02",
+   "REQ-061-AC03"
+  ],
+  "stdout_sha256": "8296ec64fcf9b8b495c6aac0df16e5f2e5061ee14b5c961d1891ed90e389f3a2",
+  "stderr_sha256": "69f0030e2698652bfbda72334f1e8e42f2dd0fc37f4c27635fa5386a22b183ba",
+  "stdout_bytes": 813,
+  "stderr_bytes": 155
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db query --preset root-meta --json": {
+  "slug": "e1f45ed2aa0c0ba2",
+  "rc": 0,
+  "ids": [
+   "REQ-061-CMD03",
+   "REQ-061-AC02"
+  ],
+  "stdout_sha256": "20996d2bbd2b00449ed883125fc0f7de34c0cbd3b8d1d9d87a2aca94e9ccc668",
+  "stderr_sha256": "1ae0a2de4094310fa940db55222eb5d509ec68273affc674314202943141e4f2",
+  "stdout_bytes": 623,
+  "stderr_bytes": 174
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db symbols --name META_ROOT --json": {
+  "slug": "207de66339f4094a",
+  "rc": 2,
+  "ids": [
+   "REQ-061-CMD04"
+  ],
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "7a08fb40226901b7f8cbece761ecbdb8580db929e56ce6f3f0a470b1d1005983",
+  "stdout_bytes": 0,
+  "stderr_bytes": 289
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db impact --symbol META_ROOT --json": {
+  "slug": "01f6a122b3071581",
+  "rc": 0,
+  "ids": [
+   "REQ-061-CMD05"
+  ],
+  "stdout_sha256": "954c7c8d51c7884809aff9f170c1e6df087b4c0a0da67326dd890555baf45e55",
+  "stderr_sha256": "bc283d73e79100962d72a25b4b1335a37dd152bcda4d08bed249dedeee61d458",
+  "stdout_bytes": 1121,
+  "stderr_bytes": 175
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db refactor root-alias --from META_ROOT --to LIFE_OS_ROOT --target-profile lifeos-release --render-out /tmp/envctl-lifeos-refactor --json": {
+  "slug": "56b819456ed36991",
+  "rc": 2,
+  "ids": [
+   "REQ-061-CMD06",
+   "REQ-061-AC05"
+  ],
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "10fe0fcc1b6c22263fe616c5763936737c67267be2ae99b951ec3aebe067058e",
+  "stdout_bytes": 0,
+  "stderr_bytes": 421
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db deploy hooks --target /tmp/lifeos --plan --json": {
+  "slug": "93fd5a63046dd9fd",
+  "rc": 2,
+  "ids": [
+   "REQ-061-CMD07"
+  ],
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "ed4cb7469d244b48af618478a0d50ff06c6591dc1ee9da7d18d1c79e7654d0d0",
+  "stdout_bytes": 0,
+  "stderr_bytes": 321
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db widget roots --json": {
+  "slug": "902589590f12e562",
+  "rc": 0,
+  "ids": [
+   "REQ-061-CMD08"
+  ],
+  "stdout_sha256": "40205d8b776097dd9bd21ac2488a32aa477388d223d50aa2148b6f78897d462f",
+  "stderr_sha256": "0396d1d04edcffa205bf480c1ac27fbabbdf6f997d12a664338d6c6f5f36daa5",
+  "stdout_bytes": 3101,
+  "stderr_bytes": 162
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db widget refs --symbol META_ROOT --json": {
+  "slug": "ab25576fe175187e",
+  "rc": 2,
+  "ids": [
+   "REQ-061-CMD09"
+  ],
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "3d1e8455e4bc14f6bf3630a342d37b80d768ae89f6b2b49b4c0183ba8ec7ccb9",
+  "stdout_bytes": 0,
+  "stderr_bytes": 301
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db widget hooks --json": {
+  "slug": "40de57e1c564e42a",
+  "rc": 0,
+  "ids": [
+   "REQ-061-CMD10"
+  ],
+  "stdout_sha256": "3f5577463e8582a98e64c47bd77738e07d84de45d39f6467d1d8339620311f23",
+  "stderr_sha256": "aea316ffc9c37b3f9c8cb3b29774dc4c4eba54eba0647d9cd6c0aad3ea69eb94",
+  "stdout_bytes": 5492,
+  "stderr_bytes": 162
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db watch --repo-root ../envctl --json": {
+  "slug": "97a96aaee42718f4",
+  "rc": 2,
+  "ids": [
+   "REQ-061-CMD11"
+  ],
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "a3cbd1650e4abf2c43bf717031ef040c697a05d05ec4ca5d9229795a34a23584",
+  "stdout_bytes": 0,
+  "stderr_bytes": 295
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db refactor root-alias --from META_ROOT --to LIFE_OS_ROOT --target-profile lifeos-release --json": {
+  "slug": "f62e4e11cc5d8206",
+  "rc": 2,
+  "ids": [
+   "REQ-061-AC04"
+  ],
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "1c432e90f109f8e2949bf7bea228a8bc7920609d45d7d1d955d1bc75ffb12226",
+  "stdout_bytes": 0,
+  "stderr_bytes": 380
+ },
+ "cargo test --manifest-path ../envctl/Cargo.toml -p envctl-engine": {
+  "slug": "66d902e9e83ee86e",
+  "rc": 0,
+  "ids": [],
+  "stdout_sha256": "5f49289b9cc281b21e10873580cd55e2f1dfea67c4f0577c174ff0c558a4259c",
+  "stderr_sha256": "9c3fda8f7430526ff644a93307bf2e7863c5d55c580d1bd56efceb1d49ea3a8c",
+  "stdout_bytes": 17115,
+  "stderr_bytes": 1675
+ },
+ "cd ../envctl && bash ci/gates/no-c.sh": {
+  "slug": "c9154bc063673ee7",
+  "rc": 0,
+  "ids": [],
+  "stdout_sha256": "e5c8aceba01937e2abb37d48b8a82741e3eec524d0949bce9f14d7ac81b1460b",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_bytes": 202,
+  "stderr_bytes": 0
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db --repo-root ../envctl symbols --json": {
+  "slug": "5ecdd6d5165feca8",
+  "rc": 0,
+  "ids": [],
+  "stdout_sha256": "90271c16c6f91b6bf44f7d19886f2ecf88a54db390910d2b7d2f390db003c41f",
+  "stderr_sha256": "69eee5ed4c69319bb3cec0bd08372ef8d92a9791fb58ec785dc632036bc4f61b",
+  "stdout_bytes": 44408265,
+  "stderr_bytes": 179
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db --repo-root ../envctl widget refs --json": {
+  "slug": "458d131391a54079",
+  "rc": 0,
+  "ids": [],
+  "stdout_sha256": "1c2e734fe4098c07013939b02e0d691b61f4b34a524fe179ef6f9ae8bef9f484",
+  "stderr_sha256": "192157db9682469a2e86d9111f1c4fd597c15ff0b7cbdb5b68af961d7289cd3c",
+  "stdout_bytes": 22822756,
+  "stderr_bytes": 183
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db deploy --kind hooks --target /tmp/claude-1001/lifeos-deploy-test --json": {
+  "slug": "624e25ba4b394f14",
+  "rc": 0,
+  "ids": [],
+  "stdout_sha256": "a1da828386940f26a60d7824182b1c7b071587c7b5791fd16a0e339e330c636f",
+  "stderr_sha256": "5c787b33b5b930c3d8748ee42d170df02e87e7f3919eebf7d6d30983eef6b023",
+  "stdout_bytes": 130,
+  "stderr_bytes": 214
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db --repo-root ../envctl scan --json && cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db --repo-root ../envctl watch --json": {
+  "slug": "27c6580ad3ec3bc2",
+  "rc": 0,
+  "ids": [],
+  "stdout_sha256": "720284b97b9fdf56e5e487c4e7fac8c9d1be8044ef8128307f83fd5f7fe4959a",
+  "stderr_sha256": "15e0d67f2fee38dc77c850702e7b8b5038ebcbf048e8612cd1014dae83d4b448",
+  "stdout_bytes": 4031040,
+  "stderr_bytes": 353
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db --repo-root ../envctl refactor --from META_ROOT --to LIFE_OS_ROOT --render-out /tmp/claude-1001/envctl-lifeos-refactor --json": {
+  "slug": "6ecc961bd3d5bfe0",
+  "rc": 0,
+  "ids": [],
+  "stdout_sha256": "37dd5439a6055055d4c91806a8afc2b9b39d2aa311f943a24bcb187b19f36f96",
+  "stderr_sha256": "3a2c006a300ff76dcada6a27b0f1de8c817519bd9a6e7580cb8f37937811402a",
+  "stdout_bytes": 496538,
+  "stderr_bytes": 268
+ },
+ "cargo run --manifest-path ../envctl/Cargo.toml -p envctl -- db --repo-root ../envctl refactor --from META_ROOT --to LIFE_OS_ROOT --json": {
+  "slug": "bae7912892345b4e",
+  "rc": 0,
+  "ids": [],
+  "stdout_sha256": "f16e19248b8c8f4977acfd5a60144c6b0ff33fb023c9e4b5973ea938d1cd20f4",
+  "stderr_sha256": "7c69cf7f7f736ddb0261f352242762b8e5026b0fd4cb26ffad5550432095f4b5",
+  "stdout_bytes": 482677,
+  "stderr_bytes": 215
+ },
+ "cargo fmt --all --check && cargo clippy --workspace --all-targets --all-features && cargo test --workspace": {
+  "slug": "633eb9ef61c84abe",
+  "rc": 0,
+  "ids": [],
+  "stdout_sha256": "9afee6a9bc57d152a082a5ece0964bc4a2d5f13207fe4a307790e12b217c33a5",
+  "stderr_sha256": "20fd38cd39c3bf54113313d7cbc5da7760402a67cd67ab29f4fd3579c616519c",
+  "stdout_bytes": 21272,
+  "stderr_bytes": 3348
+ },
+ "cargo fmt --all --check && cargo clippy --workspace --all-targets --all-features && cargo test --workspace --all-features": {
+  "slug": "1a2099eb5fdff115",
+  "rc": 101,
+  "ids": [],
+  "stdout_sha256": "9441bcdc8d231a4d9cabbbe077aa3297be849bf5a2d74176223f7e300dad2c79",
+  "stderr_sha256": "ade4fe087b5e14939a66132e95770f72332116fe1174036157ac39d0033867a0",
+  "stdout_bytes": 22835,
+  "stderr_bytes": 2752
+ }
+}

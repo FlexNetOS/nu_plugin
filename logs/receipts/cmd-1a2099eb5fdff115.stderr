@@ -1,0 +1,30 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+   Compiling codedb v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.09s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/main.rs (target/debug/deps/codedb-17c08a3bff06bb57)
+     Running tests/relative_repo_path.rs (target/debug/deps/relative_repo_path-1ac33db1770fb0a6)
+     Running unittests src/lib.rs (target/debug/deps/codedb_build_capture-018c2d66eea18238)
+     Running unittests src/lib.rs (target/debug/deps/codedb_cargo-86951e0861ed0f1f)
+     Running unittests src/lib.rs (target/debug/deps/codedb_context-938c60de826b9da4)
+     Running tests/host_detection.rs (target/debug/deps/host_detection-ecd649b4b0bcbd2a)
+     Running tests/runtime_context.rs (target/debug/deps/runtime_context-12b6cf079c354f32)
+     Running unittests src/lib.rs (target/debug/deps/codedb_core-cc41e2d738944830)
+     Running tests/capture_policy.rs (target/debug/deps/capture_policy-1738edc7d7eccd9e)
+     Running tests/contained_reads.rs (target/debug/deps/contained_reads-2cb8f3adaacce0db)
+     Running tests/materialization_paths.rs (target/debug/deps/materialization_paths-7823b0210674170c)
+     Running tests/secret_classifier.rs (target/debug/deps/secret_classifier-b202cb7600f3b714)
+     Running tests/store_migrations.rs (target/debug/deps/store_migrations-7c4aad2239217dc1)
+     Running tests/store_spec.rs (target/debug/deps/store_spec-de4e472f0e343800)
+     Running unittests src/lib.rs (target/debug/deps/codedb_fixtures-0a84a5d6ca7dfd88)
+     Running unittests src/lib.rs (target/debug/deps/codedb_mcp-b0b3675b080a1d11)
+     Running unittests src/main.rs (target/debug/deps/codedb_mcp-760bd4b3308b3ad7)
+     Running tests/policy_and_stdio.rs (target/debug/deps/policy_and_stdio-bc95d881924a8528)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/codedb_rust_static-98fdfbeaf407a278)
+     Running unittests src/lib.rs (target/debug/deps/codedb_store_pg-bf1c9b18e10e2ac8)
+     Running tests/blobstore_parity.rs (target/debug/deps/blobstore_parity-0ccf777921a91087)
+error: test failed, to rerun pass `-p codedb-store-pg --test blobstore_parity`

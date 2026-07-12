@@ -29,3 +29,18 @@ current_validation:
 
 Acceptance signal:
 - CSV has exact current package links, evidence logs exist, and validation passes
+
+current_validation_utc: 2026-07-12T21:03:01Z
+current_validation_upgrade:
+- RED four focused regressions failed before validator implementation
+- PASS command ledger rows have exactly nine fields
+- PASS all 66 complete TASK_GRAPH rows use evidence_files_present
+- PASS all 4 planned TASK_GRAPH rows use pending_task_execution
+- PASS no TASK_GRAPH/TASK_FILE_MAP path contains __pycache__ or .pyc
+- PASS TASK_GRAPH.md has 70 rows and exact CSV field/status parity
+- PASS python3 scripts/repair_cdb068_execution_truth.py --check
+- PASS python3 tests/test_task_graph_validator.py (15 tests)
+- PASS python3 scripts/validate_task_graph.py --structure-only
+- PASS git diff --check
+
+redaction: no raw secrets recorded

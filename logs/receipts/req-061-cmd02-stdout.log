@@ -1,0 +1,40 @@
+[
+  {
+    "root_id": "root-meta",
+    "kind": "meta_root",
+    "role": "observed_current",
+    "var_names": [
+      "META_ROOT"
+    ],
+    "absolute_path": null,
+    "token_forms": [
+      "$META_ROOT",
+      "${META_ROOT}",
+      "META_ROOT"
+    ],
+    "source": "observed-env",
+    "precedence": 100,
+    "active": true,
+    "target_profile": "current",
+    "verifier_status": "observed"
+  },
+  {
+    "root_id": "root-lifeos",
+    "kind": "life_os_root",
+    "role": "release_target",
+    "var_names": [
+      "LIFE_OS_ROOT"
+    ],
+    "absolute_path": null,
+    "token_forms": [
+      "$LIFE_OS_ROOT",
+      "${LIFE_OS_ROOT}",
+      "LIFE_OS_ROOT"
+    ],
+    "source": "release-profile",
+    "precedence": 90,
+    "active": true,
+    "target_profile": "lifeos-release",
+    "verifier_status": "declared"
+  }
+]

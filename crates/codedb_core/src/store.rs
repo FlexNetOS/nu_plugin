@@ -15,8 +15,8 @@ use std::path::{Component, Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::SchemaVersion;
 pub use crate::store_spec::StoreBackend;
+use crate::{SchemaVersion, SymlinkMaterializationStatus};
 
 #[cfg(unix)]
 use std::ffi::{OsStr, OsString};
@@ -64,6 +64,14 @@ pub struct MaterializedFile {
     pub blob_ref: String,
     pub sha256: String,
     pub bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterializedSymlink {
+    pub path: PathBuf,
+    pub target: String,
+    pub status: SymlinkMaterializationStatus,
+    pub link_created: bool,
 }
 
 /// Exact authority to roll back one successful atomic publication.
@@ -432,6 +440,142 @@ pub fn prepare_materialization_path(
     let lexical = safe_materialization_path(output_root, relative_path)?;
     prepare_materialization_path_impl(output_root, relative_path)?;
     Ok(lexical)
+}
+
+/// Report the symlink publication mode CodeDB can safely provide on this host.
+///
+/// Native publication currently requires Linux descriptor-relative operations.
+/// Every other host preserves the captured path and target as metadata without
+/// creating a regular-file substitute.
+pub const fn platform_symlink_materialization_status() -> SymlinkMaterializationStatus {
+    if cfg!(target_os = "linux") {
+        SymlinkMaterializationStatus::Supported
+    } else {
+        SymlinkMaterializationStatus::MetadataOnlyFallback
+    }
+}
+
+/// Restore one captured symlink or return a deterministic metadata-only report.
+///
+/// `status` is explicit so callers can persist and test the complete platform
+/// capability matrix. The fallback path validates the same portable path and
+/// target grammar as native publication, but never creates the output root or
+/// substitutes link metadata with regular-file bytes.
+pub fn materialize_symlink(
+    output_root: &Path,
+    relative_path: &str,
+    target: &str,
+    status: SymlinkMaterializationStatus,
+) -> Result<MaterializedSymlink, StoreError> {
+    let path = safe_materialization_path(output_root, relative_path)?;
+    validate_materialization_symlink_target(relative_path, target)?;
+
+    if status == SymlinkMaterializationStatus::MetadataOnlyFallback {
+        return Ok(MaterializedSymlink {
+            path,
+            target: target.to_string(),
+            status,
+            link_created: false,
+        });
+    }
+
+    materialize_symlink_impl(&path, target)?;
+    Ok(MaterializedSymlink {
+        path,
+        target: target.to_string(),
+        status,
+        link_created: true,
+    })
+}
+
+fn validate_materialization_symlink_target(
+    relative_path: &str,
+    target: &str,
+) -> Result<(), StoreError> {
+    if target.is_empty()
+        || target.contains('\0')
+        || target.contains('\\')
+        || target.starts_with('/')
+        || (target.as_bytes().get(1) == Some(&b':')
+            && target
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphabetic))
+    {
+        return Err(StoreError::new(format!(
+            "unsafe symlink materialization target: {target:?}"
+        )));
+    }
+
+    let mut depth = Path::new(relative_path)
+        .parent()
+        .into_iter()
+        .flat_map(Path::components)
+        .filter(|component| matches!(component, Component::Normal(_)))
+        .count();
+    for component in Path::new(target).components() {
+        match component {
+            Component::Normal(value) if !value.is_empty() => depth += 1,
+            Component::CurDir => {}
+            Component::ParentDir if depth > 0 => depth -= 1,
+            Component::ParentDir => {
+                return Err(StoreError::new(format!(
+                    "symlink materialization target escapes output root: {target:?}"
+                )));
+            }
+            _ => {
+                return Err(StoreError::new(format!(
+                    "unsafe symlink materialization target component: {target:?}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn materialize_symlink_impl(output_path: &Path, target: &str) -> Result<(), StoreError> {
+    use rustix::fs::AtFlags;
+
+    let parent_path = output_path
+        .parent()
+        .ok_or_else(|| StoreError::new("symlink materialization output has no parent"))?;
+    let final_name = output_path
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| StoreError::new("symlink materialization output has no file name"))?;
+    let parent = open_or_create_directory_chain(parent_path)?;
+
+    rustix::fs::symlinkat(target, &parent, final_name).map_err(|error| {
+        if error == rustix::io::Errno::EXIST {
+            StoreError::new(format!(
+                "symlink materialization destination exists; no-replace publication refused: {}",
+                output_path.display()
+            ))
+        } else {
+            StoreError::new(format!(
+                "descriptor-relative symlink materialization failed: {error}"
+            ))
+        }
+    })?;
+
+    if let Err(error) = rustix::fs::fsync(&parent) {
+        let cleanup = rustix::fs::unlinkat(&parent, final_name, AtFlags::empty());
+        return Err(StoreError::new(match cleanup {
+            Ok(()) => format!("fsync symlink materialization directory failed: {error}"),
+            Err(cleanup_error) => format!(
+                "fsync symlink materialization directory failed: {error}; cleanup failed: {cleanup_error}"
+            ),
+        }));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn materialize_symlink_impl(_output_path: &Path, _target: &str) -> Result<(), StoreError> {
+    Err(StoreError::new(
+        "native descriptor-relative symlink materialization is unavailable on this platform",
+    ))
 }
 
 #[cfg(unix)]

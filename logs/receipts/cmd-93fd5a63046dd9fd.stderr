@@ -1,0 +1,7 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `/home/flexnetos/meta/src/envctl/target/debug/envctl db deploy hooks --target /tmp/lifeos --plan --json`
+error: unexpected argument 'hooks' found
+
+Usage: envctl db deploy [OPTIONS] --target <TARGET>
+
+For more information, try '--help'.

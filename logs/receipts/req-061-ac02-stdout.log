@@ -1,0 +1,24 @@
+{
+  "rows": [
+    {
+      "absolute_path": "./logs/receipts/cmd-fdd42e7890360763.stdout",
+      "byte_end": 17,
+      "byte_start": 7,
+      "confidence": "parsed",
+      "file_id": "file:8296ec64fcf9b8b495c6aac0df16e5f2e5061ee14b5c961d1891ed90e389f3a2",
+      "kind": "path_token",
+      "line_end": 11,
+      "line_start": 11,
+      "mutable_policy": "read_only",
+      "name": "META_ROOT",
+      "normalized_name": "META_ROOT",
+      "owner_component": null,
+      "scope": null,
+      "symbol_id": "sym:path:META_ROOT",
+      "target_profile": null,
+      "value": null
+    }
+  ],
+  "row_count": 1,
+  "explain": null
+}

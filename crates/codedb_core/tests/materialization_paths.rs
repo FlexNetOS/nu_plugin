@@ -1,9 +1,11 @@
 use std::path::Path;
 
 use codedb_core::store::{
-    atomic_materialize_file, prepare_materialization_path, rollback_materialized_file,
-    safe_materialization_path, take_materialized_file_rollback,
+    atomic_materialize_file, materialize_symlink, platform_symlink_materialization_status,
+    prepare_materialization_path, rollback_materialized_file, safe_materialization_path,
+    take_materialized_file_rollback,
 };
+use codedb_core::{FilesystemEntryKind, SymlinkMaterializationStatus, scan_filesystem};
 use sha2::{Digest, Sha256};
 
 #[test]
@@ -32,6 +34,133 @@ fn accepts_only_normal_portable_relative_paths() {
             "unsafe path was accepted: {unsafe_path:?}"
         );
     }
+}
+
+#[test]
+fn platform_symlink_status_matches_the_available_publication_primitive() {
+    let expected = if cfg!(target_os = "linux") {
+        SymlinkMaterializationStatus::Supported
+    } else {
+        SymlinkMaterializationStatus::MetadataOnlyFallback
+    };
+    assert_eq!(platform_symlink_materialization_status(), expected);
+}
+
+#[test]
+fn unsupported_platform_symlink_materialization_is_deterministic_metadata_only() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory");
+    let output_root = temporary_directory.path().join("output-root");
+
+    let first = materialize_symlink(
+        &output_root,
+        "links/current",
+        "../targets/current",
+        SymlinkMaterializationStatus::MetadataOnlyFallback,
+    )
+    .expect("metadata-only fallback");
+    let second = materialize_symlink(
+        &output_root,
+        "links/current",
+        "../targets/current",
+        SymlinkMaterializationStatus::MetadataOnlyFallback,
+    )
+    .expect("repeat metadata-only fallback");
+
+    assert_eq!(first, second, "fallback reports must be deterministic");
+    assert_eq!(
+        first.status,
+        SymlinkMaterializationStatus::MetadataOnlyFallback
+    );
+    assert_eq!(first.path, output_root.join("links/current"));
+    assert_eq!(first.target, "../targets/current");
+    assert!(!first.link_created);
+    assert!(
+        !output_root.exists(),
+        "metadata-only fallback must not mutate the output tree"
+    );
+
+    let error = materialize_symlink(
+        &output_root,
+        "links/current",
+        "../../outside",
+        SymlinkMaterializationStatus::MetadataOnlyFallback,
+    )
+    .expect_err("escaping fallback target must be rejected");
+    assert!(error.message().contains("escapes output root"));
+    assert!(!output_root.exists());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_supported_symlink_materialization_restores_link_metadata_and_target() {
+    assert_eq!(
+        platform_symlink_materialization_status(),
+        SymlinkMaterializationStatus::Supported
+    );
+    let temporary_directory = tempfile::tempdir().expect("temporary directory");
+    let source_root = temporary_directory.path().join("source-root");
+    std::fs::create_dir_all(source_root.join("links")).expect("source link parent");
+    std::fs::create_dir_all(source_root.join("targets")).expect("source target parent");
+    std::fs::write(source_root.join("targets/current"), b"restored target")
+        .expect("source target bytes");
+    std::os::unix::fs::symlink("../targets/current", source_root.join("links/current"))
+        .expect("source symlink");
+    let entries = scan_filesystem(&source_root).expect("scan source symlink metadata");
+    let captured = entries
+        .iter()
+        .find(|entry| entry.relative_path == "links/current")
+        .expect("captured symlink row");
+    assert_eq!(captured.kind, FilesystemEntryKind::Symlink);
+    assert!(captured.is_symlink);
+    assert_eq!(
+        captured.symlink_target.as_deref(),
+        Some("../targets/current")
+    );
+
+    let output_root = temporary_directory.path().join("output-root");
+    std::fs::create_dir_all(output_root.join("targets")).expect("target parent");
+    std::fs::write(output_root.join("targets/current"), b"restored target").expect("target bytes");
+
+    let report = materialize_symlink(
+        &output_root,
+        &captured.relative_path,
+        captured.symlink_target.as_deref().expect("captured target"),
+        SymlinkMaterializationStatus::Supported,
+    )
+    .expect("native symlink materialization");
+
+    assert_eq!(report.status, SymlinkMaterializationStatus::Supported);
+    assert_eq!(report.path, output_root.join("links/current"));
+    assert_eq!(report.target, "../targets/current");
+    assert!(report.link_created);
+    assert!(
+        std::fs::symlink_metadata(&report.path)
+            .expect("symlink metadata")
+            .file_type()
+            .is_symlink(),
+        "supported materialization must publish a symlink, not a regular file"
+    );
+    assert_eq!(
+        std::fs::read_link(&report.path).expect("read link target"),
+        Path::new("../targets/current")
+    );
+    assert_eq!(
+        std::fs::read(&report.path).expect("follow restored link"),
+        b"restored target"
+    );
+
+    let error = materialize_symlink(
+        &output_root,
+        &captured.relative_path,
+        "../targets/replacement",
+        SymlinkMaterializationStatus::Supported,
+    )
+    .expect_err("native symlink publication must not replace an existing entry");
+    assert!(error.message().contains("no-replace"));
+    assert_eq!(
+        std::fs::read_link(&report.path).expect("original link remains"),
+        Path::new("../targets/current")
+    );
 }
 
 #[cfg(unix)]

@@ -368,6 +368,7 @@ def audit_ledger(
     attestation_bundle_path: Path | None = None,
     signer_workflow: str | None = None,
     direct_evidence: bool = False,
+    local_release: bool = False,
 ) -> list[Violation]:
     root = root.resolve()
     if receipt_path is None:
@@ -428,7 +429,26 @@ def audit_ledger(
                     Violation("*", failure.rule, failure.detail)
                     for failure in failures
                 )
-                if not failures:
+                if not failures and local_release:
+                    # Owner-authorized local release: a genuine external receipt
+                    # is still mandatory and validate_receipt() above ran
+                    # unchanged (full binding to live repository/commit/tree/
+                    # ledger-sha/validator-sha, clean worktree, per-row command
+                    # exit codes, typed evidence, embedded-signature rejection).
+                    # We additionally pin honest provenance labeling and skip
+                    # ONLY the detached GitHub signature. The default (release)
+                    # lane is untouched and still requires the signed bundle.
+                    provider = (receipt.get("generator") or {}).get("provider")
+                    if provider != "local":
+                        receipt_violations.append(
+                            Violation(
+                                "*",
+                                "local-release requires local provider receipt",
+                                "generator.provider must be 'local'; "
+                                f"got {provider!r}",
+                            )
+                        )
+                elif not failures:
                     if attestation_bundle_path is None:
                         receipt_violations.append(
                             Violation(
@@ -507,6 +527,17 @@ def main() -> int:
             "requiring the detached receipt currently being created"
         ),
     )
+    mode.add_argument(
+        "--local-release",
+        action="store_true",
+        help=(
+            "Owner-authorized local release: require a genuine external receipt "
+            "with generator.provider=='local' and run the full receipt integrity "
+            "check, but accept it in place of the detached GitHub attestation. "
+            "The default (release) lane is unchanged and still requires the "
+            "signed bundle; this flag never relaxes validate_receipt()."
+        ),
+    )
     parser.add_argument(
         "--receipt",
         type=Path,
@@ -534,6 +565,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.local_release and (args.attestation_bundle or args.signer_workflow):
+        parser.error(
+            "--local-release is mutually exclusive with the GitHub attestation "
+            "flags (--attestation-bundle / --signer-workflow); a local release "
+            "cannot borrow a detached signature."
+        )
+
     violations = audit_ledger(
         args.root,
         require_all_verified=not args.structure_only,
@@ -541,6 +579,7 @@ def main() -> int:
         attestation_bundle_path=args.attestation_bundle,
         signer_workflow=args.signer_workflow,
         direct_evidence=args.direct_evidence,
+        local_release=args.local_release,
     )
     if violations:
         print("requirement proof ledger: FAILED")
@@ -551,6 +590,8 @@ def main() -> int:
         if args.structure_only
         else "direct-evidence"
         if args.direct_evidence
+        else "local-release"
+        if args.local_release
         else "release"
     )
     print(

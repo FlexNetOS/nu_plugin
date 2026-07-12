@@ -1,0 +1,55 @@
+#![feature /* 839#0 */(prelude_import /* 1467#0 */)]
+extern crate std /* 1878#1 */;
+#[prelude_import /* 1467#1 */]
+use std /* 1878#1 */::prelude /* 1466#1 */::rust_2021 /* 1599#1 */::*;
+macro_rules! make_answer
+    /*
+    2358#0
+    */ {
+    () =>
+    {
+        pub /* 23#0 */ fn /* 12#0 */ generated_answer /* 2359#0 */() -> u32 /*
+        2031#0 */ { 42 }
+    };
+}
+
+macro_rules! add_one_with_hygienic_local
+    /*
+    2361#0
+    */ {
+    ($value /* 2136#0 */:expr /* 807#0 */) =>
+    {{
+            let /* 17#0 */ macro_local /* 2362#0 */ = $value /* 2136#0 */;
+            macro_local /* 2362#0 */ + 1
+        }};
+}
+pub fn generated_answer /* 2359#4 */() -> u32 /* 2031#4 */ { 42 }
+
+
+pub fn call_generated /* 2363#0 */() -> u32 /* 2031#0 */ {
+    generated_answer /* 2359#0 */()
+}
+
+pub fn call_hygienic_local /* 2364#0 */() -> u32 /* 2031#0 */ {
+    let macro_local /* 2362#0 */ = 0;
+    let result /* 1572#0 */ =
+        { let macro_local /* 2362#5 */ = 41; macro_local /* 2362#5 */ + 1 };
+    macro_local /* 2362#0 */ + result /* 1572#0 */
+}
+
+/*
+Expansions:
+crate0::{{expn0}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: Root
+crate0::{{expn1}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: AstPass(StdImports)
+crate0::{{expn2}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: Macro(Bang, "make_answer")
+crate0::{{expn3}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: Macro(Bang, "add_one_with_hygienic_local")
+crate1::{{expn1}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: AstPass(StdImports)
+
+SyntaxContexts:
+#0: parent: #0, outer_mark: (crate0::{{expn0}}, Opaque)
+#1: parent: #0, outer_mark: (crate0::{{expn1}}, Opaque)
+#2: parent: #0, outer_mark: (crate0::{{expn1}}, Transparent)
+#3: parent: #0, outer_mark: (crate1::{{expn1}}, Opaque)
+#4: parent: #0, outer_mark: (crate0::{{expn2}}, SemiOpaque)
+#5: parent: #0, outer_mark: (crate0::{{expn3}}, SemiOpaque)
+*/

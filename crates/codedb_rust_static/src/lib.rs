@@ -389,6 +389,30 @@ pub struct CompilerEvidenceReport {
     pub operator_instructions: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovedCompilerEvidenceRequest {
+    pub repo_path: PathBuf,
+    pub source_path: PathBuf,
+    pub evidence_dir: PathBuf,
+    pub approver: String,
+    pub task_id: String,
+    pub before_state: String,
+    pub cleanup_plan: String,
+    pub options: CompilerEvidenceOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovedCompilerEvidenceOutcome {
+    pub approval_id: String,
+    pub repo_path: PathBuf,
+    pub evidence_dir: PathBuf,
+    pub approver: String,
+    pub task_id: String,
+    pub before_state: String,
+    pub cleanup_plan: String,
+    pub report: CompilerEvidenceReport,
+}
+
 impl CompilerEvidenceReport {
     pub fn artifact(
         &self,
@@ -1338,6 +1362,96 @@ pub fn capture_compiler_evidence(
         "compiler execution requires an opaque request-bound capability; boolean and request-shaped data cannot authorize execution",
         operator_instructions,
     )
+}
+
+/// Runs the production compiler-observed lane after validating complete
+/// operator provenance and an evidence destination outside the source repo.
+///
+/// The authority, capability, and raw executor remain crate-private. Callers
+/// receive only the approved outcome and cannot mint or replay a capability.
+pub fn capture_approved_compiler_evidence(
+    request: ApprovedCompilerEvidenceRequest,
+) -> Result<ApprovedCompilerEvidenceOutcome, String> {
+    if !request.options.enabled {
+        return Err("approved compiler evidence requires enabled execution intent".to_string());
+    }
+    for (field, value) in [
+        ("approver", request.approver.as_str()),
+        ("task_id", request.task_id.as_str()),
+        ("before_state", request.before_state.as_str()),
+        ("cleanup_plan", request.cleanup_plan.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(format!("approved compiler evidence requires non-empty {field}"));
+        }
+    }
+
+    let repo_path = request
+        .repo_path
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve compiler source repository: {error}"))?;
+    let source_path = request
+        .source_path
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve compiler source file: {error}"))?;
+    if !source_path.is_file() || !source_path.starts_with(&repo_path) {
+        return Err("compiler source must be a regular file inside the selected repository".into());
+    }
+    if !request.evidence_dir.is_absolute()
+        || request
+            .evidence_dir
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err("compiler evidence directory must be an absolute normalized path".into());
+    }
+    let evidence_parent = request
+        .evidence_dir
+        .parent()
+        .ok_or_else(|| "compiler evidence directory must have a parent".to_string())?
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve compiler evidence parent: {error}"))?;
+    let evidence_dir = evidence_parent.join(
+        request
+            .evidence_dir
+            .file_name()
+            .ok_or_else(|| "compiler evidence directory must have a final name".to_string())?,
+    );
+    if evidence_dir.starts_with(&repo_path) {
+        return Err("compiler evidence directory must be outside the source repository".into());
+    }
+
+    let approval_id = sha256_bytes(
+        format!(
+            "{}\0{}\0{}\0{}\0{}\0{}\0{}",
+            repo_path.display(),
+            source_path.display(),
+            evidence_dir.display(),
+            request.approver,
+            request.task_id,
+            request.before_state,
+            request.cleanup_plan,
+        )
+        .as_bytes(),
+    );
+    let authority = CompilerExecutionApprovalAuthority::new()?;
+    let capability = authority.approve(&source_path, &request.options)?;
+    let report = capture_compiler_evidence_with_capability(
+        &authority,
+        capability,
+        &source_path,
+        request.options,
+    );
+    Ok(ApprovedCompilerEvidenceOutcome {
+        approval_id,
+        repo_path,
+        evidence_dir,
+        approver: request.approver,
+        task_id: request.task_id,
+        before_state: request.before_state,
+        cleanup_plan: request.cleanup_plan,
+        report,
+    })
 }
 
 /// Runs compiler-observed capture only after validating a single-use,
@@ -4017,6 +4131,8 @@ fn relative_path(root: &Path, path: &Path) -> Result<String, RustStaticError> {
 }
 
 #[cfg(test)]
+mod compiler_broker;
+#[cfg(test)]
 mod compiler_execution_gate_tests;
 #[cfg(test)]
 mod compiler_observed_tests;
@@ -4025,7 +4141,6 @@ mod tests {
     // Test lane: default
 
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     // Defends: CDB022 captures simple static Rust items deterministically without semantic overclaim.
     #[test]
@@ -4908,22 +5023,59 @@ fn main() {
         );
     }
 
+    #[test]
+    fn fixture_workspace_roots_are_reserved_and_collision_free() {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    (0..16)
+                        .map(|_| {
+                            let workspace = FixtureWorkspace::new();
+                            workspace.write("src/lib.rs", "pub fn probe() {}\n");
+                            workspace
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut workspaces: Vec<FixtureWorkspace> = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().expect("fixture thread"))
+            .collect();
+        let mut roots: Vec<_> = workspaces
+            .iter()
+            .map(|workspace| workspace.root.clone())
+            .collect();
+        roots.sort();
+        roots.dedup();
+        assert_eq!(
+            roots.len(),
+            workspaces.len(),
+            "fixture roots must be unique so one Drop can never delete a live sibling"
+        );
+        let survivor = workspaces.pop().expect("at least one workspace");
+        drop(workspaces);
+        assert!(
+            survivor.root.join("src/lib.rs").is_file(),
+            "dropping sibling workspaces must not remove another workspace's files"
+        );
+    }
+
     struct FixtureWorkspace {
         root: PathBuf,
     }
 
     impl FixtureWorkspace {
         fn new() -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock before unix epoch")
-                .as_nanos();
+            static NEXT_FIXTURE_ID: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+            let sequence = NEXT_FIXTURE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let root = std::env::temp_dir().join(format!(
                 "codedb_rust_static_fixture_{}_{}",
                 std::process::id(),
-                nonce
+                sequence
             ));
-            fs::create_dir_all(&root).expect("create fixture root");
+            fs::create_dir(&root).expect("reserve unique fixture root");
             Self { root }
         }
 

@@ -1,5 +1,6 @@
 import importlib.util
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -32,6 +33,37 @@ class TruthSurfaceTests(unittest.TestCase):
             (repo / "host-local.txt").write_text("host local\n", encoding="utf-8")
 
             self.assertEqual(truth_surface.included_files(repo), ["tracked.txt"])
+
+    def test_cli_round_trip_detects_tracked_mutation_and_reseal_restores_truth(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repo = Path(temporary_directory)
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            tracked = repo / "tracked.txt"
+            tracked.write_text("original\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repo, check=True)
+
+            def run_truth_surface(mode: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    [sys.executable, str(SCRIPT_PATH), mode],
+                    cwd=repo,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
+            self.assertEqual(run_truth_surface("--write").returncode, 0)
+            subprocess.run(["git", "add", "manifests"], cwd=repo, check=True)
+            self.assertEqual(run_truth_surface("--check").returncode, 0)
+            self.assertEqual(run_truth_surface("--check-source").returncode, 0)
+
+            tracked.write_text("mutated\n", encoding="utf-8")
+            stale = run_truth_surface("--check-source")
+            self.assertEqual(stale.returncode, 1)
+            self.assertIn("sha256 mismatch: tracked.txt", stale.stderr)
+
+            self.assertEqual(run_truth_surface("--write").returncode, 0)
+            self.assertEqual(run_truth_surface("--check").returncode, 0)
+            self.assertEqual(run_truth_surface("--check-source").returncode, 0)
 
 
 if __name__ == "__main__":

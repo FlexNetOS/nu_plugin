@@ -1,0 +1,3 @@
+note: store-crate 'embedded' (in-process C-SQLite) is an unbuilt placeholder; remote-only ships
+resolved graph clean: rustls=['0.23.40'] on ring=['0.17.14']; zero aws-lc/openssl/C-SQLite
+NO-C GATE PASS

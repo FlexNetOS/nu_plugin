@@ -1,0 +1,7 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `/home/flexnetos/meta/src/envctl/target/debug/envctl db symbols --name META_ROOT --json`
+error: unexpected argument '--name' found
+
+Usage: envctl db symbols [OPTIONS]
+
+For more information, try '--help'.

@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl_engine-bbc23b5dd31df612)
+Cloning into '/tmp/envctl-peer-apply-963961/beads_rust'...
+fatal: '/nonexistent-xyz' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+Cloning into '/tmp/envctl-peer-apply-963961/beads_rust'...
+fatal: '/nonexistent-xyz' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+     Running tests/agent_command_parity.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/agent_command_parity-54132e5a1e62258b)
+     Running tests/agent_sync.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/agent_sync-6015ee886841d846)
+     Running tests/agent_sync_parity.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/agent_sync_parity-deaee9d59e40a2d3)
+     Running tests/db_parity.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/db_parity-7343328a55ed48d7)
+     Running tests/db_refactor_fixtures.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/db_refactor_fixtures-09d25cd2b8a772b3)
+     Running tests/engine.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/engine-a4c02f3b8b1c6dac)
+     Running tests/hub_registry.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/hub_registry-4133032511092da4)
+     Running tests/runner_parity.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/runner_parity-4865013050fcb8c4)
+   Doc-tests envctl_engine

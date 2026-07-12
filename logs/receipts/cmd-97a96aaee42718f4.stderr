@@ -1,0 +1,7 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `/home/flexnetos/meta/src/envctl/target/debug/envctl db watch --repo-root ../envctl --json`
+error: unexpected argument '--repo-root' found
+
+Usage: envctl db watch [OPTIONS]
+
+For more information, try '--help'.

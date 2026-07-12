@@ -1,0 +1,2 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `/home/flexnetos/meta/src/envctl/target/debug/envctl db --repo-root ../envctl refactor --from META_ROOT --to LIFE_OS_ROOT --json`

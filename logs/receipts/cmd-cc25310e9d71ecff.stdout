@@ -1,0 +1,12 @@
+
+running 2 tests
+test tests::cargo_source_classifier_covers_registry_git_and_path ... ok
+test tests::captured_metadata_json_projection_is_stable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

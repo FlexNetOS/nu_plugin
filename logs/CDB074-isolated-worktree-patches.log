@@ -16,3 +16,14 @@ tests:
 mutation policy:
 - no source checkout mutation command was added;
 - source apply remains gated by CDB075.
+
+timestamp_utc: 2026-07-12T21:05:37Z
+parallel_fixture_repair:
+- RED temp_fixture_roots_are_reserved_and_collision_free found 104 unique roots for 128 allocations
+- root cause: timestamp-only names were returned before directory reservation
+- FIX process-qualified atomic sequence with create_dir reservation and collision retry
+- PASS focused allocator regression
+- PASS cargo test -q -p codedb-core --lib repeated 50 times
+- PASS 1250 default-parallel core library tests; zero failures
+
+redaction: no raw secrets recorded
