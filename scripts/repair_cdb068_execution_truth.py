@@ -134,6 +134,10 @@ def normalize_ledger() -> str:
 
 def render_projection(rows: list[dict[str, str]]) -> str:
     counts = dict(sorted(Counter(row["status"] for row in rows).items()))
+    first_incomplete = next(
+        (row["task_id"] for row in rows if row["status"] != "complete"),
+        "none",
+    )
     lines = [
         "# TASK GRAPH",
         "",
@@ -152,7 +156,7 @@ def render_projection(rows: list[dict[str, str]]) -> str:
         "- Generated deterministically from: `execution/TASK_GRAPH.csv`",
         f"- Task rows: `{len(rows)}`",
         f"- Status counts: `{counts}`",
-        "- First incomplete implementation task: `CDB013`",
+        f"- First incomplete implementation task: `{first_incomplete}`",
         "- Package repair task: `CDB068`",
         "",
         "## Tasks",

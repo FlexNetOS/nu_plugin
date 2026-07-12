@@ -404,7 +404,8 @@ fn compiler_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
             "capture compiler requires <source.rs> before options".to_string(),
         ));
     }
-    let source_path = fs::canonicalize(source).map_err(|source| CliError::Core(Box::new(source)))?;
+    let source_path =
+        fs::canonicalize(source).map_err(|source| CliError::Core(Box::new(source)))?;
     if !source_path.is_file() {
         return Err(CliError::Message(
             "capture compiler source must be a regular file".to_string(),
@@ -498,13 +499,9 @@ fn compiler_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
     let evidence_parent = evidence_parent
         .canonicalize()
         .map_err(|source| CliError::Core(Box::new(source)))?;
-    let evidence_dir = evidence_parent.join(
-        evidence_dir
-            .file_name()
-            .ok_or_else(|| {
-                CliError::Message("compiler evidence directory must have a final name".to_string())
-            })?,
-    );
+    let evidence_dir = evidence_parent.join(evidence_dir.file_name().ok_or_else(|| {
+        CliError::Message("compiler evidence directory must have a final name".to_string())
+    })?);
     let store = store.expect("validated store option");
     parse_store_spec(store, args)?;
     let edition = strict_option_value(args, "--edition")?.unwrap_or("2024");
@@ -601,7 +598,10 @@ fn persist_compiler_evidence_in_created_dir(
             ("rustdoc_path", toolchain.rustdoc_path.display().to_string()),
             ("rustdoc_version", toolchain.rustdoc_version.clone()),
             ("sysroot", toolchain.sysroot.display().to_string()),
-            ("target_libdir", toolchain.target_libdir.display().to_string()),
+            (
+                "target_libdir",
+                toolchain.target_libdir.display().to_string(),
+            ),
             ("host", toolchain.host.clone()),
             ("toolchain_sha256", toolchain.toolchain_sha256.clone()),
         ]));
@@ -624,10 +624,7 @@ fn persist_compiler_evidence_in_created_dir(
     for artifact in &report.artifacts {
         let filename = compiler_artifact_filename(artifact.kind);
         let evidence_path = outcome.evidence_dir.join(&filename);
-        let store_relative_path = format!(
-            "compiler-evidence/{}/{}",
-            outcome.approval_id, filename
-        );
+        let store_relative_path = format!("compiler-evidence/{}/{}", outcome.approval_id, filename);
         if let Some(output) = &artifact.output {
             write_new_evidence_file(&evidence_path, output.as_bytes())?;
             store_files.push((store_relative_path.clone(), output.as_bytes().to_vec()));
@@ -740,9 +737,10 @@ fn persist_compiler_evidence_in_created_dir(
         .into_iter()
         .map(|receipt| (receipt.relative_path.clone(), receipt))
         .collect::<BTreeMap<_, _>>();
-    for artifact in rows.iter_mut().filter(|row| {
-        row.get("table").map(String::as_str) == Some("compiler_artifacts")
-    }) {
+    for artifact in rows
+        .iter_mut()
+        .filter(|row| row.get("table").map(String::as_str) == Some("compiler_artifacts"))
+    {
         if let Some(receipt) = artifact
             .get("store_relative_path")
             .and_then(|path| persisted.get(path))
@@ -5317,9 +5315,9 @@ mod tests {
     }
 
     // Test lane: default
-    // Defends: CDB090 fails closed while mandatory bidirectional tasks remain active.
+    // Defends: CDB090 reports the completed task graph while release provenance remains mandatory.
     #[test]
-    fn runner_proof_manifest_keeps_bidirectional_release_gate_pending_until_all_tasks_complete() {
+    fn runner_proof_manifest_satisfies_bidirectional_gate_after_all_tasks_complete() {
         let repo = temp_repo();
         fs::create_dir_all(repo.join("src")).expect("create src");
         fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");
@@ -5335,7 +5333,9 @@ mod tests {
         assert!(rows.iter().any(|row| {
             row.get("gate_id")
                 .is_some_and(|gate_id| gate_id == "bidirectional_issue_212")
-                && row.get("status").is_some_and(|status| status == "pending")
+                && row
+                    .get("status")
+                    .is_some_and(|status| status == "satisfied")
                 && row
                     .get("release_without_provenance")
                     .is_some_and(|value| value == "forbidden")
@@ -5345,7 +5345,7 @@ mod tests {
                     .is_some_and(|value| value == "proven")
                 && row
                     .get("active_task_count")
-                    .is_some_and(|value| value == "14")
+                    .is_some_and(|value| value == "0")
         }));
 
         let _ = fs::remove_dir_all(repo);

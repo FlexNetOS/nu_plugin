@@ -41,12 +41,17 @@ mode bits so executable source artifacts keep their executable state when
 restored into an isolated output path. Raw blob capture records an explicit
 permission-capture gap because it has no source filesystem metadata.
 
-Generated `OUT_DIR` reproduction is represented by a CDB080 gap until dynamic
-capture emits checksum-bound generated artifact manifests.
+Approved `codedb capture build` persists checksum-bound generated `OUT_DIR`
+artifacts and a content-addressed receipt. `codedb reproduce --approval-id`
+restores the exact bytes into an isolated artifact directory and verifies each
+checksum. The production CLI integration test proves both reproduction and
+source-tree immutability.
 
 CDB081 models symlink materialization as platform-dependent capability rows.
-When link creation is unavailable, CodeDB preserves link metadata and target
-paths as a `metadata_only_fallback` instead of writing a regular file.
+On Linux, link publication is descriptor-relative, no-follow, durable, and
+no-replace. When link creation is unavailable, CodeDB deterministically
+preserves link metadata and target paths as a `metadata_only_fallback` instead
+of writing a regular file.
 
 ## CDB074 Isolated Patch Proof
 
