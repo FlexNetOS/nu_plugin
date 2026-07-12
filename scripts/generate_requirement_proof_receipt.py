@@ -87,7 +87,9 @@ def ensure_attestable_row(root: Path, row: dict[str, str]) -> None:
     if not test_items or any(item == "<missing-direct-test>" for item in test_items):
         raise RuntimeError(f"{requirement_id}: ledger has no direct test path")
     for item in test_items:
-        if item.startswith(("external:", "https://", "http://")):
+        if item.startswith("external:"):
+            item = item.removeprefix("external:")
+        elif item.startswith(("https://", "http://")):
             raise RuntimeError(
                 f"{requirement_id}: direct test path is not locally executable: {item}"
             )
