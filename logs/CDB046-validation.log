@@ -431,8 +431,8 @@ CDB046 validation passed
 - Disposable PostgreSQL 16.14 parity run with `CODEDB_PG_CONN`: 13 passed; the
   service was stopped and its temporary data/socket directories were removed.
 - All 15 `tests/*.nu` files passed under `nu --no-config-file`.
-- `python3 -m unittest discover -s tests -p 'test_*.py' -v`: 87 passed after
-  the final external-path and completed-gate regressions were added.
+- `python3 -m unittest discover -s tests -p 'test_*.py' -v`: 88 passed after
+  both external-path validators and completed-gate regressions were added.
 - `codedb doctor --nu --yazelix --codex --format json`: exited 0. Host and
   Yazelix Nu were found; their 0.113.1 versus plugin-protocol 0.112.2 mismatch
   was accurately reported as degraded without registry mutation. Codex was

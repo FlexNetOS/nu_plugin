@@ -526,7 +526,7 @@ The final direct proof matrix is green:
 - production compiler expansion/hygiene/HIR/MIR/rustdoc capture and drift hashes pass;
 - descriptor-relative symlink materialization, MCP no-leak, stale-plan,
   recovery, and operator-provenance tests pass;
-- Rust workspace, deny-warnings Clippy, 87 Python tests, all 15 Nu scripts,
+- Rust workspace, deny-warnings Clippy, 88 Python tests, all 15 Nu scripts,
   disposable PostgreSQL 16.14 (13 parity cases), envctl docs (2 tests), and the
   current Nix runtime-tool smoke pass.
 
