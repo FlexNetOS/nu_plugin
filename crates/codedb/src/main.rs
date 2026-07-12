@@ -21,12 +21,13 @@ use codedb_core::capture_policy::{
     authorize_raw_persistence, load_external_policy,
 };
 use codedb_core::store::{
-    BlobStore, ContainedDirectory, MaterializedFileRollback, prepare_materialization_path,
+    BlobStore, ContainedDirectory, MaterializedFileRollback, materialize_symlink,
+    platform_symlink_materialization_status, prepare_materialization_path,
     rollback_materialized_file, take_materialized_file_rollback,
 };
 use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
-    FilesystemEntry, SourceBlobMetadata, TableRow, capture_gaps,
+    FilesystemEntry, SourceBlobMetadata, SymlinkMaterializationStatus, TableRow, capture_gaps,
     capture_source_metadata_from_bytes, prove_no_mutation, scan_filesystem, schema_rows,
     table_inventory, validation_errors,
 };
@@ -358,6 +359,7 @@ fn reproduce_build_artifacts_rows(args: &[String]) -> Result<Vec<Row>, CliError>
     }
     let artifact_dir = strict_option_value(args, "--artifact-dir")?
         .ok_or_else(|| CliError::Message("reproduce requires --artifact-dir <path>".to_string()))?;
+    let selected_package_id = strict_option_value(args, "--package-id")?;
     let artifact_dir = absolute_cli_path(artifact_dir)?;
     if artifact_dir.exists() {
         return Err(CliError::Message(
@@ -386,6 +388,40 @@ fn reproduce_build_artifacts_rows(args: &[String]) -> Result<Vec<Row>, CliError>
             "build receipt contains no OUT_DIR artifacts to reproduce".to_string(),
         ));
     }
+    let package_ids = artifacts
+        .iter()
+        .map(|artifact| {
+            artifact
+                .get("package_id")
+                .filter(|package_id| !package_id.is_empty())
+                .cloned()
+                .ok_or_else(|| {
+                    CliError::Message(
+                        "build receipt OUT_DIR artifact is missing package_id".to_string(),
+                    )
+                })
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let artifacts = if let Some(selected_package_id) = selected_package_id {
+        if !package_ids.contains(selected_package_id) {
+            return Err(CliError::Message(format!(
+                "reproduce --package-id did not match an OUT_DIR package: {selected_package_id}"
+            )));
+        }
+        artifacts
+            .into_iter()
+            .filter(|artifact| {
+                artifact.get("package_id").map(String::as_str) == Some(selected_package_id)
+            })
+            .collect::<Vec<_>>()
+    } else if package_ids.len() > 1 {
+        return Err(CliError::Message(format!(
+            "build receipt contains OUT_DIR artifacts from {} packages; reproduce requires --package-id <exact-captured-package-id>",
+            package_ids.len()
+        )));
+    } else {
+        artifacts
+    };
 
     if let Some(parent) = artifact_dir.parent() {
         fs::create_dir_all(parent).map_err(|source| CliError::Core(Box::new(source)))?;
@@ -1460,6 +1496,7 @@ where
     let mut metadata_only = 0usize;
     let mut directories = 0usize;
     let mut gaps = 0usize;
+    let mut symlinks = 0usize;
     let mut resumed = 0usize;
     let mut batches = 0usize;
     let mut stopped_early = false;
@@ -1567,23 +1604,43 @@ where
                 stopped_early = true;
                 break;
             }
+        } else if entry.is_symlink {
+            if config.resume && already.contains(&entry.relative_path) {
+                resumed += 1;
+                continue;
+            }
+            flush_batch!();
+            let target = entry.symlink_target.ok_or_else(|| {
+                CliError::Message(format!(
+                    "captured symlink {} is missing its target metadata",
+                    entry.relative_path
+                ))
+            })?;
+            let persisted = store
+                .persist_symlink(&entry.relative_path, &target)
+                .map_err(|error| {
+                    CliError::Message(format!(
+                        "persist symlink metadata failed for {}: {error}",
+                        entry.relative_path
+                    ))
+                })?;
+            symlinks += 1;
+            rows.push(row([
+                ("table", "source_symlinks".to_string()),
+                ("relative_path", persisted.relative_path),
+                ("target", persisted.target),
+                ("target_sha256", persisted.target_sha256),
+                ("status", "captured".to_string()),
+            ]));
         } else {
-            // Symlinks and special files are not raw-blob-persistable yet:
-            // recorded as gaps, never silently dropped.
+            // Special files remain explicit gaps; symbolic links are first-class
+            // checksum-bound metadata and never enter the regular-file blob path.
             gaps += 1;
             rows.push(row([
                 ("table", "capture_gaps".to_string()),
                 ("relative_path", entry.relative_path),
                 ("kind", kind.to_string()),
-                (
-                    "gap",
-                    if entry.is_symlink {
-                        "symlink_not_captured_as_blob".to_string()
-                    } else {
-                        format!("unsupported_entry_kind:{kind}")
-                    },
-                ),
-                ("symlink_target", entry.symlink_target.unwrap_or_default()),
+                ("gap", format!("unsupported_entry_kind:{kind}")),
                 ("status", "gap".to_string()),
             ]));
         }
@@ -1605,6 +1662,7 @@ where
         ("files_captured", captured.to_string()),
         ("bytes_captured", captured_bytes.to_string()),
         ("files_metadata_only", metadata_only.to_string()),
+        ("symlinks_captured", symlinks.to_string()),
         ("directories_walked", directories.to_string()),
         ("capture_gaps", gaps.to_string()),
         ("files_resumed_skipped", resumed.to_string()),
@@ -1673,6 +1731,32 @@ fn materialize_rows(
     let files = store
         .list_source_files()
         .map_err(|e| CliError::Message(format!("listing store files: {e}")))?;
+    let symlinks = store
+        .list_source_symlinks()
+        .map_err(|e| CliError::Message(format!("listing store symlinks: {e}")))?;
+    let selected_symlinks = symlinks
+        .into_iter()
+        .filter(|link| only.is_none_or(|filter| link.relative_path == filter))
+        .collect::<Vec<_>>();
+    // Validate every stored target and portable path before creating any output.
+    // Metadata-only mode exercises the exact same target grammar without touching
+    // the destination tree, so one unsafe link rejects the batch fail-closed.
+    for link in &selected_symlinks {
+        link.verify()
+            .map_err(|error| CliError::Message(error.to_string()))?;
+        materialize_symlink(
+            out_dir,
+            &link.relative_path,
+            &link.target,
+            SymlinkMaterializationStatus::MetadataOnlyFallback,
+        )
+        .map_err(|error| {
+            CliError::Message(format!(
+                "unsafe symlink materialization target {} -> {}: {error}",
+                link.relative_path, link.target
+            ))
+        })?;
+    }
     let mut rows: Vec<Row> = Vec::new();
     let mut count = 0usize;
     let mut bytes = 0u64;
@@ -1740,12 +1824,52 @@ fn materialize_rows(
             )));
         }
     }
+    let symlink_status = platform_symlink_materialization_status();
+    let mut symlinks_materialized = 0usize;
+    let mut symlinks_metadata_only = 0usize;
+    for link in selected_symlinks {
+        let report =
+            match materialize_symlink(out_dir, &link.relative_path, &link.target, symlink_status) {
+                Ok(report) => report,
+                Err(error) => {
+                    rollback_materialized_files(published_paths)?;
+                    return Err(CliError::Message(format!(
+                        "materialize symlink failed for {} -> {}: {error}",
+                        link.relative_path, link.target
+                    )));
+                }
+            };
+        if report.link_created {
+            symlinks_materialized += 1;
+        } else {
+            symlinks_metadata_only += 1;
+        }
+        rows.push(row([
+            ("table", "materialized_symlinks".to_string()),
+            ("relative_path", link.relative_path),
+            ("path", report.path.display().to_string()),
+            ("target", report.target),
+            ("target_sha256", link.target_sha256),
+            ("platform_status", report.status.as_str().to_string()),
+            ("link_created", report.link_created.to_string()),
+            (
+                "status",
+                if report.link_created {
+                    "symlink_roundtrip_ok".to_string()
+                } else {
+                    "metadata_only_fallback".to_string()
+                },
+            ),
+        ]));
+    }
     rows.push(row([
         ("table", "materialize_summary".to_string()),
         ("store_path", store_identity),
         ("out_dir", out_dir.display().to_string()),
         ("files_materialized", count.to_string()),
         ("bytes_materialized", bytes.to_string()),
+        ("symlinks_materialized", symlinks_materialized.to_string()),
+        ("symlinks_metadata_only", symlinks_metadata_only.to_string()),
         ("status", "complete".to_string()),
     ]));
     Ok(rows)

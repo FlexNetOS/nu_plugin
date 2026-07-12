@@ -83,7 +83,7 @@
       "context_sha256": "",
       "pin_sha256": "",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_build_script --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=3b26d53eaa7b374182ef0a59ca2081e99272cc82f36bdd2fed9d3ba3026d2ce2 --emit=metadata -o /tmp/codedb_compiler_evidence_62263_1783896230224272153/metadata.rmeta /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_build_script --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=3b26d53eaa7b374182ef0a59ca2081e99272cc82f36bdd2fed9d3ba3026d2ce2 --emit=metadata -o /tmp/codedb_compiler_evidence_367695_1783899007124311006/metadata.rmeta /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs"
     },
     {
       "kind": "macro_hygiene",
@@ -123,7 +123,7 @@
       "context_sha256": "",
       "pin_sha256": "",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_fixture_build_script --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=3b26d53eaa7b374182ef0a59ca2081e99272cc82f36bdd2fed9d3ba3026d2ce2 -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_62263_1783896230224272153/rustdoc /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_fixture_build_script --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=3b26d53eaa7b374182ef0a59ca2081e99272cc82f36bdd2fed9d3ba3026d2ce2 -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_367695_1783899007124311006/rustdoc /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs"
     }
   ],
   "capture_gaps": [

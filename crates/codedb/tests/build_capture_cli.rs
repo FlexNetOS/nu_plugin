@@ -180,6 +180,147 @@ fn approved_cli_capture_persists_receipt_and_never_mutates_source() {
 }
 
 #[test]
+fn duplicate_out_dir_paths_require_an_unambiguous_package_selector() {
+    let root = temp_root();
+    let repo = root.join("repo");
+    let evidence = root.join("evidence");
+    let raw_log = evidence.join("capture.log");
+    let store = evidence.join("capture.redb");
+    fs::create_dir_all(&repo).expect("create workspace root");
+    fs::write(
+        repo.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"alpha\", \"beta\"]\nresolver = \"3\"\n",
+    )
+    .expect("write workspace manifest");
+    for (name, generated) in [("alpha", 11_u8), ("beta", 22_u8)] {
+        let package = repo.join(name);
+        fs::create_dir_all(package.join("src")).expect("create package source");
+        fs::write(
+            package.join("Cargo.toml"),
+            format!(
+                "[package]\nname = \"codedb-{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\nbuild = \"build.rs\"\n"
+            ),
+        )
+        .expect("write package manifest");
+        fs::write(package.join("src/lib.rs"), "pub fn value() -> u8 { 1 }\n")
+            .expect("write package source");
+        fs::write(
+            package.join("build.rs"),
+            format!(
+                "fn main() {{\n    let out = std::path::PathBuf::from(std::env::var_os(\"OUT_DIR\").unwrap());\n    std::fs::write(out.join(\"generated.rs\"), b\"pub const GENERATED: u8 = {generated};\\n\").unwrap();\n}}\n"
+            ),
+        )
+        .expect("write package build script");
+    }
+
+    let captured = Command::new(env!("CARGO_BIN_EXE_codedb"))
+        .args([
+            "capture",
+            "build",
+            repo.to_str().expect("UTF-8 repo path"),
+            "--unsafe-execute-build",
+            "--approver",
+            "integration-test",
+            "--task-id",
+            "CDB080",
+            "--before-state",
+            "source-snapshot-recorded",
+            "--cleanup-plan",
+            "remove-isolated-sandbox",
+            "--raw-log",
+            raw_log.to_str().expect("UTF-8 raw log path"),
+            "--store",
+            store.to_str().expect("UTF-8 store path"),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("capture duplicate OUT_DIR fixture");
+    assert!(
+        captured.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&captured.stderr)
+    );
+    let rows: Vec<BTreeMap<String, String>> =
+        serde_json::from_slice(&captured.stdout).expect("capture JSON rows");
+    let receipt = rows
+        .iter()
+        .find(|row| row.get("table").map(String::as_str) == Some("build_capture_receipts"))
+        .expect("capture receipt");
+    let approval_id = receipt.get("approval_id").expect("approval id");
+    let mut packages = rows
+        .iter()
+        .filter(|row| {
+            row.get("table").map(String::as_str) == Some("out_dir_artifacts")
+                && row.get("relative_path").map(String::as_str) == Some("generated.rs")
+        })
+        .map(|row| row.get("package_id").expect("artifact package id").clone())
+        .collect::<Vec<_>>();
+    packages.sort();
+    packages.dedup();
+    assert_eq!(packages.len(), 2, "both packages must emit generated.rs");
+
+    let ambiguous_dir = evidence.join("ambiguous");
+    let ambiguous = Command::new(env!("CARGO_BIN_EXE_codedb"))
+        .args([
+            "reproduce",
+            "--approval-id",
+            approval_id,
+            "--store",
+            store.to_str().expect("UTF-8 store path"),
+            "--artifact-dir",
+            ambiguous_dir.to_str().expect("UTF-8 artifact path"),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("refuse ambiguous reproduction");
+    assert!(!ambiguous.status.success());
+    assert!(
+        String::from_utf8_lossy(&ambiguous.stderr).contains("--package-id"),
+        "stderr: {}",
+        String::from_utf8_lossy(&ambiguous.stderr)
+    );
+    assert!(!ambiguous_dir.exists());
+
+    for (index, package_id) in packages.iter().enumerate() {
+        let artifact_dir = evidence.join(format!("selected-{index}"));
+        let reproduced = Command::new(env!("CARGO_BIN_EXE_codedb"))
+            .args([
+                "reproduce",
+                "--approval-id",
+                approval_id,
+                "--package-id",
+                package_id,
+                "--store",
+                store.to_str().expect("UTF-8 store path"),
+                "--artifact-dir",
+                artifact_dir.to_str().expect("UTF-8 artifact path"),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("reproduce selected package");
+        assert!(
+            reproduced.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&reproduced.stderr)
+        );
+        let generated = fs::read_to_string(artifact_dir.join("generated.rs"))
+            .expect("read selected generated artifact");
+        if package_id.contains("codedb-alpha") {
+            assert!(generated.contains("= 11;"));
+        } else if package_id.contains("codedb-beta") {
+            assert!(generated.contains("= 22;"));
+        } else {
+            panic!("unexpected package id: {package_id}");
+        }
+    }
+
+    fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
 fn approved_cli_capture_records_instrumented_proc_macro_tokens() {
     let root = temp_root();
     let repo = root.join("repo");

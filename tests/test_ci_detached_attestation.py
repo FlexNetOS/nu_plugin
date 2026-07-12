@@ -76,7 +76,21 @@ class DetachedRequirementProofWorkflowTest(unittest.TestCase):
             '"commit_sha"] == os.environ["CODEDB_REVIEWED_SHA"]',
             self.verify_job,
         )
-        self.assertIn("${{ runner.temp }}", self.verify_job)
+        self.assertIn(
+            "CODEDB_PROOF_RECEIPT: /tmp/codedb-requirement-proof-",
+            self.verify_job,
+        )
+
+    def test_job_environment_uses_only_admission_time_contexts(self) -> None:
+        for job in (self.verify_job, self.sign_job):
+            self.assertIn(
+                "CODEDB_PROOF_RECEIPT: /tmp/codedb-requirement-proof-",
+                job,
+            )
+            self.assertNotRegex(
+                job,
+                r"CODEDB_PROOF_RECEIPT:\s+\$\{\{\s*runner\.temp\s*\}\}",
+            )
 
     def test_receipt_targets_every_mandatory_requirement_without_subset(self) -> None:
         self.assertIn("--all-requirements", self.verify_job)

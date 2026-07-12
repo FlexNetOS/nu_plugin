@@ -62,3 +62,9 @@ native_binary=node_modules/ruvector-core-linux-x64-gnu/ruvector.node
 native_binary_sha256=7bab1162c44557183809988838dafdf563ce91e66d4dbf35af0e0b788979ee1f
 native_repository=https://github.com/ruvnet/ruvector.git
 source_path_decision=use the freshly pulled locked online Node distribution as CodeDB input; do not substitute the older local source checkout for registry-only updates
+
+publish_recheck_timestamp=2026-07-12T18:31:49-05:00
+publish_recheck_command=bun outdated --json && bun install --frozen-lockfile
+publish_recheck_result=no direct dependency updates reported; 449 installs across 424 packages checked; no changes
+publish_recheck_package_json_sha256=4d33e538a434f77529d5e8dd473310f3b68f8b535e8370e9837a9df04958eae0
+publish_recheck_bun_lock_sha256=adc40aed1a249f7c74fa3f4d19cf0dfc8873fb3416b032778ef8fa19bb4b2320

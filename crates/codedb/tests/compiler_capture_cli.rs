@@ -316,3 +316,60 @@ fn compiler_cli_refuses_without_unsafe_flag_and_writes_nothing() {
     assert_eq!(snapshot_source_tree(&repo), source_before);
     fs::remove_dir_all(root).expect("remove fixture");
 }
+
+#[test]
+fn approved_compiler_cli_fails_closed_when_compiler_is_unavailable() {
+    let root = temp_root();
+    let repo = root.join("repo");
+    let source = repo.join("src/lib.rs");
+    let evidence = root.join("evidence/compiler");
+    let store = root.join("evidence/compiler.redb");
+    let missing_rustc = root.join("missing-rustc");
+    let missing_rustdoc = root.join("missing-rustdoc");
+    fs::create_dir_all(source.parent().expect("source parent")).expect("create source parent");
+    fs::write(&source, "pub fn answer() -> u32 { 42 }\n").expect("write source");
+    let source_before = snapshot_source_tree(&repo);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_codedb"))
+        .args([
+            "capture",
+            "compiler",
+            source.to_str().expect("UTF-8 source path"),
+            "--repo-path",
+            repo.to_str().expect("UTF-8 repo path"),
+            "--unsafe-execute-build",
+            "--approver",
+            "integration-test",
+            "--task-id",
+            "CDB077,CDB085",
+            "--before-state",
+            "source-sha256-recorded",
+            "--cleanup-plan",
+            "remove-isolated-compiler-sandbox",
+            "--evidence-dir",
+            evidence.to_str().expect("UTF-8 evidence path"),
+            "--store",
+            store.to_str().expect("UTF-8 store path"),
+            "--edition",
+            "2024",
+            "--format",
+            "json",
+        ])
+        .env("RUSTC", &missing_rustc)
+        .env("RUSTDOC", &missing_rustdoc)
+        .output()
+        .expect("run unavailable compiler capture");
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("approved compiler evidence capture incomplete"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    assert!(!evidence.exists());
+    assert!(!store.exists());
+    assert_eq!(snapshot_source_tree(&repo), source_before);
+    fs::remove_dir_all(root).expect("remove fixture");
+}
