@@ -1,0 +1,11 @@
+╭─────────────────────────┬────────────────────────────────────────────────────╮
+│ status                  │ passed                                             │
+│ enabled_mode_safe       │ true                                               │
+│ launch_status           │ ready                                              │
+│ codedb_cli_status       │ available                                          │
+│ codedb_plugin_status    │ available                                          │
+│ bridge_rows             │ 3                                                  │
+│ plugin_registry_created │ false                                              │
+│ generated_dir           │ /tmp/tmp.MxFvopg3tL/.local/share/yazelix/initializ │
+│                         │ ers/nushell                                        │
+╰─────────────────────────┴────────────────────────────────────────────────────╯

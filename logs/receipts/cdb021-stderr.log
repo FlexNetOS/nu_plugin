@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/codedb_cargo-84b24bac308cfacf)
+     Running unittests src/lib.rs (target/debug/deps/codedb_core-2d48ee207fd0b7b4)
+     Running tests/capture_policy.rs (target/debug/deps/capture_policy-16f5bc274c8fb613)
+     Running tests/contained_reads.rs (target/debug/deps/contained_reads-a5efa7f0a89ad890)
+     Running tests/materialization_paths.rs (target/debug/deps/materialization_paths-140e60f34f9ccef9)
+     Running tests/secret_classifier.rs (target/debug/deps/secret_classifier-b55e74c8a6f3c7a7)
+     Running tests/store_migrations.rs (target/debug/deps/store_migrations-5ee32935b5fda4fa)
+     Running tests/store_spec.rs (target/debug/deps/store_spec-6c4984bb400213d1)
+   Doc-tests codedb_cargo
+   Doc-tests codedb_core

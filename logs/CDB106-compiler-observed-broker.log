@@ -1,0 +1,199 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/codedb_rust_static-fff389ad0ddf7809)
+
+running 1 test
+test compiler_broker::broker_captures_pinned_hir_mir_rustdoc_for_macro_rules_and_proc_macro ... codedb compiler/build broker
+  rustc:     rustc 1.98.0-nightly (f8a08b688 2026-05-30)
+  rustdoc:   rustdoc 1.98.0-nightly (f8a08b688 2026-05-30)
+  host:      x86_64-unknown-linux-gnu
+  sysroot:   /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed
+  toolchain: sha256:c77b23b7186a002fe5d6e16756dc73574cb387c8aa32059eb6c2b38823ad4f3f
+  evidence:  /home/flexnetos/meta/src/nu_plugin/logs/compiler-observed
+  fixture macro_rules  status=compiler_observed
+    macro_expansion      status=compiler_observed    bytes=872      pin=3ba4bf0807698d351d1918c0b313d7b41fd6be11ad317dc3f7cb5d1c7d4d5c33
+    macro_resolution     status=compiler_observed    bytes=3033     pin=b4518944d8c9a70ef639fcf41c49222916a7860e2130fbd8818f264c8c501cec
+    macro_hygiene        status=compiler_observed    bytes=2002     pin=7e7359b503907a8c460b7c73ad888ce8a2eb802a200ed5031c8ffc294d780c5a
+    hir                  status=compiler_observed    bytes=521      pin=f30addaf8926221a55621ac3336610371ef86dc20579ef45a8b861f978dacaf1
+    mir                  status=compiler_observed    bytes=1447     pin=ab70702940a43b4ff0adf35281fa8792f3986b75510ebf791bd85d347e2b1f4b
+    rustdoc_public_api   status=compiler_observed    bytes=215407   pin=6faefe2a54e106e63c30db9f0ea18be54fca00c7d3cb324c27dd3b197179da04
+  fixture proc_macro   status=compiler_observed
+    macro_expansion      status=compiler_observed    bytes=953      pin=094abc0c85b04fbef00e51e7eb22a04c569f0b6ce18af6fca19b2ce125efe38e
+    macro_resolution     status=compiler_observed    bytes=3459     pin=8551842af63b63fac577e53fad9f843468ffe1bedd462caf4e31cef291d5e492
+    macro_hygiene        status=compiler_observed    bytes=2193     pin=91481c0bd0667eec3e69096eeb3d80bae5cf9d187a0582a37b5679a90772e37b
+    hir                  status=compiler_observed    bytes=633      pin=28adba7eb26c76f3318d64320304f308b41239038db36297ebee91201b6c55e8
+    mir                  status=compiler_observed    bytes=1291     pin=8c1ca36ed154c049820b58ed663abb5b6d833b5f74363595030211f3e7859c5d
+    rustdoc_public_api   status=compiler_observed    bytes=217450   pin=1a91d5469d63db8782e727a296d5694e1a4b8652f4b53d1b6dbaa1a67826ccab
+  fixture build_script status=evidence_unavailable
+    macro_expansion      status=evidence_unavailable bytes=-        pin=-
+    macro_resolution     status=evidence_unavailable bytes=-        pin=-
+    macro_hygiene        status=evidence_unavailable bytes=-        pin=-
+    hir                  status=evidence_unavailable bytes=-        pin=-
+    mir                  status=evidence_unavailable bytes=-        pin=-
+    rustdoc_public_api   status=evidence_unavailable bytes=-        pin=-
+    capture_gap: source reads `env!("CODEDB_FIXTURE_BUILD_SCRIPT")`, which is injected only by Cargo build-script execution; the fail-closed hermetic rustc sandbox intentionally exposes no build-script environment, so pure compiler-observed HIR/MIR/rustdoc capture is out of scope here (build-script execution proof is owned by codedb-build-capture, CDB079).
+    capture_gap: macro_expansion: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `CODEDB_FIXTURE_BUILD_SCRIPT` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs:2:5
+  |
+2 |     env!("CODEDB_FIXTURE_BUILD_SCRIPT")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: use `std::env::var("CODEDB_FIXTURE_BUILD_SCRIPT")` to read the variable at run time
+
+error: aborting due to 1 previous error
+    capture_gap: macro_resolution: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `CODEDB_FIXTURE_BUILD_SCRIPT` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs:2:5
+  |
+2 |     env!("CODEDB_FIXTURE_BUILD_SCRIPT")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: use `std::env::var("CODEDB_FIXTURE_BUILD_SCRIPT")` to read the variable at run time
+
+error: aborting due to 1 previous error
+    capture_gap: macro_hygiene: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `CODEDB_FIXTURE_BUILD_SCRIPT` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs:2:5
+  |
+2 |     env!("CODEDB_FIXTURE_BUILD_SCRIPT")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: use `std::env::var("CODEDB_FIXTURE_BUILD_SCRIPT")` to read the variable at run time
+
+error: aborting due to 1 previous error
+    capture_gap: hir: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `CODEDB_FIXTURE_BUILD_SCRIPT` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs:2:5
+  |
+2 |     env!("CODEDB_FIXTURE_BUILD_SCRIPT")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: use `std::env::var("CODEDB_FIXTURE_BUILD_SCRIPT")` to read the variable at run time
+
+error: aborting due to 1 previous error
+    capture_gap: mir: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `CODEDB_FIXTURE_BUILD_SCRIPT` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs:2:5
+  |
+2 |     env!("CODEDB_FIXTURE_BUILD_SCRIPT")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: use `std::env::var("CODEDB_FIXTURE_BUILD_SCRIPT")` to read the variable at run time
+
+error: aborting due to 1 previous error
+    capture_gap: rustdoc_public_api: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc exited with exit status: 1: error: environment variable `CODEDB_FIXTURE_BUILD_SCRIPT` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/build_script/src/lib.rs:2:5
+  |
+2 |     env!("CODEDB_FIXTURE_BUILD_SCRIPT")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: use `std::env::var("CODEDB_FIXTURE_BUILD_SCRIPT")` to read the variable at run time
+
+error: aborting due to 1 previous error
+  fixture out_dir      status=evidence_unavailable
+    macro_expansion      status=evidence_unavailable bytes=-        pin=-
+    macro_resolution     status=evidence_unavailable bytes=-        pin=-
+    macro_hygiene        status=evidence_unavailable bytes=-        pin=-
+    hir                  status=evidence_unavailable bytes=-        pin=-
+    mir                  status=evidence_unavailable bytes=-        pin=-
+    rustdoc_public_api   status=evidence_unavailable bytes=-        pin=-
+    capture_gap: source does `include!(concat!(env!("OUT_DIR"), "/generated.rs"))`, which requires a Cargo build-script-generated OUT_DIR; the hermetic rustc sandbox provides no OUT_DIR and no generated file, so pure compiler-observed capture is out of scope here (OUT_DIR reproduction proof is owned by codedb-build-capture, CDB080).
+    capture_gap: macro_expansion: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `OUT_DIR` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:1:18
+  |
+1 | include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+  |                  ^^^^^^^^^^^^^^^
+  |
+  = help: `OUT_DIR` may not be available for the current Cargo target
+  = help: Cargo sets build script variables at run time. Use `std::env::var("OUT_DIR")` instead
+
+error[E0425]: cannot find value `GENERATED_VALUE` in this scope
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:4:5
+  |
+4 |     GENERATED_VALUE
+  |     ^^^^^^^^^^^^^^^ not found in this scope
+
+error: aborting due to 2 previous errors
+
+For more information about this error, try `rustc --explain E0425`.
+    capture_gap: macro_resolution: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `OUT_DIR` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:1:18
+  |
+1 | include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+  |                  ^^^^^^^^^^^^^^^
+  |
+  = help: `OUT_DIR` may not be available for the current Cargo target
+  = help: Cargo sets build script variables at run time. Use `std::env::var("OUT_DIR")` instead
+
+error[E0425]: cannot find value `GENERATED_VALUE` in this scope
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:4:5
+  |
+4 |     GENERATED_VALUE
+  |     ^^^^^^^^^^^^^^^ not found in this scope
+
+error: aborting due to 2 previous errors
+
+For more information about this error, try `rustc --explain E0425`.
+    capture_gap: macro_hygiene: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `OUT_DIR` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:1:18
+  |
+1 | include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+  |                  ^^^^^^^^^^^^^^^
+  |
+  = help: `OUT_DIR` may not be available for the current Cargo target
+  = help: Cargo sets build script variables at run time. Use `std::env::var("OUT_DIR")` instead
+
+error[E0425]: cannot find value `GENERATED_VALUE` in this scope
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:4:5
+  |
+4 |     GENERATED_VALUE
+  |     ^^^^^^^^^^^^^^^ not found in this scope
+
+error: aborting due to 2 previous errors
+
+For more information about this error, try `rustc --explain E0425`.
+    capture_gap: hir: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `OUT_DIR` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:1:18
+  |
+1 | include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+  |                  ^^^^^^^^^^^^^^^
+  |
+  = help: `OUT_DIR` may not be available for the current Cargo target
+  = help: Cargo sets build script variables at run time. Use `std::env::var("OUT_DIR")` instead
+
+error[E0425]: cannot find value `GENERATED_VALUE` in this scope
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:4:5
+  |
+4 |     GENERATED_VALUE
+  |     ^^^^^^^^^^^^^^^ not found in this scope
+
+error: aborting due to 2 previous errors
+
+For more information about this error, try `rustc --explain E0425`.
+    capture_gap: mir: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc exited with exit status: 1: error: environment variable `OUT_DIR` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:1:18
+  |
+1 | include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+  |                  ^^^^^^^^^^^^^^^
+  |
+  = help: `OUT_DIR` may not be available for the current Cargo target
+  = help: Cargo sets build script variables at run time. Use `std::env::var("OUT_DIR")` instead
+
+error[E0425]: cannot find value `GENERATED_VALUE` in this scope
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:4:5
+  |
+4 |     GENERATED_VALUE
+  |     ^^^^^^^^^^^^^^^ not found in this scope
+
+error: aborting due to 2 previous errors
+
+For more information about this error, try `rustc --explain E0425`.
+    capture_gap: rustdoc_public_api: /nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc exited with exit status: 1: error: environment variable `OUT_DIR` not defined at compile time
+ --> /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs:1:18
+  |
+1 | include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+  |                  ^^^^^^^^^^^^^^^
+  |
+  = help: `OUT_DIR` may not be available for the current Cargo target
+  = help: Cargo sets build script variables at run time. Use `std::env::var("OUT_DIR")` instead
+
+error: aborting due to 1 previous error
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 1.66s
+

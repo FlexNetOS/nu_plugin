@@ -44,3 +44,14 @@ Validation passed:
 
 Note:
 - Direct nu_plugin_codedb --version exits with the nu-plugin protocol message that plugins must be run from within Nushell. CDB050 keeps packaging validation to executable/metadata checks and leaves protocol execution to CDB051/CDB052.
+
+Current-tree direct contract — 2026-07-12T21:25:33Z
+
+- `python3 -m unittest -v tests.test_runtime_tool_contract`: 3 passed.
+- Negative fixtures reject a missing package export, missing smoke check, and package/workspace version mismatch.
+- `nix eval --raw .#codedb_runtime_tools.version`: 0.1.0.
+- `nix build .#checks.<system>.codedb_runtime_tool_smoke --no-link --no-write-lock-file`: exit 0.
+- `codedb` resolves through the LifeOS foundation toolbin to `/nix/store/...-codedb-runtime-tools-0.1.0/bin/codedb`.
+- `codedb --version`: 0.1.0.
+- `nu_plugin_codedb` resolves through the same toolbin to the same runtime-tools output and is executable.
+- No profile install, profile mutation, Home Manager switch, or plugin-registry mutation occurred.

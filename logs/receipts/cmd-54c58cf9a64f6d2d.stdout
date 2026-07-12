@@ -1,0 +1,7 @@
+╭───────────────┬──────────────────────────────────────╮
+│ status        │ passed                               │
+│ checked_files │ 20                                   │
+│ temp_home     │ /tmp/tmp.sVlYXIUJLR                  │
+│ plugin_config │ /tmp/tmp.sVlYXIUJLR/plugins.msgpackz │
+│ rows          │ [table 20 rows]                      │
+╰───────────────┴──────────────────────────────────────╯

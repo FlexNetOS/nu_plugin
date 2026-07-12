@@ -1,0 +1,2 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `/home/flexnetos/meta/src/envctl/target/debug/envctl db deploy --kind hooks --target /tmp/claude-1001/lifeos-deploy-test --json`

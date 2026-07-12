@@ -1,0 +1,61 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running unittests src/main.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl-24ce984990224277)
+     Running unittests src/bin/meta-env.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/meta_env-7856a0236f0d1c67)
+     Running tests/agent.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/agent-63695389c84fa8aa)
+     Running tests/cli_contract.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/cli_contract-c8b8209b25f56196)
+     Running tests/dashboard.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/dashboard-548e995aa173749a)
+     Running tests/db_golden.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/db_golden-b681247db2a70d1f)
+     Running tests/env.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/env-69ac4a0fa23db8e2)
+     Running unittests src/lib.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl_agent_env-4a84c1ed1a68fd20)
+     Running tests/no_downgrade.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/no_downgrade-643c14ad491db3b1)
+     Running tests/parity_vs_kasetto.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/parity_vs_kasetto-70edef4595c47fa2)
+     Running unittests src/lib.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl_engine-6376fb7adcbf7ded)
+Cloning into '/tmp/envctl-peer-apply-812883/beads_rust'...
+fatal: '/nonexistent-xyz' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+Cloning into '/tmp/envctl-peer-apply-812883/beads_rust'...
+fatal: '/nonexistent-xyz' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+     Running tests/agent_command_parity.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/agent_command_parity-5ff5a4f11bacdd02)
+     Running tests/agent_sync.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/agent_sync-50529f5800a7f1c2)
+     Running tests/agent_sync_parity.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/agent_sync_parity-ffbc26cdbbdc15b7)
+     Running tests/db_parity.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/db_parity-f474aca54120163c)
+     Running tests/db_refactor_fixtures.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/db_refactor_fixtures-8f12640670f2b592)
+     Running tests/engine.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/engine-454fcf70d74d050b)
+     Running tests/hub_registry.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/hub_registry-93bab1b4a59f7506)
+     Running tests/runner_parity.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/runner_parity-b1ceefec42bf5b75)
+     Running unittests src/main.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl_gui-f02d98ffe2e9e2ce)
+     Running unittests src/main.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/secretctl-7e901be3f229130a)
+     Running unittests src/lib.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl_secretd-e629cb8dae89c2d9)
+     Running unittests src/main.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/secretd-dc5c72187b7f1670)
+     Running tests/e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/e2e-501c64716a03b29f)
+     Running tests/edge_e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/edge_e2e-c67128741242d9c9)
+     Running tests/edge_hardening_e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/edge_hardening_e2e-d83d5d008db0e1fe)
+     Running tests/edge_stream_e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/edge_stream_e2e-da7046ea717d817f)
+     Running tests/grpc_surface_e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/grpc_surface_e2e-e35a53de7430788c)
+     Running tests/libsql_e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/libsql_e2e-f4c05336d380b401)
+     Running tests/mitm_e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/mitm_e2e-0ac149a8c4981625)
+     Running tests/native_mint_e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/native_mint_e2e-4a0ad62b38c47b2c)
+     Running tests/profile_b_e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/profile_b_e2e-402ae26dcf8aa7bb)
+     Running tests/proxy_swap_e2e.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/proxy_swap_e2e-58423410161e8788)
+     Running tests/self_check.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/self_check-093ff2183f8584e0)
+     Running unittests src/lib.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl_secrets-e066dc4673272c3e)
+     Running tests/inject.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/inject-f7711e62d3bf7ae7)
+     Running tests/phase0.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/phase0-b5fb548ad1564289)
+     Running tests/relay.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/relay-7a77a8e406081828)
+     Running tests/vault.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/vault-d8a21eb944f9c44a)
+     Running unittests src/lib.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl_secrets_proto-9268483935743987)
+     Running unittests src/lib.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl_secrets_store_libsql-3caa75caea10bc81)
+     Running tests/integration_remote.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/integration_remote-13d6eb82f4900f52)
+   Doc-tests envctl_agent_env
+   Doc-tests envctl_engine
+   Doc-tests envctl_secretd
+   Doc-tests envctl_secrets
+   Doc-tests envctl_secrets_proto
+   Doc-tests envctl_secrets_store_libsql

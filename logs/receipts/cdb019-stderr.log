@@ -1,0 +1,11 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling serde_json v1.0.150
+   Compiling codedb-context v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_context)
+   Compiling syn v2.0.118
+   Compiling serde_derive v1.0.228
+   Compiling serde v1.0.228
+   Compiling codedb-cargo v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_cargo)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.95s
+     Running unittests src/lib.rs (target/debug/deps/codedb_cargo-84b24bac308cfacf)
+   Doc-tests codedb_cargo

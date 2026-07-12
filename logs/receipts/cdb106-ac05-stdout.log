@@ -1,0 +1,105 @@
+
+running 23 tests
+test tests::capture_policy_cli_construction_is_backend_neutral_and_rejects_secret_bearing_values ... ok
+test tests::cli_store_selection_rejects_postgresql_argv_credentials_without_echoing_them ... ok
+test tests::cli_pg_selector_uses_only_codedb_pg_conn_not_ambient_database_url ... ok
+test tests::cli_store_selection_rejects_unknown_uri_schemes_before_opening_a_backend ... ok
+test tests::materialize_postgresql_identity_hides_query_values ... ok
+test tests::materialize_postgresql_identity_hides_url_credentials ... ok
+test tests::materialize_postgresql_identity_hides_percent_encoded_sentinels ... ok
+test tests::mcp_frontdoor_rejects_postgresql_argv_sentinels_without_echoing_them ... ok
+test tests::mutating_bidirectional_commands_are_not_cli_defaults ... ok
+test tests::replacement_before_late_failure_is_preserved_and_audited_as_residual ... ok
+test tests::temp_repo_reserves_exclusive_directories_for_parallel_tests ... ok
+test tests::envctl_export_includes_materialization_targets ... ok
+test tests::envctl_export_manifest_checksum_matches_observable_checksum_rows ... ok
+test tests::agent_harness_export_captures_full_fixture_surface ... ok
+test tests::runner_proof_manifest_keeps_bidirectional_release_gate_pending_until_all_tasks_complete ... ok
+test tests::envctl_export_normalizes_redb_and_postgresql_store_contracts_without_dsn_leakage ... ok
+test tests::mcp_frontdoor_ignores_arbitrary_server_override_without_executing_marker ... ok
+test tests::mcp_child_environment_is_minimal_and_pg_conn_is_backend_scoped ... ok
+test tests::default_capture_persists_metadata_only_even_for_classifier_clear_source ... ok
+test tests::explicit_safe_source_policy_persists_source_but_never_secret_bytes ... ok
+test tests::capture_reads_remain_bound_to_scanned_root_after_path_symlink_swap ... ok
+test tests::multi_file_materialization_rolls_back_new_files_after_late_failure ... ok
+test tests::external_policy_requires_outside_path_and_exact_repository_snapshot_binding ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 1 test
+test scan_and_export_accept_nontrivial_relative_repo_paths ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+
+running 9 tests
+test tests::connection_diagnostics_do_not_contain_a_supplied_secret ... ok
+test tests::malformed_dsn_diagnostics_never_echo_credentials_or_hosts ... ok
+test tests::empty_ca_bundle_fails_closed_without_disclosing_its_path ... ok
+test tests::sanitize_table_accepts_safe_logical_store_identifier ... ok
+test tests::parse_unix_mode_reads_octal_string_and_decimal ... ok
+test tests::sanitize_table_rejects_injection_and_component_name_overflow ... ok
+test tests::tls_policy_parses_only_explicit_unix_socket_as_plaintext ... ok
+test tests::tls_policy_parses_verified_tcp_url_and_keyword_dsn ... ok
+test tests::tls_policy_rejects_weaker_mixed_duplicate_and_relative_ca_configuration ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test readonly_open_never_initializes_or_runs_migrations ... ok
+test postgresql_list_order_matches_rust_byte_order_across_letter_case ... ok
+test failed_postgresql_migration_rolls_back_schema_and_backup_creation ... ok
+test postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file ... ok
+test postgresql_concurrent_materializations_have_exactly_one_complete_winner ... ok
+test pg_blobstore_contract_is_content_addressed_and_reopenable ... ok
+test redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations ... ok
+test injected_initialization_failure_rolls_back_every_relation_and_allows_retry ... ok
+test future_or_unknown_schema_is_refused_before_blob_access ... ok
+test migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store ... ok
+test explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs ... ok
+test redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update ... ok
+test concurrent_initializers_serialize_and_all_observe_one_complete_store ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+running 5 tests
+test every_lifecycle_entrypoint_rejects_an_empty_dsn ... ok
+test unsafe_table_names_are_rejected_before_connection_and_do_not_echo_credentials ... ok
+test remote_tcp_requires_an_explicit_ca_before_connection ... ok
+test remote_tcp_without_verified_tls_is_refused_before_authentication ... ok
+test explicit_unix_socket_path_is_the_only_plaintext_connection_policy ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 14 tests
+test tests::migration_refuses_unknown_schema_without_creating_a_backup ... ok
+test tests::initialize_and_read_back_metadata ... ok
+test tests::concurrent_materializations_have_exactly_one_complete_winner ... ok
+test tests::unknown_schema_version_is_refused ... ok
+test tests::non_rust_binary_artifact_materializes_exact_bytes ... ok
+test tests::materialization_refuses_replace_and_cleans_publication_temporary_file ... ok
+test tests::corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file ... ok
+test tests::source_file_materialization_restores_unix_executable_bits ... ok
+test tests::captured_paths_drive_resume_after_checkpoint ... ok
+test tests::batch_capture_matches_per_file_and_is_durable ... ok
+test tests::backup_and_restore_smoke_preserves_metadata ... ok
+test tests::source_blob_persists_and_materializes_after_restore ... ok
+test tests::legacy_schema_migrates_with_backup_and_explicit_rollback ... ok
+test tests::lock_contention_blocks_until_writer_lifecycle_release ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

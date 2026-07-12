@@ -1,0 +1,33 @@
+
+running 21 tests
+test compiler_execution_gate_tests::boolean_and_request_shaped_data_cannot_execute_a_compiler ... ok
+test compiler_execution_gate_tests::capability_is_bound_to_exact_options_and_source_bytes ... ok
+test tests::compiler_evidence_defaults_to_fail_closed ... ok
+test compiler_execution_gate_tests::missing_mandatory_sandbox_fails_closed_before_compiler_execution ... ok
+test tests::anonymous_impl_identity_is_distinct_and_marked_unstable ... ok
+test tests::build_script_fixture_emits_static_rows_and_gaps ... ok
+test tests::identity_scan_reports_anonymous_source_shift_as_conflict ... ok
+test tests::include_fixture_passes ... ok
+test tests::macro_expansion_gate_records_question_not_fact ... ok
+test tests::macro_fixture_passes_with_gaps ... ok
+test tests::native_link_fixture_emits_static_rows_and_gaps ... ok
+test tests::proc_macro_fixture_emits_static_rows_and_gaps ... ok
+test tests::semantic_and_public_api_hashes_are_stable_for_expected_inputs ... ok
+test tests::simple_item_fixture_passes ... ok
+test tests::fixture_workspace_roots_are_reserved_and_collision_free ... ok
+test compiler_observed_tests::unavailable_toolchain_fails_closed_with_an_operable_positive_path ... ok
+test tests::compiler_observed_macro_evidence_is_provenanced_or_fails_closed ... ok
+test compiler_execution_gate_tests::capability_is_single_use_and_replay_fails_closed ... ok
+test tests::compiler_and_rustdoc_semantic_evidence_tracks_public_api_source_drift ... ok
+test compiler_observed_tests::observes_real_proc_macro_and_pins_every_compiler_artifact ... ok
+test compiler_broker::broker_captures_pinned_hir_mir_rustdoc_for_macro_rules_and_proc_macro ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.70s
+
+
+running 2 tests
+test crates/codedb_rust_static/src/lib.rs - capture_compiler_evidence (line 1286) - compile fail ... ok
+test crates/codedb_rust_static/src/lib.rs - capture_compiler_evidence (line 1294) - compile fail ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

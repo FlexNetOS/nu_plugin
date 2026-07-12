@@ -115,9 +115,33 @@ push. No `pull_request_target` or local trust bypass is permitted.
 
 Both the receipt and downloaded attestation bundle must remain outside the
 attested repository. Source workflows must never commit or bot-push either
-artifact. Full release mode has no local-receipt or trust-bypass flag: every
-verified row must be present in the external receipt, and that complete receipt
-must pass detached GitHub attestation verification.
+artifact. The default (public) release lane has no local-receipt or trust-bypass
+flag: every verified row must be present in the external receipt, and that
+complete receipt must pass detached GitHub attestation verification.
+
+## Owner-authorized local release (`--local-release`)
+
+There are two provenance lanes:
+
+- **Public release** (default, no flag): the external receipt must additionally
+  pass detached GitHub attestation verification (`gh attestation verify` against
+  a bundle signed by the protected `requirement-proof-signer` workflow). This is
+  the only lane that can publish a release outward, and it is unchanged.
+- **Local release** (`--local-release`, owner-authorized): substitutes a genuine
+  `generator.provider == "local"` receipt for the detached GitHub signature. It
+  is **not** a trust bypass and grants **no** zero-provenance completion:
+  `require_receipts` stays `True`, `validate_receipt()` runs byte-for-byte
+  unchanged (binding the receipt to the live repository / commit / tree /
+  ledger-sha / validator-sha, requiring a clean worktree, checking every row's
+  command exit code and typed evidence, and rejecting embedded self-signatures
+  and owner-binding `file://` sources), and the verified/complete floor is
+  enforced identically. The only step skipped is the detached GitHub signature,
+  and the mode pins honest `provider == "local"` labeling. A `provider ==
+  "github-actions"` receipt is rejected in this mode, a `provider == "local"`
+  receipt still cannot satisfy the default public lane, and `--local-release`
+  is mutually exclusive with `--attestation-bundle` / `--signer-workflow`. No
+  ledger row may use `--local-release` as its own gate; the mode is reachable
+  only through the explicit opt-in flag.
 
 Receipt generation may invoke a row command with `--direct-evidence`. This
 non-recursive mode still requires every mandatory ledger row and graph-backed
@@ -137,8 +161,10 @@ as verified.
 validators solely to validate the 140-row inventory while implementation is in
 progress. `--direct-evidence` is available on the requirement-ledger and
 bidirectional-package validators solely to break receipt-generation recursion
-after all direct evidence is complete. Neither mode is a release command or can
-satisfy CDB090 without the later full cryptographic release validation.
+after all direct evidence is complete. Neither `--structure-only` nor
+`--direct-evidence` is a release command; a release is sealed only by the
+default public lane (detached GitHub attestation) or by the owner-authorized
+`--local-release` lane against a genuine `provider == "local"` receipt.
 
 ## Runner proof export
 

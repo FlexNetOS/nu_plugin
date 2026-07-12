@@ -1,0 +1,387 @@
+
+running 23 tests
+test tests::capture_policy_cli_construction_is_backend_neutral_and_rejects_secret_bearing_values ... ok
+test tests::cli_store_selection_rejects_postgresql_argv_credentials_without_echoing_them ... ok
+test tests::cli_pg_selector_uses_only_codedb_pg_conn_not_ambient_database_url ... ok
+test tests::cli_store_selection_rejects_unknown_uri_schemes_before_opening_a_backend ... ok
+test tests::materialize_postgresql_identity_hides_percent_encoded_sentinels ... ok
+test tests::materialize_postgresql_identity_hides_url_credentials ... ok
+test tests::materialize_postgresql_identity_hides_query_values ... ok
+test tests::mcp_frontdoor_rejects_postgresql_argv_sentinels_without_echoing_them ... ok
+test tests::mutating_bidirectional_commands_are_not_cli_defaults ... ok
+test tests::temp_repo_reserves_exclusive_directories_for_parallel_tests ... ok
+test tests::replacement_before_late_failure_is_preserved_and_audited_as_residual ... ok
+test tests::envctl_export_includes_materialization_targets ... ok
+test tests::envctl_export_manifest_checksum_matches_observable_checksum_rows ... ok
+test tests::agent_harness_export_captures_full_fixture_surface ... ok
+test tests::envctl_export_normalizes_redb_and_postgresql_store_contracts_without_dsn_leakage ... ok
+test tests::runner_proof_manifest_keeps_bidirectional_release_gate_pending_until_all_tasks_complete ... ok
+test tests::mcp_child_environment_is_minimal_and_pg_conn_is_backend_scoped ... ok
+test tests::mcp_frontdoor_ignores_arbitrary_server_override_without_executing_marker ... ok
+test tests::default_capture_persists_metadata_only_even_for_classifier_clear_source ... ok
+test tests::capture_reads_remain_bound_to_scanned_root_after_path_symlink_swap ... ok
+test tests::explicit_safe_source_policy_persists_source_but_never_secret_bytes ... ok
+test tests::multi_file_materialization_rolls_back_new_files_after_late_failure ... ok
+test tests::external_policy_requires_outside_path_and_exact_repository_snapshot_binding ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 1 test
+test scan_and_export_accept_nontrivial_relative_repo_paths ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+
+running 38 tests
+test tests::approved_execution_rejects_non_allowlisted_environment ... ok
+test tests::artifact_hashes_use_standard_sha256 ... ok
+test tests::cargo_json_redaction_covers_nested_diagnostic_strings ... ok
+test tests::cargo_json_redaction_is_key_aware_and_malformed_lines_are_metadata_only ... ok
+test tests::cargo_warning_stdout_stderr_and_unknown_streams_are_fail_closed ... ok
+test tests::approved_fixture_capture_still_refuses_without_unsafe_flag ... ok
+test tests::approval_binds_exact_environment_and_rejects_duplicate_or_ambiguous_order ... ok
+test tests::out_dir_reproduction_rejects_escaping_paths ... ok
+test tests::approved_execution_refuses_missing_approver_before_spawning_cargo ... ok
+test tests::capture_build_refuses_without_unsafe_flag ... ok
+test tests::missing_sandbox_backend_fails_closed ... ok
+test tests::environment_rows_preserve_allowlisted_safe_values_and_summarize_unknown_values ... ok
+test tests::redaction_covers_bare_secret_tokens ... ok
+test tests::capture_build_refuses_approval_shaped_data_without_capability ... ok
+test tests::approval_rows_and_debug_error_formatting_never_expose_sentinels ... ok
+test tests::linker_rows_preserve_safe_evidence_without_embedded_credentials ... ok
+test tests::execution_capability_is_bound_to_the_exact_request ... ok
+test tests::sandbox_source_copy_holds_final_file_across_path_replacement ... ok
+test tests::sandbox_source_copy_holds_ancestor_across_path_replacement ... ok
+test tests::sandbox_source_copy_rejects_special_files ... ok
+test tests::sandbox_source_copy_rejects_final_component_replacement ... ok
+test tests::redaction_covers_database_uri_and_ci_token_families ... ok
+test tests::out_dir_batch_rolls_back_and_rejects_existing_or_symlinked_destinations ... ok
+test tests::sandbox_source_copy_preserves_exclusions ... ok
+test tests::proc_macro_rows_and_rewritten_logs_never_expose_sentinels ... ok
+test tests::out_dir_manifest_is_deterministic_and_reproduces_exact_bytes ... ok
+test tests::approved_execution_refuses_incomplete_approval_provenance ... ok
+test tests::plain_boolean_and_operator_strings_cannot_forge_execution_approval ... ok
+test tests::raw_log_publication_is_descriptor_bound_no_replace_and_no_symlink ... ok
+test tests::raw_log_never_exposes_approval_or_stream_sentinels ... ok
+test tests::failed_build_preserves_redacted_failure_run ... ok
+test tests::build_script_execution_gate_refuses_default_and_captures_approved_logs ... ok
+test tests::approved_fixture_capture_writes_raw_logs ... ok
+test tests::native_linker_facts_require_approved_dynamic_capture ... ok
+test tests::proc_macro_execution_gate_refuses_default_and_captures_compiler_evidence ... ok
+test tests::approved_execution_requires_recorded_mandatory_sandbox_provenance ... ok
+test tests::out_dir_artifact_reproduction_captures_manifest ... ok
+test tests::approved_execution_capture_records_complete_compiler_evidence ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+
+running 2 tests
+test tests::cargo_source_classifier_covers_registry_git_and_path ... ok
+test tests::captured_metadata_json_projection_is_stable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test detects_host_triple_from_verbose_rustc_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test missing_lockfile_blocks_capture_before_cargo_resolution ... ok
+test captures_locked_target_feature_and_toolchain_context ... ok
+test cargo_feature_modes_are_forwarded_and_change_context_identity ... ok
+test workspace_member_uses_nearest_ancestor_lockfile ... ok
+test lockfile_and_target_are_part_of_context_identity ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 24 tests
+test merge::tests::parse_package_name_skips_virtual_manifest ... ok
+test tests::apply_gate_refuses_incomplete_operator_decision_provenance ... ok
+test tests::apply_gate_allows_only_complete_operator_provenance ... ok
+test tests::apply_gate_refuses_missing_operator_approval ... ok
+test tests::bidirectional_sync_reports_source_drift_conflict ... ok
+test tests::bidirectional_sync_requires_matching_final_rescan ... ok
+test tests::change_plan_graph_is_reviewable_without_apply ... ok
+test tests::failed_apply_recovery_requires_restored_source_snapshot ... ok
+test tests::failed_materialization_recovery_records_audit_and_restored_snapshot ... ok
+test tests::isolated_patch_artifact_refuses_source_checkout_target ... ok
+test merge::tests::classifies_identical_divergent_and_unique ... ok
+test tests::source_snapshot_drift_blocks_change_plan_before_apply ... ok
+test tests::secret_like_source_is_redacted_by_policy ... ok
+test tests::isolated_patch_artifact_writes_outside_source_checkout ... ok
+test tests::source_metadata_is_metadata_only_by_default ... ok
+test tests::filesystem_scan_rows_are_stable ... ok
+test tests::stale_approved_plan_cannot_apply_silently ... ok
+test merge::tests::detects_crate_name_collisions ... ok
+test tests::symlink_materialization_records_metadata_only_fallback ... ok
+test tests::workspace_identity_is_deterministic ... ok
+test tests::symlink_scan_records_target_and_supported_materialization_row ... ok
+test tests::schema_tables_convert_into_rows ... ok
+test tests::clean_git_fixture_proves_no_mutation ... ok
+test tests::dirty_git_fixture_proves_no_new_mutation ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 16 tests
+test classifier_is_a_guard_and_never_an_authorization ... ok
+test default_is_deny_even_when_classifier_finds_no_secret ... ok
+test exact_source_verification_debug_output_never_contains_source_bytes ... ok
+test built_in_policy_authorizes_only_core_owned_safe_source_classes ... ok
+test external_policy_moved_under_held_repository_before_open_is_rejected ... ok
+test external_policy_ancestor_replacement_cannot_redirect_the_open ... ok
+test metadata_only_decision_preserves_hash_bound_exact_source_reproduction ... ok
+test external_policy_final_replacement_cannot_redirect_the_held_read ... ok
+test policy_provenance_never_echoes_an_opaque_caller_binding ... ok
+test external_policy_cannot_widen_sensitive_config_or_unknown_classes ... ok
+test external_policy_rejects_non_public_provenance_identifiers ... ok
+test external_policy_is_digest_bound_and_outside_the_repository ... ok
+test repository_controlled_policy_cannot_self_authorize_raw_persistence ... ok
+test unsafe_or_escaping_paths_are_unknown_and_metadata_only ... ok
+test external_policy_repository_root_replacement_does_not_change_held_containment ... ok
+test external_policy_rejects_symlinks_special_files_and_oversize_files ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test final_and_ancestor_symlinks_are_rejected_without_reading_outside_bytes ... ok
+test reads_regular_file_bytes_and_mode_from_one_contained_handle ... ok
+test root_path_replacement_cannot_redirect_an_opened_containment_handle ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test accepts_only_normal_portable_relative_paths ... ok
+test checksum_mismatch_publishes_nothing_and_cleans_temporary_files ... ok
+test atomic_materialization_rejects_symlink_components_without_escape ... ok
+test rejects_an_output_root_that_is_a_symlink ... ok
+test identity_bound_rollback_preserves_a_concurrent_replacement ... ok
+test atomic_materialization_is_checksum_bound_durable_and_no_replace ... ok
+test identity_bound_rollback_removes_only_the_published_file ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test invalid_utf8_and_binary_are_uncertain_and_never_raw_persistence_safe ... ok
+test keeps_known_benign_text_clear_without_weakening_fail_closed_policy ... ok
+test source_policy_preserves_metadata_only_fail_closed_handling_for_uncertainty ... ok
+test detects_conservative_path_and_content_secret_matrix ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test planner_refuses_unknown_downgrade_ambiguous_and_cyclic_routes ... ok
+test planner_resolves_a_dynamic_multi_step_path_without_backend_branching ... ok
+test schema_versions_parse_strictly_and_render_canonically ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test bare_pg_requires_an_explicit_external_postgresql_dsn ... ok
+test parses_filesystem_paths_and_redb_urls_as_redb ... ok
+test parses_postgresql_and_postgres_urls_as_postgresql ... ok
+test rejects_every_unknown_uri_scheme_without_filesystem_writes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 24 tests
+test bounded_traversal_stops_before_unbounded_repository_work ... ok
+test postgresql_snapshot_and_materialize_summary_are_secret_safe_when_explicitly_enabled ... ok
+test pagination_is_contiguous_bounded_non_overlapping_and_terminal ... ok
+test redb_store_selector_rejects_non_normal_parent_components ... ok
+test repository_paths_are_canonical_absolute_contained_and_nonsymlinked ... ok
+test stdio_errors_do_not_echo_secret_bearing_tool_paths_or_arguments ... ok
+test repository_traversal_stays_bound_when_an_allowed_root_ancestor_is_swapped ... ok
+test complete_json_rpc_wire_lines_include_envelope_wrapper_and_utf8_in_max_bytes ... ok
+test backend_boundary_is_read_only_and_backend_neutral ... ok
+test mcp_tool_surface_has_no_mutation_or_dynamic_execution_entrypoint ... ok
+test configuration_is_fail_closed_and_cannot_expand_compiled_maxima ... ok
+test requests_cannot_exceed_configured_or_compiled_row_and_byte_budgets ... ok
+test oversized_redb_store_is_refused_before_the_in_process_adapter_opens_it ... ok
+test repository_traversal_stays_bound_when_the_repository_root_is_swapped ... ok
+test stdio_request_budget_shuts_down_fail_closed ... ok
+test raw_source_and_blob_tools_and_tables_are_denied_without_backend_access ... ok
+test stdio_flushes_each_response_and_accepts_initialized_notification ... ok
+test in_process_stdio_lifecycle_emits_only_json_rpc_messages_and_shuts_down_on_eof ... ok
+test packaged_binary_rejects_non_stdio_transport_without_writing_stdout ... ok
+test packaged_stdio_binary_handles_initialize_tools_and_eof_without_stdout_diagnostics ... ok
+test exact_checked_in_codex_sample_launches_codedb_mcp_serve_frontdoor ... ok
+test packaged_binary_ignores_inherited_executable_override_for_store_access ... ok
+test redb_snapshot_is_queried_after_live_source_is_removed_without_store_mutation ... ok
+test cargo_summary_can_use_the_descriptor_bound_repository_in_its_child_process ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+
+running 21 tests
+test compiler_execution_gate_tests::boolean_and_request_shaped_data_cannot_execute_a_compiler ... ok
+test compiler_execution_gate_tests::missing_mandatory_sandbox_fails_closed_before_compiler_execution ... ok
+test compiler_execution_gate_tests::capability_is_bound_to_exact_options_and_source_bytes ... ok
+test tests::compiler_evidence_defaults_to_fail_closed ... ok
+test tests::anonymous_impl_identity_is_distinct_and_marked_unstable ... ok
+test tests::macro_expansion_gate_records_question_not_fact ... ok
+test tests::build_script_fixture_emits_static_rows_and_gaps ... ok
+test tests::identity_scan_reports_anonymous_source_shift_as_conflict ... ok
+test tests::include_fixture_passes ... ok
+test tests::macro_fixture_passes_with_gaps ... ok
+test tests::semantic_and_public_api_hashes_are_stable_for_expected_inputs ... ok
+test tests::native_link_fixture_emits_static_rows_and_gaps ... ok
+test tests::simple_item_fixture_passes ... ok
+test tests::proc_macro_fixture_emits_static_rows_and_gaps ... ok
+test compiler_observed_tests::unavailable_toolchain_fails_closed_with_an_operable_positive_path ... ok
+test tests::fixture_workspace_roots_are_reserved_and_collision_free ... ok
+test compiler_execution_gate_tests::capability_is_single_use_and_replay_fails_closed ... ok
+test tests::compiler_observed_macro_evidence_is_provenanced_or_fails_closed ... ok
+test tests::compiler_and_rustdoc_semantic_evidence_tracks_public_api_source_drift ... ok
+test compiler_observed_tests::observes_real_proc_macro_and_pins_every_compiler_artifact ... ok
+test compiler_broker::broker_captures_pinned_hir_mir_rustdoc_for_macro_rules_and_proc_macro ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.68s
+
+
+running 9 tests
+test tests::connection_diagnostics_do_not_contain_a_supplied_secret ... ok
+test tests::malformed_dsn_diagnostics_never_echo_credentials_or_hosts ... ok
+test tests::parse_unix_mode_reads_octal_string_and_decimal ... ok
+test tests::empty_ca_bundle_fails_closed_without_disclosing_its_path ... ok
+test tests::sanitize_table_rejects_injection_and_component_name_overflow ... ok
+test tests::sanitize_table_accepts_safe_logical_store_identifier ... ok
+test tests::tls_policy_parses_only_explicit_unix_socket_as_plaintext ... ok
+test tests::tls_policy_parses_verified_tcp_url_and_keyword_dsn ... ok
+test tests::tls_policy_rejects_weaker_mixed_duplicate_and_relative_ca_configuration ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs ... FAILED
+test concurrent_initializers_serialize_and_all_observe_one_complete_store ... FAILED
+test failed_postgresql_migration_rolls_back_schema_and_backup_creation ... FAILED
+test injected_initialization_failure_rolls_back_every_relation_and_allows_retry ... FAILED
+test future_or_unknown_schema_is_refused_before_blob_access ... FAILED
+test postgresql_concurrent_materializations_have_exactly_one_complete_winner ... FAILED
+test migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store ... FAILED
+test postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file ... FAILED
+test pg_blobstore_contract_is_content_addressed_and_reopenable ... FAILED
+test postgresql_list_order_matches_rust_byte_order_across_letter_case ... FAILED
+test readonly_open_never_initializes_or_runs_migrations ... FAILED
+test redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations ... FAILED
+test redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update ... FAILED
+
+failures:
+
+---- explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs stdout ----
+
+thread 'explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs' (1323197) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- concurrent_initializers_serialize_and_all_observe_one_complete_store stdout ----
+
+thread 'concurrent_initializers_serialize_and_all_observe_one_complete_store' (1323196) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- failed_postgresql_migration_rolls_back_schema_and_backup_creation stdout ----
+
+thread 'failed_postgresql_migration_rolls_back_schema_and_backup_creation' (1323198) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- injected_initialization_failure_rolls_back_every_relation_and_allows_retry stdout ----
+
+thread 'injected_initialization_failure_rolls_back_every_relation_and_allows_retry' (1323200) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- future_or_unknown_schema_is_refused_before_blob_access stdout ----
+
+thread 'future_or_unknown_schema_is_refused_before_blob_access' (1323199) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- postgresql_concurrent_materializations_have_exactly_one_complete_winner stdout ----
+
+thread 'postgresql_concurrent_materializations_have_exactly_one_complete_winner' (1323203) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store stdout ----
+
+thread 'migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store' (1323201) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file stdout ----
+
+thread 'postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file' (1323204) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- pg_blobstore_contract_is_content_addressed_and_reopenable stdout ----
+
+thread 'pg_blobstore_contract_is_content_addressed_and_reopenable' (1323202) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- postgresql_list_order_matches_rust_byte_order_across_letter_case stdout ----
+
+thread 'postgresql_list_order_matches_rust_byte_order_across_letter_case' (1323205) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- readonly_open_never_initializes_or_runs_migrations stdout ----
+
+thread 'readonly_open_never_initializes_or_runs_migrations' (1323206) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations stdout ----
+
+thread 'redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations' (1323207) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+---- redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update stdout ----
+
+thread 'redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update' (1323208) panicked at crates/codedb_store_pg/tests/blobstore_parity.rs:40:10:
+CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service: NotPresent
+
+
+failures:
+    concurrent_initializers_serialize_and_all_observe_one_complete_store
+    explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs
+    failed_postgresql_migration_rolls_back_schema_and_backup_creation
+    future_or_unknown_schema_is_refused_before_blob_access
+    injected_initialization_failure_rolls_back_every_relation_and_allows_retry
+    migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store
+    pg_blobstore_contract_is_content_addressed_and_reopenable
+    postgresql_concurrent_materializations_have_exactly_one_complete_winner
+    postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file
+    postgresql_list_order_matches_rust_byte_order_across_letter_case
+    readonly_open_never_initializes_or_runs_migrations
+    redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations
+    redb_and_postgresql_have_identical_blobstore_observations_across_reopen_and_update
+
+test result: FAILED. 0 passed; 13 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

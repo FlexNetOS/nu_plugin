@@ -1,0 +1,50 @@
+
+running 38 tests
+test tests::approved_execution_rejects_non_allowlisted_environment ... ok
+test tests::artifact_hashes_use_standard_sha256 ... ok
+test tests::cargo_json_redaction_covers_nested_diagnostic_strings ... ok
+test tests::cargo_json_redaction_is_key_aware_and_malformed_lines_are_metadata_only ... ok
+test tests::cargo_warning_stdout_stderr_and_unknown_streams_are_fail_closed ... ok
+test tests::approval_binds_exact_environment_and_rejects_duplicate_or_ambiguous_order ... ok
+test tests::approved_fixture_capture_still_refuses_without_unsafe_flag ... ok
+test tests::missing_sandbox_backend_fails_closed ... ok
+test tests::out_dir_reproduction_rejects_escaping_paths ... ok
+test tests::environment_rows_preserve_allowlisted_safe_values_and_summarize_unknown_values ... ok
+test tests::redaction_covers_bare_secret_tokens ... ok
+test tests::linker_rows_preserve_safe_evidence_without_embedded_credentials ... ok
+test tests::approved_execution_refuses_missing_approver_before_spawning_cargo ... ok
+test tests::capture_build_refuses_approval_shaped_data_without_capability ... ok
+test tests::approval_rows_and_debug_error_formatting_never_expose_sentinels ... ok
+test tests::capture_build_refuses_without_unsafe_flag ... ok
+test tests::sandbox_source_copy_holds_final_file_across_path_replacement ... ok
+test tests::sandbox_source_copy_holds_ancestor_across_path_replacement ... ok
+test tests::out_dir_batch_rolls_back_and_rejects_existing_or_symlinked_destinations ... ok
+test tests::redaction_covers_database_uri_and_ci_token_families ... ok
+test tests::sandbox_source_copy_preserves_exclusions ... ok
+test tests::execution_capability_is_bound_to_the_exact_request ... ok
+test tests::sandbox_source_copy_rejects_special_files ... ok
+test tests::sandbox_source_copy_rejects_final_component_replacement ... ok
+test tests::proc_macro_rows_and_rewritten_logs_never_expose_sentinels ... ok
+test tests::out_dir_manifest_is_deterministic_and_reproduces_exact_bytes ... ok
+test tests::approved_execution_refuses_incomplete_approval_provenance ... ok
+test tests::plain_boolean_and_operator_strings_cannot_forge_execution_approval ... ok
+test tests::raw_log_never_exposes_approval_or_stream_sentinels ... ok
+test tests::raw_log_publication_is_descriptor_bound_no_replace_and_no_symlink ... ok
+test tests::failed_build_preserves_redacted_failure_run ... ok
+test tests::build_script_execution_gate_refuses_default_and_captures_approved_logs ... ok
+test tests::approved_fixture_capture_writes_raw_logs ... ok
+test tests::native_linker_facts_require_approved_dynamic_capture ... ok
+test tests::approved_execution_requires_recorded_mandatory_sandbox_provenance ... ok
+test tests::proc_macro_execution_gate_refuses_default_and_captures_compiler_evidence ... ok
+test tests::out_dir_artifact_reproduction_captures_manifest ... ok
+test tests::approved_execution_capture_records_complete_compiler_evidence ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+
+running 2 tests
+test crates/codedb_build_capture/src/lib.rs - capture_approved_fixture_build_with_capability (line 418) - compile fail ... ok
+test crates/codedb_build_capture/src/lib.rs - capture_from_trusted_frontdoor (line 639) - compile fail ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+

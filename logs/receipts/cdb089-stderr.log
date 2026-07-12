@@ -1,0 +1,12 @@
+   Compiling codedb-core v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running unittests src/main.rs (target/debug/deps/codedb-7e6b186eee9c28c7)
+     Running tests/relative_repo_path.rs (target/debug/deps/relative_repo_path-47009a4b95124dc5)
+     Running unittests src/lib.rs (target/debug/deps/codedb_core-936ffd62d8836435)
+     Running tests/capture_policy.rs (target/debug/deps/capture_policy-88a26d0d866c7f58)
+     Running tests/contained_reads.rs (target/debug/deps/contained_reads-9ba77c121a1a319b)
+     Running tests/materialization_paths.rs (target/debug/deps/materialization_paths-6409e5b838bc0ba7)
+     Running tests/secret_classifier.rs (target/debug/deps/secret_classifier-05d26b890b9c8d9b)
+     Running tests/store_migrations.rs (target/debug/deps/store_migrations-6ecbd3cf58e85265)
+     Running tests/store_spec.rs (target/debug/deps/store_spec-9a79e07fe09f1835)
+   Doc-tests codedb_core

@@ -1,0 +1,26 @@
+#![feature(prelude_import)]
+extern crate std; /* 1 */
+#[prelude_import]
+use std::prelude::rust_2021::*; /* 2 */
+macro_rules! make_answer {
+    () => { pub fn generated_answer() -> u32 { 42 } };
+} /* 7 */
+
+macro_rules! add_one_with_hygienic_local {
+    ($value:expr) => {{ let macro_local = $value; macro_local + 1 }};
+} /* 8 */
+pub fn generated_answer() -> u32 { (42 /* 38 */) } /* block 39 */ /* 34 */
+
+
+pub fn call_generated() -> u32 { ((generated_answer /* 14 */)() /* 13 */) } /*
+block 16 */ /* 9 */
+
+pub fn call_hygienic_local() -> u32 {
+    let macro_local /* pat 22 */ = (0 /* 23 */);
+    let result /* pat 26 */ =
+        ({
+            let macro_local /* pat 43 */ = (41 /* 44 */);
+            ((macro_local /* 47 */) + (1 /* 49 */) /* 46 */)
+        } /* block 50 */ /* 40 */);
+    ((macro_local /* 29 */) + (result /* 31 */) /* 28 */)
+} /* block 33 */ /* 17 */

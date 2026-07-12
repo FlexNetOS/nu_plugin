@@ -1,0 +1,4 @@
+   Compiling codedb v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.97s
+     Running unittests src/main.rs (target/debug/deps/codedb-7e6b186eee9c28c7)
+     Running tests/relative_repo_path.rs (target/debug/deps/relative_repo_path-47009a4b95124dc5)

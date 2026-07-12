@@ -1,0 +1,12 @@
+
+running 7 tests
+test accepts_only_normal_portable_relative_paths ... ok
+test checksum_mismatch_publishes_nothing_and_cleans_temporary_files ... ok
+test atomic_materialization_rejects_symlink_components_without_escape ... ok
+test rejects_an_output_root_that_is_a_symlink ... ok
+test identity_bound_rollback_preserves_a_concurrent_replacement ... ok
+test atomic_materialization_is_checksum_bound_durable_and_no_replace ... ok
+test identity_bound_rollback_removes_only_the_published_file ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,4 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `/home/flexnetos/meta/src/envctl/target/debug/envctl db --repo-root ../envctl scan --json`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `/home/flexnetos/meta/src/envctl/target/debug/envctl db --repo-root ../envctl watch --json`

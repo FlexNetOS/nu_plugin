@@ -1,0 +1,51 @@
+#![feature /* 839#0 */(prelude_import /* 1467#0 */)]
+extern crate std /* 1878#1 */;
+#[prelude_import /* 1467#1 */]
+use std /* 1878#1 */::prelude /* 1466#1 */::rust_2021 /* 1599#1 */::*;
+use codedb_observed_proc_macro /* 2358#0 */::emit_observed_item /* 2359#0 */;
+
+macro_rules! emit_declarative_item
+    /*
+    2360#0
+    */ {
+    () =>
+    {
+        pub /* 23#0 */ fn /* 12#0 */ generated_by_macro_rules /* 2361#0 */()
+        -> u32 /* 2031#0 */ { 42 }
+    };
+}
+pub fn generated_by_macro_rules /* 2361#4 */() -> u32 /* 2031#4 */ { 42 }
+
+pub const CODEDB_SANDBOX_NETWORK_DENIED /* 2502#6 */: bool /* 445#6 */ = true;
+pub const CODEDB_SANDBOX_HOME_HIDDEN /* 2503#6 */: bool /* 445#6 */ = true;
+pub const CODEDB_SANDBOX_SOURCE_READ_ONLY /* 2504#6 */: bool /* 445#6 */ =
+    true;
+pub const CODEDB_SANDBOX_EXTERN_READ_ONLY /* 2505#6 */: bool /* 445#6 */ =
+    true;
+pub fn generated_by_observed_proc_macro /* 2366#6 */() -> u32 /* 2031#6 */ {
+    77
+}
+
+pub fn call_generated_items /* 2365#0 */() -> u32 /* 2031#0 */ {
+    generated_by_macro_rules /* 2361#0 */() +
+        generated_by_observed_proc_macro /* 2366#0 */()
+}
+
+/*
+Expansions:
+crate0::{{expn0}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: Root
+crate0::{{expn1}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: AstPass(StdImports)
+crate0::{{expn2}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: Macro(Bang, "emit_declarative_item")
+crate0::{{expn3}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: Macro(Bang, "emit_observed_item")
+crate1::{{expn1}}: parent: crate0::{{expn0}}, call_site_ctxt: #0, def_site_ctxt: #0, kind: AstPass(StdImports)
+
+SyntaxContexts:
+#0: parent: #0, outer_mark: (crate0::{{expn0}}, Opaque)
+#1: parent: #0, outer_mark: (crate0::{{expn1}}, Opaque)
+#2: parent: #0, outer_mark: (crate0::{{expn1}}, Transparent)
+#3: parent: #0, outer_mark: (crate1::{{expn1}}, Opaque)
+#4: parent: #0, outer_mark: (crate0::{{expn2}}, SemiOpaque)
+#5: parent: #0, outer_mark: (crate0::{{expn3}}, Opaque)
+#6: parent: #0, outer_mark: (crate0::{{expn3}}, Transparent)
+#7: parent: #0, outer_mark: (crate0::{{expn3}}, SemiOpaque)
+*/

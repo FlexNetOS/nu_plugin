@@ -1,0 +1,7 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/codedb_store_pg-efb89e1842f12a95)
+     Running tests/blobstore_parity.rs (target/debug/deps/blobstore_parity-666c8cbe31ba3fea)
+     Running tests/fail_closed.rs (target/debug/deps/fail_closed-712599c66116d59a)
+     Running unittests src/lib.rs (target/debug/deps/codedb_store_redb-6e7febbc4830451a)
+   Doc-tests codedb_store_pg
+   Doc-tests codedb_store_redb

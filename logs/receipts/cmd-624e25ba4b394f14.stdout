@@ -1,0 +1,10 @@
+{
+  "plan": {
+    "approved": false,
+    "queued": 0,
+    "ready": 0,
+    "refused": 0,
+    "steps": []
+  },
+  "promoted": null
+}

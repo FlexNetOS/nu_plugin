@@ -100,12 +100,18 @@ def audit_repository(root: Path) -> list[Violation]:
     )
 
 
-def audit_release(root: Path, *, require_all_verified: bool) -> list[object]:
+def audit_release(
+    root: Path, *, require_all_verified: bool, local_release: bool = False
+) -> list[object]:
     """Combine language-policy checks with direct proof-ledger validation."""
 
     return [
         *audit_repository(root),
-        *audit_ledger(root, require_all_verified=require_all_verified),
+        *audit_ledger(
+            root,
+            require_all_verified=require_all_verified,
+            local_release=local_release,
+        ),
     ]
 
 
@@ -117,10 +123,20 @@ def main() -> int:
         action="store_true",
         help="validate policy and ledger structure without asserting release readiness",
     )
+    parser.add_argument(
+        "--local-release",
+        action="store_true",
+        help=(
+            "Owner-authorized local release: accept a genuine provider=local "
+            "receipt in place of the detached GitHub attestation (delegated to "
+            "the requirement-proof ledger validator)"
+        ),
+    )
     args = parser.parse_args()
     violations = audit_release(
         args.root,
         require_all_verified=not args.structure_only,
+        local_release=args.local_release,
     )
     if violations:
         print("mandatory capability policy: FAILED")

@@ -76,6 +76,14 @@ def receipt_row(requirement_id: str) -> dict:
     }
 
 
+
+def _local_release_row() -> dict[str, str]:
+    row = complete_row("CDB013")
+    row["authoritative_source"] = "execution/TASK_GRAPH.csv"
+    row["implementation_paths"] = "scripts/validate_requirement_proof_ledger.py"
+    row["test_paths"] = "tests/test_requirement_proof_ledger.py"
+    return row
+
 class RequirementProofLedgerUnitTest(unittest.TestCase):
     def test_verified_row_requires_direct_external_current_head_attestation(self) -> None:
         head = "a" * 40
@@ -261,6 +269,16 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
             any(v.rule == "release-blocking evidence status" for v in violations),
             "the current ledger must block release until every row has current-head proof",
         )
+        # The local-release mode does NOT relax the verified/complete floor: it
+        # only substitutes a local receipt for the GitHub signature. While any
+        # row lacks proof, local release fails closed exactly like release mode.
+        local_violations = audit_ledger(
+            ROOT, require_all_verified=True, local_release=True
+        )
+        self.assertTrue(
+            any(v.rule == "release-blocking evidence status" for v in local_violations),
+            "local-release must not relax the verified/complete floor",
+        )
 
     def test_full_mode_always_requires_detached_cryptographic_verification(
         self,
@@ -320,7 +338,9 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
             self.assertEqual([], verified, "\n" + "\n".join(map(str, verified)))
             crypto.assert_called_once()
 
-    def test_cli_has_direct_evidence_mode_but_no_local_release_bypass(self) -> None:
+    def test_cli_supports_explicit_local_release_but_still_requires_local_attestation(
+        self,
+    ) -> None:
         script = ROOT / "scripts/validate_requirement_proof_ledger.py"
         direct = subprocess.run(
             [sys.executable, str(script), "--root", str(ROOT), "--direct-evidence"],
@@ -333,6 +353,8 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
         self.assertIn("release-blocking evidence status", direct.stdout)
         self.assertNotIn("missing external proof receipt", direct.stdout)
 
+        # The dishonest "bypass" spelling stays unrecognized: there is no flag
+        # that lets an already-generated in-tree receipt self-authorize.
         bypass = subprocess.run(
             [sys.executable, str(script), "--allow-local-receipt"],
             text=True,
@@ -342,13 +364,171 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
         self.assertNotEqual(0, bypass.returncode)
         self.assertIn("unrecognized arguments: --allow-local-receipt", bypass.stderr)
 
+        # The honest, owner-authorized local release is spelled --local-release.
+        # It is recognized, but it NEVER grants zero-provenance completion: a
+        # genuine external receipt remains mandatory, so with no --receipt it
+        # still fails closed with "missing external proof receipt".
+        local = subprocess.run(
+            [sys.executable, str(script), "--root", str(ROOT), "--local-release"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotIn("unrecognized arguments", local.stderr)
+        self.assertNotEqual(0, local.returncode)
+        self.assertIn("missing external proof receipt", local.stdout)
+
+        # A local release cannot borrow the detached GitHub signature.
+        combined = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--root",
+                str(ROOT),
+                "--local-release",
+                "--attestation-bundle",
+                "/outside/x.bundle.jsonl",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(0, combined.returncode)
+        self.assertIn("mutually exclusive", combined.stderr)
+
+    def test_local_release_passes_with_local_receipt_and_never_calls_github(
+        self,
+    ) -> None:
+        receipt = Path("/outside/requirement-proof.json")
+        crypto = Mock(return_value=[])
+        with (
+            patch.object(ledger_validator, "EXPECTED_REQUIREMENT_IDS", {"CDB013"}),
+            patch.object(
+                ledger_validator, "read_ledger", return_value=[_local_release_row()]
+            ),
+            patch.object(ledger_validator, "_current_head", return_value="a" * 40),
+            patch.object(ledger_validator, "_current_tree", return_value="b" * 40),
+            patch.object(
+                ledger_validator, "_current_repository", return_value="FlexNetOS/nu_plugin"
+            ),
+            patch.object(ledger_validator, "_worktree_clean", return_value=True),
+            patch.object(ledger_validator, "_sha256_file", return_value="1" * 64),
+            patch.object(ledger_validator, "_graph_statuses", return_value={}),
+            patch.object(ledger_validator, "_external_path", side_effect=lambda _, p, **__: p),
+            patch.object(
+                ledger_validator,
+                "load_receipt",
+                return_value={"generator": {"provider": "local"}},
+            ),
+            patch.object(
+                ledger_validator,
+                "validate_receipt",
+                return_value=({"CDB013": receipt_row("CDB013")}, []),
+            ),
+            patch.object(ledger_validator, "verify_github_attestation", crypto),
+        ):
+            violations = audit_ledger(
+                ROOT,
+                require_all_verified=True,
+                receipt_path=receipt,
+                local_release=True,
+            )
+            self.assertEqual([], violations, "\n" + "\n".join(map(str, violations)))
+            crypto.assert_not_called()
+
+    def test_local_release_rejects_github_provider_receipt(self) -> None:
+        receipt = Path("/outside/requirement-proof.json")
+        crypto = Mock(return_value=[])
+        with (
+            patch.object(ledger_validator, "EXPECTED_REQUIREMENT_IDS", {"CDB013"}),
+            patch.object(
+                ledger_validator, "read_ledger", return_value=[_local_release_row()]
+            ),
+            patch.object(ledger_validator, "_current_head", return_value="a" * 40),
+            patch.object(ledger_validator, "_current_tree", return_value="b" * 40),
+            patch.object(
+                ledger_validator, "_current_repository", return_value="FlexNetOS/nu_plugin"
+            ),
+            patch.object(ledger_validator, "_worktree_clean", return_value=True),
+            patch.object(ledger_validator, "_sha256_file", return_value="1" * 64),
+            patch.object(ledger_validator, "_graph_statuses", return_value={}),
+            patch.object(ledger_validator, "_external_path", side_effect=lambda _, p, **__: p),
+            patch.object(
+                ledger_validator,
+                "load_receipt",
+                return_value={"generator": {"provider": "github-actions"}},
+            ),
+            patch.object(
+                ledger_validator,
+                "validate_receipt",
+                return_value=({"CDB013": receipt_row("CDB013")}, []),
+            ),
+            patch.object(ledger_validator, "verify_github_attestation", crypto),
+        ):
+            violations = audit_ledger(
+                ROOT,
+                require_all_verified=True,
+                receipt_path=receipt,
+                local_release=True,
+            )
+            self.assertTrue(
+                any(
+                    v.rule == "local-release requires local provider receipt"
+                    for v in violations
+                ),
+                "\n" + "\n".join(map(str, violations)),
+            )
+            crypto.assert_not_called()
+
+    def test_local_receipt_cannot_satisfy_default_github_release(self) -> None:
+        receipt = Path("/outside/requirement-proof.json")
+        crypto = Mock(return_value=[])
+        with (
+            patch.object(ledger_validator, "EXPECTED_REQUIREMENT_IDS", {"CDB013"}),
+            patch.object(
+                ledger_validator, "read_ledger", return_value=[_local_release_row()]
+            ),
+            patch.object(ledger_validator, "_current_head", return_value="a" * 40),
+            patch.object(ledger_validator, "_current_tree", return_value="b" * 40),
+            patch.object(
+                ledger_validator, "_current_repository", return_value="FlexNetOS/nu_plugin"
+            ),
+            patch.object(ledger_validator, "_worktree_clean", return_value=True),
+            patch.object(ledger_validator, "_sha256_file", return_value="1" * 64),
+            patch.object(ledger_validator, "_graph_statuses", return_value={}),
+            patch.object(ledger_validator, "_external_path", side_effect=lambda _, p, **__: p),
+            patch.object(
+                ledger_validator,
+                "load_receipt",
+                return_value={"generator": {"provider": "local"}},
+            ),
+            patch.object(
+                ledger_validator,
+                "validate_receipt",
+                return_value=({"CDB013": receipt_row("CDB013")}, []),
+            ),
+            patch.object(ledger_validator, "verify_github_attestation", crypto),
+        ):
+            # Default (public/GitHub) release lane, local_release omitted: even a
+            # perfectly valid local receipt cannot substitute for the detached
+            # GitHub attestation bundle.
+            violations = audit_ledger(
+                ROOT,
+                require_all_verified=True,
+                receipt_path=receipt,
+            )
+            self.assertTrue(
+                any(v.rule == "missing detached attestation bundle" for v in violations),
+                "\n" + "\n".join(map(str, violations)),
+            )
+            crypto.assert_not_called()
+
     def test_every_full_validator_row_uses_nonrecursive_evidence_mode(self) -> None:
         rows = {
             row["requirement_id"]: row
             for row in read_ledger(ROOT / "execution/REQUIREMENT_PROOF_LEDGER.csv")
         }
         expected = {
-            "CDB040": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
             "CDB047": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
             "CDB090": "python3 scripts/validate_bidirectional_package.py --direct-evidence",
             "CDB106-AC10": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
@@ -358,6 +538,12 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
             with self.subTest(requirement_id=requirement_id):
                 self.assertEqual(command, rows[requirement_id]["verification_command"])
 
+        self.assertEqual(
+            "python3 -m unittest tests.test_integration_contracts && "
+            "python3 scripts/validate_integration_contracts.py",
+            rows["CDB040"]["verification_command"],
+        )
+
         self.assertFalse(
             any(
                 row["verification_command"]
@@ -365,6 +551,11 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
                 for row in rows.values()
             ),
             "an all-row receipt cannot execute a full release validator recursively",
+        )
+
+        self.assertFalse(
+            any("--local-release" in row["verification_command"] for row in rows.values()),
+            "no ledger row may invoke the local-release mode as its own gate",
         )
 
         self.assertEqual("missing", rows["CDB047"]["evidence_status"])

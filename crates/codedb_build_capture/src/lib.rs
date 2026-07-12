@@ -25,11 +25,11 @@ pub struct ReproductionRoot {
     display: PathBuf,
 }
 
-/// Unforgeable entry token held only by this crate's trusted frontdoor.
+/// Crate-private entry token held only by this crate's trusted frontdoor.
 ///
-/// The private field is the seal: external library callers cannot construct
-/// this value and therefore cannot ask the library to self-issue authority.
-pub struct TrustedExecutionFrontdoor(());
+/// Neither the type nor its constructor is exported, so downstream unsafe code
+/// cannot name a fabricated token and invoke the dynamic runner.
+struct TrustedExecutionFrontdoor(());
 
 impl ReproductionRoot {
     pub fn open_existing(path: &Path) -> io::Result<Self> {
@@ -72,6 +72,31 @@ pub struct BuildCaptureOutcome {
     pub raw_log_paths: Vec<Row>,
 }
 
+impl BuildCaptureOutcome {
+    /// Flatten every captured table in a stable schema order for CLI/store
+    /// projection. Row order within each table remains the compiler-observed
+    /// order produced by the capture.
+    pub fn into_rows(mut self) -> Vec<Row> {
+        let mut rows = Vec::new();
+        rows.append(&mut self.unsafe_execution_approval);
+        rows.append(&mut self.build_script_runs);
+        rows.append(&mut self.build_script_env);
+        rows.append(&mut self.build_script_stdout);
+        rows.append(&mut self.build_script_stderr);
+        rows.append(&mut self.build_script_cargo_instructions);
+        rows.append(&mut self.proc_macro_invocations);
+        rows.append(&mut self.proc_macro_input_token_streams);
+        rows.append(&mut self.proc_macro_output_token_streams);
+        rows.append(&mut self.native_link_facts);
+        rows.append(&mut self.out_dir_artifacts);
+        rows.append(&mut self.toolchain_provenance);
+        rows.append(&mut self.validation_errors);
+        rows.append(&mut self.capture_gaps);
+        rows.append(&mut self.raw_log_paths);
+        rows
+    }
+}
+
 /// Host-held authority for minting request-bound execution capabilities.
 ///
 /// The authority must stay in the trusted frontdoor. Approval-shaped request
@@ -112,6 +137,7 @@ impl BuildCaptureStatus {
 pub enum BuildCaptureError {
     CreateLogDir { path: PathBuf, source: io::Error },
     WriteLog { path: PathBuf, source: io::Error },
+    InvalidLogLocation { path: PathBuf },
     SpawnCargo { path: PathBuf, source: io::Error },
     DisallowedEnvironment { key: String },
     AmbiguousEnvironment { reason: &'static str },
@@ -221,6 +247,11 @@ impl Display for BuildCaptureError {
                     io_error_summary(source)
                 )
             }
+            Self::InvalidLogLocation { path } => write!(
+                f,
+                "raw capture log must be outside the source repository: {}",
+                redact_text(&path.display().to_string())
+            ),
             Self::SpawnCargo { path, source } => {
                 write!(
                     f,
@@ -383,6 +414,36 @@ impl ExecutionApprovalAuthority {
     }
 }
 
+/// Refusal-only public dynamic-capture surface.
+///
+/// The crate's execution authority and trusted frontdoor must not be nameable
+/// by downstream code, even through an unsafe zero-initialized value:
+///
+/// ```compile_fail
+/// use codedb_build_capture::{
+///     BuildCaptureRequest, TrustedExecutionFrontdoor,
+///     capture_from_trusted_frontdoor,
+/// };
+/// use std::{mem::MaybeUninit, path::PathBuf};
+///
+/// let forged: TrustedExecutionFrontdoor = unsafe {
+///     MaybeUninit::zeroed().assume_init()
+/// };
+/// let _ = capture_from_trusted_frontdoor(
+///     forged,
+///     BuildCaptureRequest {
+///         repo_path: PathBuf::from("."),
+///         store_path: None,
+///         raw_log_path: PathBuf::from("capture.log"),
+///         unsafe_execute_build: false,
+///         approver: None,
+///         task_id: None,
+///         before_state: None,
+///         cleanup_plan: None,
+///     },
+///     &[],
+/// );
+/// ```
 pub fn capture_build(request: BuildCaptureRequest) -> BuildCaptureOutcome {
     if !request.unsafe_execute_build {
         return refused_capture(request);
@@ -395,6 +456,22 @@ pub fn capture_build(request: BuildCaptureRequest) -> BuildCaptureOutcome {
     }
 
     capability_required_capture(request)
+}
+
+/// Run the explicitly approved production build-capture path.
+///
+/// The request must carry the unsafe flag, a named approver, task identity,
+/// before-state receipt, cleanup plan, and a raw-log destination outside the
+/// source repository. The compiler runs only inside the mandatory isolated
+/// sandbox; this entrypoint is intentionally not exposed through MCP.
+pub fn capture_approved_build(
+    request: BuildCaptureRequest,
+) -> Result<BuildCaptureOutcome, BuildCaptureError> {
+    capture_from_trusted_frontdoor(
+        TrustedExecutionFrontdoor(()),
+        request,
+        &[("CODEDB_PROC_MACRO_LOG_PATH", "sandbox-managed")],
+    )
 }
 
 pub fn capture_approved_fixture_build(
@@ -444,12 +521,7 @@ fn capture_approved_fixture_build_with_capability(
         &normalized_environment,
         &sandbox,
     )?;
-    let log_root = ReproductionRoot::open_existing(&request.repo_path).map_err(|source| {
-        BuildCaptureError::CreateLogDir {
-            path: request.repo_path.clone(),
-            source,
-        }
-    })?;
+    let log_root = prepare_raw_log_root(&request)?;
     let target_dir = sandbox.scratch_root.join("target");
     let mut command = sandbox_command(&sandbox, environment);
     let output = command
@@ -641,7 +713,7 @@ fn capture_approved_fixture_build_with_capability(
 ///
 /// let forged = TrustedExecutionFrontdoor(());
 /// ```
-pub fn capture_from_trusted_frontdoor(
+fn capture_from_trusted_frontdoor(
     _frontdoor: TrustedExecutionFrontdoor,
     request: BuildCaptureRequest,
     environment: &[(&str, &str)],
@@ -905,7 +977,7 @@ fn raw_log_row(request: &BuildCaptureRequest, status: &str) -> Row {
         ("path", request.raw_log_path.display().to_string()),
         (
             "note",
-            "redacted command/build evidence path; default and approval-only calls do not write it"
+            "redacted approved compiler/build evidence path; refusal-only calls do not write it"
                 .to_string(),
         ),
     ])
@@ -2390,7 +2462,7 @@ fn capture_proc_macro_evidence(
     }) else {
         return ProcMacroEvidence::default();
     };
-    let Ok(content) = fs::read_to_string(&path) else {
+    let Ok(content) = read_bounded_regular_file_nofollow(&path, 1024 * 1024) else {
         return ProcMacroEvidence::default();
     };
 
@@ -2417,23 +2489,70 @@ fn capture_proc_macro_evidence(
             output = Some(value.to_string());
         }
     }
-    let summary = if evidence.log_summary.is_empty() {
+    let source_summary = if evidence.log_summary.is_empty() {
         format!(
-            "proc_macro_evidence={}\n",
+            "proc_macro_evidence={}",
             metadata_summary("unrecognized-proc-macro-stream", content.as_bytes())
         )
     } else {
         format!(
-            "{}\nproc_macro_source={}\n",
-            evidence.log_summary.join("\n"),
+            "proc_macro_source={}",
             metadata_summary("proc-macro-stream", content.as_bytes())
         )
     };
-    if fs::write(&path, summary).is_err() {
-        let _ = fs::remove_file(&path);
-        return ProcMacroEvidence::default();
-    }
+    evidence.log_summary.push(source_summary);
     evidence
+}
+
+#[cfg(unix)]
+fn read_bounded_regular_file_nofollow(path: &Path, max_bytes: u64) -> io::Result<String> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    const O_NOFOLLOW: i32 = 0o400000;
+    let parent_path = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+    let parent = open_directory_nofollow(parent_path)?;
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(descriptor_child_path(&parent, file_name))?;
+    let metadata = file.metadata()?;
+    if !metadata.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "proc-macro evidence is not a regular file",
+        ));
+    }
+    if metadata.len() > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "proc-macro evidence exceeds the capture limit",
+        ));
+    }
+
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    Read::by_ref(&mut file)
+        .take(max_bytes + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "proc-macro evidence grew beyond the capture limit",
+        ));
+    }
+    String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+#[cfg(not(unix))]
+fn read_bounded_regular_file_nofollow(_path: &Path, _max_bytes: u64) -> io::Result<String> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "nofollow proc-macro evidence capture is unavailable on this platform",
+    ))
 }
 
 fn push_proc_macro_evidence(
@@ -2828,6 +2947,52 @@ fn write_redacted_raw_log(
     atomic_publish_bytes(root, relative, body.as_bytes(), Some(0o600)).map_err(|source| {
         BuildCaptureError::WriteLog {
             path: path.to_path_buf(),
+            source,
+        }
+    })
+}
+
+fn prepare_raw_log_root(
+    request: &BuildCaptureRequest,
+) -> Result<ReproductionRoot, BuildCaptureError> {
+    let parent = request
+        .raw_log_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or_else(|| BuildCaptureError::WriteLog {
+            path: request.raw_log_path.clone(),
+            source: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "raw log path must include a parent directory",
+            ),
+        })?;
+    fs::create_dir_all(parent).map_err(|source| BuildCaptureError::CreateLogDir {
+        path: parent.to_path_buf(),
+        source,
+    })?;
+    let canonical_parent =
+        parent
+            .canonicalize()
+            .map_err(|source| BuildCaptureError::CreateLogDir {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+    let canonical_repo =
+        request
+            .repo_path
+            .canonicalize()
+            .map_err(|source| BuildCaptureError::PrepareSandbox {
+                path: request.repo_path.clone(),
+                source,
+            })?;
+    if canonical_parent.starts_with(&canonical_repo) {
+        return Err(BuildCaptureError::InvalidLogLocation {
+            path: request.raw_log_path.clone(),
+        });
+    }
+    ReproductionRoot::open_existing(&canonical_parent).map_err(|source| {
+        BuildCaptureError::CreateLogDir {
+            path: canonical_parent,
             source,
         }
     })
@@ -3731,7 +3896,7 @@ edition = "2024"
         )
         .expect("write build script");
 
-        let raw_log_path = fixture.join("logs/raw-build.log");
+        let raw_log_path = external_raw_log(&fixture, "raw-build.log");
         let outcome = capture_approved_fixture_build(BuildCaptureRequest {
             repo_path: fixture.clone(),
             store_path: None,
@@ -3811,7 +3976,7 @@ edition = "2024"
             BuildCaptureRequest {
                 repo_path: fixture.clone(),
                 store_path: None,
-                raw_log_path: fixture.join("logs/cargo.log"),
+                raw_log_path: external_raw_log(&fixture, "cargo.log"),
                 unsafe_execute_build: true,
                 approver: Some("proc-macro-test".to_string()),
                 task_id: Some("CDB078".to_string()),
@@ -3879,7 +4044,7 @@ edition = "2024"
         )
         .expect("write build script");
 
-        let raw_log_path = fixture.join("logs/raw-build.log");
+        let raw_log_path = external_raw_log(&fixture, "raw-build.log");
         let approved = capture_approved_fixture_build(BuildCaptureRequest {
             repo_path: fixture.clone(),
             store_path: None,
@@ -3976,7 +4141,7 @@ edition = "2024"
         )
         .expect("copy fixture lib");
 
-        let raw_log_path = fixture.join("logs/raw-build.log");
+        let raw_log_path = external_raw_log(&fixture, "raw-build.log");
         let approved = capture_approved_fixture_build_with_env(
             BuildCaptureRequest {
                 repo_path: fixture.clone(),
@@ -4047,7 +4212,7 @@ edition = "2024"
             fixture.join("src/lib.rs"),
         )
         .expect("copy fixture lib");
-        let raw_log_path = fixture.join("logs/raw-build.log");
+        let raw_log_path = external_raw_log(&fixture, "raw-build.log");
         let outcome = capture_approved_fixture_build(BuildCaptureRequest {
             repo_path: fixture.clone(),
             store_path: None,
@@ -4123,7 +4288,7 @@ edition = "2024"
         let second = capture_approved_fixture_build(BuildCaptureRequest {
             repo_path: second_fixture.clone(),
             store_path: None,
-            raw_log_path: second_fixture.join("logs/raw-build.log"),
+            raw_log_path: external_raw_log(&second_fixture, "raw-build.log"),
             unsafe_execute_build: true,
             approver: Some("out-dir-repeat-test".to_string()),
             task_id: Some("CDB080".to_string()),
@@ -4187,7 +4352,7 @@ edition = "2024"
             BuildCaptureRequest {
                 repo_path: proc_macro_fixture.clone(),
                 store_path: None,
-                raw_log_path: proc_macro_fixture.join("logs/cargo.log"),
+                raw_log_path: external_raw_log(&proc_macro_fixture, "cargo.log"),
                 unsafe_execute_build: true,
                 approver: Some("execution-evidence-test".to_string()),
                 task_id: Some("CDB078".to_string()),
@@ -4231,7 +4396,7 @@ edition = "2024"
             BuildCaptureRequest {
                 repo_path: build_script_fixture.clone(),
                 store_path: None,
-                raw_log_path: build_script_fixture.join("logs/cargo.log"),
+                raw_log_path: external_raw_log(&build_script_fixture, "cargo.log"),
                 unsafe_execute_build: true,
                 approver: Some("execution-evidence-test".to_string()),
                 task_id: Some("CDB079".to_string()),
@@ -4275,7 +4440,7 @@ edition = "2024"
                 .iter()
                 .any(|row| row.get("redaction").map(String::as_str) == Some("applied"))
         );
-        let redacted_log = fs::read_to_string(build_script_fixture.join("logs/cargo.log"))
+        let redacted_log = fs::read_to_string(external_raw_log(&build_script_fixture, "cargo.log"))
             .expect("read redacted cargo log");
         assert!(!redacted_log.contains("fixture-secret-should-not-leak"));
         assert!(redacted_log.contains("[REDACTED]"));
@@ -4289,7 +4454,7 @@ edition = "2024"
         let out_dir_outcome = capture_approved_fixture_build(BuildCaptureRequest {
             repo_path: out_dir_fixture.clone(),
             store_path: None,
-            raw_log_path: out_dir_fixture.join("logs/cargo.log"),
+            raw_log_path: external_raw_log(&out_dir_fixture, "cargo.log"),
             unsafe_execute_build: true,
             approver: Some("execution-evidence-test".to_string()),
             task_id: Some("CDB080".to_string()),
@@ -4664,7 +4829,7 @@ edition = "2024"
         let outcome = capture_approved_fixture_build(BuildCaptureRequest {
             repo_path: fixture.clone(),
             store_path: None,
-            raw_log_path: fixture.join("logs/cargo.log"),
+            raw_log_path: external_raw_log(&fixture, "cargo.log"),
             unsafe_execute_build: true,
             approver: Some("sandbox-test".to_string()),
             task_id: Some("CDB106".to_string()),
@@ -4672,7 +4837,7 @@ edition = "2024"
             cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
         })
         .expect("mandatory sandbox should either execute or fail closed");
-        let log = fs::read_to_string(fixture.join("logs/cargo.log")).unwrap_or_default();
+        let log = fs::read_to_string(external_raw_log(&fixture, "cargo.log")).unwrap_or_default();
         assert_eq!(
             outcome.status,
             BuildCaptureStatus::Captured,
@@ -4810,7 +4975,7 @@ edition = "2024"
         )
         .expect("write failing build script");
 
-        let raw_log_path = fixture.join("logs/cargo.log");
+        let raw_log_path = external_raw_log(&fixture, "cargo.log");
         let outcome = capture_approved_fixture_build(BuildCaptureRequest {
             repo_path: fixture.clone(),
             store_path: None,
@@ -5373,22 +5538,78 @@ edition = "2024"
     // Test lane: redaction
     // Defends: proc-macro evidence remains hash-only when names or token
     // streams contain credentials, while safe macro names remain useful.
+    #[cfg(unix)]
     #[test]
-    fn proc_macro_rows_and_rewritten_logs_never_expose_sentinels() {
+    fn proc_macro_evidence_refuses_symlink_without_touching_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = temp_dir("codedb_proc_macro_symlink");
+        fs::create_dir_all(&directory).expect("create proc-macro symlink fixture");
+        let outside_path = directory.join("outside-sentinel");
+        let outside_content = b"outside sentinel must remain byte-identical\n";
+        fs::write(&outside_path, outside_content).expect("write outside sentinel");
+        let log_path = directory.join("proc-macro.log");
+        symlink(&outside_path, &log_path).expect("create hostile proc-macro log symlink");
+        let log_value = log_path.display().to_string();
+
+        let evidence = capture_proc_macro_evidence(
+            &[("CODEDB_PROC_MACRO_LOG_PATH", log_value.as_str())],
+            &request(true),
+        );
+
+        assert!(evidence.invocations.is_empty());
+        assert!(evidence.inputs.is_empty());
+        assert!(evidence.outputs.is_empty());
+        assert!(evidence.log_summary.is_empty());
+        assert_eq!(
+            fs::read(&outside_path).expect("read outside sentinel"),
+            outside_content
+        );
+
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn proc_macro_evidence_refuses_oversized_regular_file() {
+        let directory = temp_dir("codedb_proc_macro_oversized");
+        fs::create_dir_all(&directory).expect("create proc-macro oversized fixture");
+        let log_path = directory.join("proc-macro.log");
+        fs::write(&log_path, vec![b'x'; 1024 * 1024 + 1])
+            .expect("write oversized proc-macro evidence");
+        let log_value = log_path.display().to_string();
+
+        let evidence = capture_proc_macro_evidence(
+            &[("CODEDB_PROC_MACRO_LOG_PATH", log_value.as_str())],
+            &request(true),
+        );
+
+        assert!(evidence.invocations.is_empty());
+        assert!(evidence.inputs.is_empty());
+        assert!(evidence.outputs.is_empty());
+        assert!(evidence.log_summary.is_empty());
+        assert_eq!(
+            fs::metadata(&log_path)
+                .expect("read oversized proc-macro metadata")
+                .len(),
+            1024 * 1024 + 1
+        );
+
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn proc_macro_rows_and_in_memory_summary_never_expose_sentinels() {
         let directory = temp_dir("codedb_proc_macro_redaction");
         fs::create_dir_all(&directory).expect("create proc-macro redaction fixture");
         let log_path = directory.join("proc-macro.log");
-        fs::write(
-            &log_path,
-            concat!(
-                "macro_name=Bearer proc-macro-name-sentinel\n",
-                "input=DATABASE_URL=proc-macro-input-sentinel\n",
-                "output=npm_proc-macro-output-sentinel\n",
-                "---\n",
-                "malformed=private-key-malformed-sentinel\n",
-            ),
-        )
-        .expect("write proc-macro evidence");
+        let original = concat!(
+            "macro_name=Bearer proc-macro-name-sentinel\n",
+            "input=DATABASE_URL=proc-macro-input-sentinel\n",
+            "output=npm_proc-macro-output-sentinel\n",
+            "---\n",
+            "malformed=private-key-malformed-sentinel\n",
+        );
+        fs::write(&log_path, original).expect("write proc-macro evidence");
         let log_value = log_path.display().to_string();
 
         let evidence = capture_proc_macro_evidence(
@@ -5396,17 +5617,19 @@ edition = "2024"
             &request(true),
         );
         let rendered = format!("{evidence:?}");
-        let rewritten = fs::read_to_string(&log_path).expect("read rewritten proc-macro log");
 
         assert_no_sentinels(&rendered);
-        assert_no_sentinels(&rewritten);
         assert!(
             evidence
                 .inputs
                 .iter()
                 .all(|row| row.get("capture").map(String::as_str) == Some("hash-only"))
         );
-        assert!(rewritten.contains("sha256="));
+        assert!(evidence.log_summary.join("\n").contains("sha256="));
+        assert_eq!(
+            fs::read_to_string(&log_path).expect("read original proc-macro log"),
+            original
+        );
 
         let _ = fs::remove_dir_all(directory);
     }
@@ -5499,5 +5722,9 @@ edition = "2024"
             .expect("time")
             .as_nanos();
         std::env::temp_dir().join(format!("{prefix}_{suffix}"))
+    }
+
+    fn external_raw_log(repo: &Path, name: &str) -> PathBuf {
+        repo.with_extension("codedb-evidence").join(name)
     }
 }

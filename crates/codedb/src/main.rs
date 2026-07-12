@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use codedb_build_capture::{
+    BuildCaptureRequest, ReproductionRoot, capture_approved_build,
+    capture_build as refuse_build_capture, reproduce_out_dir_artifacts,
+};
 use codedb_cargo::{CargoMetadataCapture, capture_cargo_metadata_json};
 use codedb_context::{
     CapturedCargoContext, CargoContextRequest, capture_context, detect_host_triple,
@@ -111,6 +115,11 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
         // selected CodeDB store as a content-addressed blob (sha256) with its relative path
         // and unix mode; anything unpersistable becomes a capture_gaps row —
         // silent omission is failure (PRD CDB015/017/018 wiring).
+        "capture" if args.get(1).map(String::as_str) == Some("build") => {
+            let format = parse_format(&args)?;
+            let rows = build_capture_rows(&args)?;
+            print_rows(rows, format)
+        }
         "capture" => {
             let selection = repo_selection(
                 &args,
@@ -136,6 +145,10 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             let format = parse_format(&args)?;
             let rows = materialize_rows(&store, &out_dir, only.as_deref(), &args)?;
             print_rows(rows, format)
+        }
+        "reproduce" => {
+            let rows = reproduce_build_artifacts_rows(&args)?;
+            print_rows(rows, parse_format(&args)?)
         }
         // store-report = the store's own metadata/toolchain/validation rows.
         "store-report" => {
@@ -195,9 +208,187 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             Ok(())
         }
         _ => Err(CliError::Message(format!(
-            "unsupported command: {command}; supported commands: mcp serve, scan, capture, materialize, merge-plan, store-report, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
+            "unsupported command: {command}; supported commands: mcp serve, scan, capture, capture build, materialize, reproduce, merge-plan, store-report, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
         ))),
     }
+}
+
+fn build_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
+    let repo = positional(args, 2, "capture build requires <repo_path>")?;
+    if repo.starts_with("--") {
+        return Err(CliError::Message(
+            "capture build requires <repo_path> before options".to_string(),
+        ));
+    }
+    let repo_path = fs::canonicalize(repo).map_err(|source| CliError::Core(Box::new(source)))?;
+    if !repo_path.is_dir() {
+        return Err(CliError::Message(
+            "capture build repository path must be a directory".to_string(),
+        ));
+    }
+
+    let raw_log = strict_option_value(args, "--raw-log")?;
+    let store = strict_option_value(args, "--store")?;
+    let unsafe_execute_build = has_flag(args, "--unsafe-execute-build");
+    let approver = strict_option_value(args, "--approver")?;
+    let task_id = strict_option_value(args, "--task-id")?;
+    let before_state = strict_option_value(args, "--before-state")?;
+    let cleanup_plan = strict_option_value(args, "--cleanup-plan")?;
+
+    if unsafe_execute_build {
+        let mut missing = Vec::new();
+        for (name, value) in [
+            ("--raw-log", raw_log),
+            ("--approver", approver),
+            ("--task-id", task_id),
+            ("--before-state", before_state),
+            ("--cleanup-plan", cleanup_plan),
+        ] {
+            if value.is_none_or(|value| value.trim().is_empty()) {
+                missing.push(name);
+            }
+        }
+        if !missing.is_empty() {
+            return Err(CliError::Message(format!(
+                "approved capture build requires complete provenance: {}",
+                missing.join(", ")
+            )));
+        }
+        if let Some(store) = store {
+            parse_store_spec(store, args)?;
+        }
+    }
+
+    let raw_log_path = match raw_log {
+        Some(path) => absolute_cli_path(path)?,
+        None => repo_path.with_extension("codedb-build-capture-refused.log"),
+    };
+    let request = BuildCaptureRequest {
+        repo_path,
+        store_path: store.map(PathBuf::from),
+        raw_log_path,
+        unsafe_execute_build,
+        approver: approver.map(str::to_string),
+        task_id: task_id.map(str::to_string),
+        before_state: before_state.map(str::to_string),
+        cleanup_plan: cleanup_plan.map(str::to_string),
+    };
+
+    if !unsafe_execute_build {
+        return Ok(refuse_build_capture(request).into_rows());
+    }
+
+    let outcome =
+        capture_approved_build(request).map_err(|source| CliError::Core(Box::new(source)))?;
+    let mut rows = outcome.into_rows();
+    if let Some(store) = store {
+        let receipt = persist_build_capture_receipt(&rows, store, args)?;
+        rows.push(receipt);
+    }
+    Ok(rows)
+}
+
+fn absolute_cli_path(path: &str) -> Result<PathBuf, CliError> {
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Ok(env::current_dir()
+            .map_err(|source| CliError::Core(Box::new(source)))?
+            .join(path))
+    }
+}
+
+fn persist_build_capture_receipt(
+    rows: &[Row],
+    store: &str,
+    args: &[String],
+) -> Result<Row, CliError> {
+    let approval_id = rows
+        .iter()
+        .find(|row| row.get("table").map(String::as_str) == Some("unsafe_execution_approval"))
+        .and_then(|row| row.get("approval_id"))
+        .ok_or_else(|| {
+            CliError::Message("approved build capture omitted its approval identifier".to_string())
+        })?;
+    let relative_path = format!("dynamic-build-captures/{approval_id}.json");
+    let bytes = serde_json::to_vec(rows)
+        .map_err(|source| CliError::Message(format!("build receipt encoding failed: {source}")))?;
+    let (mut backend, store_identity) = open_store_for_capture(store, args)?;
+    let persisted = backend
+        .persist_batch(&[(relative_path.clone(), bytes)])
+        .map_err(|source| {
+            CliError::Message(format!("build receipt persistence failed: {source}"))
+        })?;
+    let persisted = persisted.into_iter().next().ok_or_else(|| {
+        CliError::Message("build receipt persistence returned no receipt".to_string())
+    })?;
+    Ok(row([
+        ("table", "build_capture_receipts".to_string()),
+        ("approval_id", approval_id.clone()),
+        ("relative_path", relative_path),
+        ("blob_ref", persisted.blob_ref),
+        ("sha256", persisted.sha256),
+        ("bytes", persisted.bytes.to_string()),
+        ("store_identity", store_identity),
+        ("status", "persisted".to_string()),
+    ]))
+}
+
+fn reproduce_build_artifacts_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
+    let store = strict_option_value(args, "--store")
+        .map_err(|error| error)?
+        .ok_or_else(|| CliError::Message("reproduce requires --store <path>".to_string()))?;
+    let approval_id = strict_option_value(args, "--approval-id")
+        .map_err(|error| error)?
+        .ok_or_else(|| CliError::Message("reproduce requires --approval-id <sha256>".to_string()))?;
+    if approval_id.len() != 64 || !approval_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(CliError::Message(
+            "reproduce --approval-id must be a 64-character SHA-256 identifier".to_string(),
+        ));
+    }
+    let artifact_dir = strict_option_value(args, "--artifact-dir")
+        .map_err(|error| error)?
+        .ok_or_else(|| {
+            CliError::Message("reproduce requires --artifact-dir <path>".to_string())
+        })?;
+    let artifact_dir = absolute_cli_path(artifact_dir)?;
+    if artifact_dir.exists() {
+        return Err(CliError::Message(
+            "reproduce artifact directory must not already exist".to_string(),
+        ));
+    }
+
+    let backend = open_store_readonly(store, args)?;
+    let receipt_path = format!("dynamic-build-captures/{approval_id}.json");
+    let receipt = backend
+        .read_source_file_blob(&receipt_path)
+        .map_err(|source| CliError::Message(format!("build receipt read failed: {source}")))?
+        .ok_or_else(|| {
+            CliError::Message(format!(
+                "build receipt not found for approval identifier {approval_id}"
+            ))
+        })?;
+    let receipt_rows: Vec<Row> = serde_json::from_slice(&receipt)
+        .map_err(|source| CliError::Message(format!("build receipt decode failed: {source}")))?;
+    let artifacts = receipt_rows
+        .into_iter()
+        .filter(|row| row.get("table").map(String::as_str) == Some("out_dir_artifacts"))
+        .collect::<Vec<_>>();
+    if artifacts.is_empty() {
+        return Err(CliError::Message(
+            "build receipt contains no OUT_DIR artifacts to reproduce".to_string(),
+        ));
+    }
+
+    if let Some(parent) = artifact_dir.parent() {
+        fs::create_dir_all(parent).map_err(|source| CliError::Core(Box::new(source)))?;
+    }
+    fs::create_dir(&artifact_dir).map_err(|source| CliError::Core(Box::new(source)))?;
+    let destination = ReproductionRoot::open_existing(&artifact_dir)
+        .map_err(|source| CliError::Core(Box::new(source)))?;
+    reproduce_out_dir_artifacts(&artifacts, &destination)
+        .map_err(|source| CliError::Core(Box::new(source)))
 }
 
 fn run_mcp_frontdoor(args: &[String]) -> Result<(), CliError> {
@@ -4680,6 +4871,63 @@ mod tests {
             assert!(message.contains("unsupported command"));
             assert!(!message.contains("source overwrite enabled"));
         }
+    }
+
+    #[test]
+    fn capture_build_cli_refuses_without_unsafe_flag_without_writing_artifacts() {
+        let repo = temp_repo();
+        fs::create_dir_all(repo.join("src")).expect("create fixture source");
+        fs::write(
+            repo.join("Cargo.toml"),
+            "[package]\nname = \"capture-build-refusal\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        )
+        .expect("write manifest");
+        fs::write(repo.join("src/lib.rs"), "pub fn value() -> u8 { 7 }\n").expect("write source");
+        let raw_log = repo.with_extension("evidence").join("capture.log");
+        let store = repo.with_extension("build.redb");
+        let rows = build_capture_rows(&[
+            "capture".to_string(),
+            "build".to_string(),
+            repo.display().to_string(),
+            "--raw-log".to_string(),
+            raw_log.display().to_string(),
+            "--store".to_string(),
+            store.display().to_string(),
+        ])
+        .expect("refusal rows");
+
+        assert!(rows.iter().any(|row| {
+            row.get("table").map(String::as_str) == Some("validation_errors")
+                && row.get("code").map(String::as_str) == Some("unsafe_execution_refused")
+        }));
+        assert!(!raw_log.exists());
+        assert!(!store.exists());
+
+        let _ = fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn approved_capture_build_cli_requires_complete_named_provenance() {
+        let repo = temp_repo();
+        fs::create_dir_all(&repo).expect("create fixture repository");
+        let error = build_capture_rows(&[
+            "capture".to_string(),
+            "build".to_string(),
+            repo.display().to_string(),
+            "--unsafe-execute-build".to_string(),
+            "--raw-log".to_string(),
+            repo.with_extension("evidence")
+                .join("capture.log")
+                .display()
+                .to_string(),
+        ])
+        .expect_err("approved execution requires complete provenance");
+
+        assert!(error.to_string().contains("--approver"));
+        assert!(error.to_string().contains("--task-id"));
+        assert!(error.to_string().contains("--before-state"));
+        assert!(error.to_string().contains("--cleanup-plan"));
+        let _ = fs::remove_dir_all(repo);
     }
 
     // Test lane: default

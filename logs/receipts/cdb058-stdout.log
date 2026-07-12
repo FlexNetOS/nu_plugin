@@ -1,0 +1,10 @@
+╭──────────────────────┬───────────────────────────────────────────────────────╮
+│ status               │ passed                                                │
+│ disabled_mode_safe   │ true                                                  │
+│ launch_status        │ ready                                                 │
+│ codedb_cli_status    │ missing:YAZELIX_CODEDB_BIN                            │
+│ codedb_plugin_status │ missing:YAZELIX_CODEDB_PLUGIN_BIN                     │
+│ bridge_rows          │ 3                                                     │
+│ generated_dir        │ /tmp/tmp.qsW0MxV6Kh/.local/share/yazelix/initializers │
+│                      │ /nushell                                              │
+╰──────────────────────┴───────────────────────────────────────────────────────╯

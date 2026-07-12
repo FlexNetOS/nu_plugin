@@ -13,3 +13,47 @@ tests:
 
 truth policy:
 - proc-macro execution is refused by default and never implied by static capture.
+
+timestamp_utc: 2026-07-12T21:13:36Z
+task: CDB078 close guest-controlled proc-macro log symlink escape
+
+red:
+- cargo test -p codedb-build-capture proc_macro_evidence_refuses_symlink_without_touching_target -- --nocapture
+- failed because capture_proc_macro_evidence followed proc-macro.log and replaced the outside sentinel with a metadata summary.
+
+implementation:
+- open the trusted parent directory without following its final component;
+- open the evidence file descriptor-relative with O_NOFOLLOW;
+- require a regular file and cap reads at 1 MiB including growth after metadata inspection;
+- retain the sanitized source digest in memory instead of rewriting the guest file.
+
+green:
+- focused hostile-symlink test: 1 passed; 0 failed;
+- focused oversized-file tests: 2 passed; 0 failed;
+- focused in-memory redaction test: 1 passed; 0 failed;
+- cargo test -p codedb-build-capture: 40 unit tests and 2 compile-fail doctests passed.
+
+truth policy:
+- this closes the demonstrated post-sandbox file overwrite path only;
+- CDB078 remains active until an authenticated production approval and execution frontdoor is implemented and proven.
+
+timestamp_utc: 2026-07-12T21:19:47Z
+task: CDB078 remove externally forgeable execution-frontdoor symbols
+
+red:
+- cargo test -p codedb-build-capture --doc capture_build -- --nocapture
+- the external unsafe zero-initialization example compiled successfully even though it was marked compile_fail.
+
+implementation:
+- TrustedExecutionFrontdoor is crate-private;
+- capture_from_trusted_frontdoor is crate-private;
+- the public capture_build surface remains refusal-only;
+- an external compile-fail doctest names both symbols and proves neither is accessible downstream.
+
+green:
+- focused external compile-fail proof: 1 passed; 0 failed;
+- cargo test -p codedb-build-capture: 40 unit tests and 3 compile-fail doctests passed.
+
+truth policy:
+- this removes the forgeable public boundary rather than claiming the test-only runner is production-ready;
+- CDB078 remains active until the approved production broker/frontdoor exists.

@@ -34,3 +34,14 @@
 86:| Fenix | Host/toolchain owner | Capture toolchain/channel/component/target facts | Install or mutate toolchains |
 ## forbidden ownership confusion absent
 no forbidden ownership confusion found
+
+## Current-tree direct contract — 2026-07-12T21:25:33Z
+
+Added a deterministic fail-closed validator and nine direct tests covering all
+five governed integrations: GitKB, RTK, Kache, wild, and Fenix. Negative
+fixtures independently remove a boundary, owner, forbidden crossing, export
+fact, validation gate, evidence path, or entire integration row and prove the
+validator rejects each omission.
+
+- `python3 -m unittest -v tests.test_integration_contracts`: 9 passed.
+- `python3 scripts/validate_integration_contracts.py`: PASSED.

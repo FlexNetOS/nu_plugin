@@ -1,0 +1,93 @@
+
+running 23 tests
+test agent_cmd_tests::scope_arg_converts_to_agent_scope ... ok
+test env_cmd_tests::render_meta_root_substitutes_both_forms ... ok
+test env_cmd_tests::sh_single_quote_wraps_and_escapes ... ok
+test env_cmd_tests::settings_json_matches_rendered_tmpl_no_drift ... ok
+test frontend_gaps_tests::resolve_plain_always_sets_clicolor_force ... ok
+test frontend_gaps_tests::resolve_plain_never_is_plain ... ok
+test frontend_gaps_tests::agent_doctor_parses_with_scope ... ok
+test frontend_gaps_tests::no_color_flag_parses ... ok
+test frontend_gaps_tests::agent_init_force_has_short_f ... ok
+test frontend_gaps_tests::self_update_parses_with_json ... ok
+test frontend_gaps_tests::self_uninstall_defaults_to_preview ... ok
+test frontend_gaps_tests::completions_subcommand_parses_a_shell_positional ... ok
+test frontend_gaps_tests::frozen_aliases_locked_on_sync ... ok
+test frontend_gaps_tests::quiet_and_verbose_count_repeats ... ok
+test frontend_gaps_tests::frozen_aliases_locked_on_add_remove ... ok
+test frontend_gaps_tests::examples_use_envctl_flags ... ok
+test frontend_gaps_tests::frozen_aliases_check_on_lock ... ok
+test frontend_gaps_tests::color_mode_parses_each_value ... ok
+test frontend_gaps_tests::self_uninstall_parses_apply_yes ... ok
+test frontend_gaps_tests::help_tree_builds ... ok
+test frontend_gaps_tests::every_command_has_long_about_and_examples ... ok
+test frontend_gaps_tests::no_kasetto_branding_in_help ... ok
+test frontend_gaps_tests::completions_generate_nonempty_for_each_shell ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+
+running 1 test
+test tests::find_meta_root_walks_up_to_marker_and_none_without_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test fixture_dest_absent_until_apply ... ok
+test help_lists_the_seven_verbs ... ok
+test list_json_has_agent_list_shape ... ok
+test lock_check_json_has_outcome_shape ... ok
+test list_exits_zero ... ok
+test add_ref_and_branch_conflict_exits_nonzero ... ok
+test add_dry_run_writes_nothing ... ok
+test init_creates_agent_env_yaml ... ok
+test remove_preview_renders_outcome_summary ... ok
+test sync_dry_run_writes_nothing ... ok
+test clean_dry_run_writes_nothing ... ok
+test list_human_output_renders_installed_inventory ... ok
+test init_refuses_overwrite_without_force ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+
+running 12 tests
+test catalog_manifest_dir_defaults_repo_root_to_parent ... ok
+test root_help_lists_the_full_cli_surface ... ok
+test catalog_repo_root_imports_yazelix_codedb_file_inventory ... ok
+test catalog_repo_root_imports_yazelix_config_without_manifest ... ok
+test secret_wrapper_forwards_frozen_argv_without_live_daemon ... ok
+test migration_scan_json_reports_meta_layout_and_legacy_manifest_debt ... ok
+test reset_whole_roster_refuses_before_worker_and_writes_nothing ... ok
+test lock_check_json_reports_clean_lock_as_locked_and_drift_empty ... ok
+test manifest_independent_commands_work_without_a_manifest ... ok
+test exit_code_matrix_covers_usage_and_guard_refusals ... ok
+test mutating_verbs_preview_without_writing_fixture_state ... ok
+test json_shapes_cover_detect_doctor_graph_and_registry ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.86s
+
+
+running 4 tests
+test json_emits_dashboard_plan ... ok
+test deploy_dry_run_writes_no_file ... ok
+test deploy_apply_writes_the_file ... ok
+test render_to_stdout_is_valid_kdl ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+
+running 3 tests
+test db_roots_json_is_byte_identical_across_runs ... ok
+test db_query_json_is_byte_identical_across_runs ... ok
+test db_symbols_json_is_byte_identical_across_runs ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+test toolchains_json_carries_meta_root_layout_and_rustup_home ... ok
+test toolchains_shell_exports_meta_root_layout_and_rustup_home ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

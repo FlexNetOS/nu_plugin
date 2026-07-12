@@ -1,0 +1,24 @@
+
+running 14 tests
+test tests::migration_refuses_unknown_schema_without_creating_a_backup ... ok
+test tests::initialize_and_read_back_metadata ... ok
+test tests::unknown_schema_version_is_refused ... ok
+test tests::non_rust_binary_artifact_materializes_exact_bytes ... ok
+test tests::concurrent_materializations_have_exactly_one_complete_winner ... ok
+test tests::materialization_refuses_replace_and_cleans_publication_temporary_file ... ok
+test tests::corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file ... ok
+test tests::captured_paths_drive_resume_after_checkpoint ... ok
+test tests::source_file_materialization_restores_unix_executable_bits ... ok
+test tests::batch_capture_matches_per_file_and_is_durable ... ok
+test tests::backup_and_restore_smoke_preserves_metadata ... ok
+test tests::source_blob_persists_and_materializes_after_restore ... ok
+test tests::legacy_schema_migrates_with_backup_and_explicit_rollback ... ok
+test tests::lock_contention_blocks_until_writer_lifecycle_release ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

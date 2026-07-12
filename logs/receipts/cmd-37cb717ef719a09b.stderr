@@ -1,0 +1,8 @@
+   Compiling codedb-store-pg v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_store_pg)
+   Compiling codedb v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.78s
+     Running unittests src/main.rs (target/debug/deps/codedb-24e6ce3e7cbe395f)
+     Running tests/relative_repo_path.rs (target/debug/deps/relative_repo_path-271083d0bbf934f6)
+     Running unittests src/lib.rs (target/debug/deps/codedb_store_pg-60942327ec244ea6)
+     Running tests/blobstore_parity.rs (target/debug/deps/blobstore_parity-5f6931d4599c3857)
+error: test failed, to rerun pass `-p codedb-store-pg --test blobstore_parity`

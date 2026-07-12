@@ -1,0 +1,10 @@
+╭───────────────────────────┬──────────────────────────────────────────────────╮
+│ status                    │ passed                                           │
+│ row_count                 │ 36                                               │
+│ first_table               │ codedb_contexts                                  │
+│ temp_plugin_config        │ /tmp/tmp.tbXoQMFVbU/plugins.msgpackz             │
+│ temp_plugin_config_sha256 │ b27c90531b5e5d13136251fb813dc9dacbc7b992d3517876 │
+│                           │ abe77c3653beb1e1                                 │
+│ plugin                    │ /home/flexnetos/meta/src/nu_plugin/target/debug/ │
+│                           │ nu_plugin_codedb                                 │
+╰───────────────────────────┴──────────────────────────────────────────────────╯

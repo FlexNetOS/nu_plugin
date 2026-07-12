@@ -1,0 +1,172 @@
+{
+  "hooks": [
+    {
+      "absolute_path": "./examples/idd_unify_e2e.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "examples/idd_unify_e2e.nu"
+    },
+    {
+      "absolute_path": "./examples/nushell/plugin_registry_smoke.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "examples/nushell/plugin_registry_smoke.nu"
+    },
+    {
+      "absolute_path": "./examples/nushell/transient_plugin_smoke.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "examples/nushell/transient_plugin_smoke.nu"
+    },
+    {
+      "absolute_path": "./fixtures/nushell_syntax/stub_initializer.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "fixtures/nushell_syntax/stub_initializer.nu"
+    },
+    {
+      "absolute_path": "./templates/nushell/codedb_extern.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "templates/nushell/codedb_extern.nu"
+    },
+    {
+      "absolute_path": "./templates/nushell/codedb_init.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "templates/nushell/codedb_init.nu"
+    },
+    {
+      "absolute_path": "./tests/test_codex_bounded_bridge.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_codex_bounded_bridge.nu"
+    },
+    {
+      "absolute_path": "./tests/test_deterministic_scan.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_deterministic_scan.nu"
+    },
+    {
+      "absolute_path": "./tests/test_dynamic_store_plugin.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_dynamic_store_plugin.nu"
+    },
+    {
+      "absolute_path": "./tests/test_init_provenance.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_init_provenance.nu"
+    },
+    {
+      "absolute_path": "./tests/test_no_mutation.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_no_mutation.nu"
+    },
+    {
+      "absolute_path": "./tests/test_no_real_home_plugin_registration.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_no_real_home_plugin_registration.nu"
+    },
+    {
+      "absolute_path": "./tests/test_nushell_syntax_gate.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_nushell_syntax_gate.nu"
+    },
+    {
+      "absolute_path": "./tests/test_plugin_registry.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_plugin_registry.nu"
+    },
+    {
+      "absolute_path": "./tests/test_plugin_secret_guard.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_plugin_secret_guard.nu"
+    },
+    {
+      "absolute_path": "./tests/test_redb_lifecycle.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_redb_lifecycle.nu"
+    },
+    {
+      "absolute_path": "./tests/test_security_no_leak.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_security_no_leak.nu"
+    },
+    {
+      "absolute_path": "./tests/test_transient_plugin.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_transient_plugin.nu"
+    },
+    {
+      "absolute_path": "./tests/test_unsafe_capture.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_unsafe_capture.nu"
+    },
+    {
+      "absolute_path": "./tests/test_yazelix_disabled_smoke.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_yazelix_disabled_smoke.nu"
+    },
+    {
+      "absolute_path": "./tests/test_yazelix_enabled_smoke.nu",
+      "file_kind": "nushell",
+      "generated": false,
+      "mutable_policy": "owned_apply",
+      "protected": false,
+      "repo_relative_path": "tests/test_yazelix_enabled_smoke.nu"
+    }
+  ]
+}

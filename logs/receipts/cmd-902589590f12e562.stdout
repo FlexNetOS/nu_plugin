@@ -1,0 +1,159 @@
+{
+  "reference_counts": [
+    {
+      "files": 9,
+      "normalized_name": "ARGUMENTS",
+      "occurrences": 11
+    },
+    {
+      "files": 1,
+      "normalized_name": "CODEDB_PROOF_RECEIPT",
+      "occurrences": 4
+    },
+    {
+      "files": 2,
+      "normalized_name": "CODEDB_REVIEWED_SHA",
+      "occurrences": 3
+    },
+    {
+      "files": 7,
+      "normalized_name": "CODEX_HOME",
+      "occurrences": 17
+    },
+    {
+      "files": 1,
+      "normalized_name": "GITHUB_ENV",
+      "occurrences": 1
+    },
+    {
+      "files": 1,
+      "normalized_name": "GITHUB_PATH",
+      "occurrences": 1
+    },
+    {
+      "files": 2,
+      "normalized_name": "GITHUB_RUN_ID",
+      "occurrences": 2
+    },
+    {
+      "files": 1,
+      "normalized_name": "GITHUB_WORKSPACE",
+      "occurrences": 1
+    },
+    {
+      "files": 1,
+      "normalized_name": "HOME",
+      "occurrences": 4
+    },
+    {
+      "files": 1,
+      "normalized_name": "IDD_ENVCTL",
+      "occurrences": 1
+    },
+    {
+      "files": 2,
+      "normalized_name": "LIFE_OS_ROOT",
+      "occurrences": 3
+    },
+    {
+      "files": 2,
+      "normalized_name": "MARKETPLACE_NAME",
+      "occurrences": 3
+    },
+    {
+      "files": 1,
+      "normalized_name": "META_ROOT",
+      "occurrences": 2
+    },
+    {
+      "files": 1,
+      "normalized_name": "NU_BIN",
+      "occurrences": 1
+    },
+    {
+      "files": 11,
+      "normalized_name": "PATH",
+      "occurrences": 47
+    },
+    {
+      "files": 1,
+      "normalized_name": "PGDATA",
+      "occurrences": 1
+    },
+    {
+      "files": 2,
+      "normalized_name": "PLUGIN_NAME",
+      "occurrences": 3
+    },
+    {
+      "files": 1,
+      "normalized_name": "POSTGRES_CONTAINER",
+      "occurrences": 8
+    },
+    {
+      "files": 2,
+      "normalized_name": "RUNNER_TEMP",
+      "occurrences": 5
+    },
+    {
+      "files": 1,
+      "normalized_name": "S",
+      "occurrences": 2
+    },
+    {
+      "files": 2,
+      "normalized_name": "VERSION",
+      "occurrences": 3
+    },
+    {
+      "files": 1,
+      "normalized_name": "YAZELIX_NU_BIN",
+      "occurrences": 1
+    },
+    {
+      "files": 3,
+      "normalized_name": "YAZELIX_STATE_DIR",
+      "occurrences": 3
+    }
+  ],
+  "roots": [
+    {
+      "absolute_path": null,
+      "active": true,
+      "kind": "meta_root",
+      "precedence": 100,
+      "role": "observed_current",
+      "root_id": "root-meta",
+      "source": "observed-env",
+      "target_profile": "current",
+      "token_forms": [
+        "$META_ROOT",
+        "${META_ROOT}",
+        "META_ROOT"
+      ],
+      "var_names": [
+        "META_ROOT"
+      ],
+      "verifier_status": "observed"
+    },
+    {
+      "absolute_path": null,
+      "active": true,
+      "kind": "life_os_root",
+      "precedence": 90,
+      "role": "release_target",
+      "root_id": "root-lifeos",
+      "source": "release-profile",
+      "target_profile": "lifeos-release",
+      "token_forms": [
+        "$LIFE_OS_ROOT",
+        "${LIFE_OS_ROOT}",
+        "LIFE_OS_ROOT"
+      ],
+      "var_names": [
+        "LIFE_OS_ROOT"
+      ],
+      "verifier_status": "declared"
+    }
+  ]
+}

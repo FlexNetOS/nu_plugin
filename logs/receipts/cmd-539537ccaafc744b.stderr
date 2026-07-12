@@ -1,0 +1,30 @@
+   Compiling tempfile v3.27.0
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.6
+   Compiling async-trait v0.1.89
+   Compiling serde_json v1.0.150
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling codedb-store-redb v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_store_redb)
+   Compiling zerofrom v0.1.8
+   Compiling tokio-postgres v0.7.18
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.6
+   Compiling zerotrie v0.2.4
+   Compiling postgres v0.19.14
+   Compiling postgres_rustls v0.1.5
+   Compiling tinystr v0.8.3
+   Compiling potential_utf v0.1.5
+   Compiling icu_collections v2.2.0
+   Compiling icu_locale_core v2.2.0
+   Compiling icu_provider v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling codedb-store-pg v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_store_pg)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.40s
+     Running unittests src/lib.rs (target/debug/deps/codedb_store_pg-efb89e1842f12a95)
+     Running tests/blobstore_parity.rs (target/debug/deps/blobstore_parity-666c8cbe31ba3fea)
+error: test failed, to rerun pass `-p codedb-store-pg --test blobstore_parity`

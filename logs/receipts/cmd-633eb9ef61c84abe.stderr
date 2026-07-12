@@ -1,0 +1,43 @@
+    Checking codedb v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.70s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+   Compiling codedb v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.10s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/main.rs (target/debug/deps/codedb-5fcb781ca1ee2a7b)
+     Running tests/relative_repo_path.rs (target/debug/deps/relative_repo_path-4a10c22f0a91f71f)
+     Running unittests src/lib.rs (target/debug/deps/codedb_build_capture-018c2d66eea18238)
+     Running unittests src/lib.rs (target/debug/deps/codedb_cargo-86951e0861ed0f1f)
+     Running unittests src/lib.rs (target/debug/deps/codedb_context-938c60de826b9da4)
+     Running tests/host_detection.rs (target/debug/deps/host_detection-ecd649b4b0bcbd2a)
+     Running tests/runtime_context.rs (target/debug/deps/runtime_context-12b6cf079c354f32)
+     Running unittests src/lib.rs (target/debug/deps/codedb_core-cc41e2d738944830)
+     Running tests/capture_policy.rs (target/debug/deps/capture_policy-1738edc7d7eccd9e)
+     Running tests/contained_reads.rs (target/debug/deps/contained_reads-2cb8f3adaacce0db)
+     Running tests/materialization_paths.rs (target/debug/deps/materialization_paths-7823b0210674170c)
+     Running tests/secret_classifier.rs (target/debug/deps/secret_classifier-b202cb7600f3b714)
+     Running tests/store_migrations.rs (target/debug/deps/store_migrations-7c4aad2239217dc1)
+     Running tests/store_spec.rs (target/debug/deps/store_spec-de4e472f0e343800)
+     Running unittests src/lib.rs (target/debug/deps/codedb_fixtures-0a84a5d6ca7dfd88)
+     Running unittests src/lib.rs (target/debug/deps/codedb_mcp-bb486e37b275336b)
+     Running unittests src/main.rs (target/debug/deps/codedb_mcp-8a8b21a8de3b48f2)
+     Running tests/policy_and_stdio.rs (target/debug/deps/policy_and_stdio-016212f4b2fa4b10)
+   Compiling codedb v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.90s
+     Running unittests src/lib.rs (target/debug/deps/codedb_rust_static-98fdfbeaf407a278)
+     Running unittests src/lib.rs (target/debug/deps/codedb_store_pg-8cc06694829aaf67)
+     Running tests/blobstore_parity.rs (target/debug/deps/blobstore_parity-db1681849d85a0d5)
+     Running tests/fail_closed.rs (target/debug/deps/fail_closed-99513e3e02a89afb)
+     Running unittests src/lib.rs (target/debug/deps/codedb_store_redb-51820ab22628a4fa)
+     Running unittests src/main.rs (target/debug/deps/nu_plugin_codedb-eecfe2569f3646c5)
+   Doc-tests codedb_build_capture
+   Doc-tests codedb_cargo
+   Doc-tests codedb_context
+   Doc-tests codedb_core
+   Doc-tests codedb_fixtures
+   Doc-tests codedb_mcp
+   Doc-tests codedb_rust_static
+   Doc-tests codedb_store_pg
+   Doc-tests codedb_store_redb

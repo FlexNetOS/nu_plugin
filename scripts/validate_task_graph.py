@@ -12,6 +12,7 @@ receipts, manifests, or evidence paths.
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import json
 import re
@@ -22,7 +23,9 @@ from typing import Any, Iterable
 
 
 TASK_GRAPH = Path("execution/TASK_GRAPH.csv")
+TASK_GRAPH_PROJECTION = Path("execution/TASK_GRAPH.md")
 TASK_MAP = Path("execution/TASK_FILE_MAP.csv")
+COMMAND_LEDGER = Path("execution/COMMAND_LEDGER.csv")
 BIDIRECTIONAL_GRAPH = Path("execution/BIDIRECTIONAL_TASK_GRAPH.csv")
 BIDIRECTIONAL_MAP = Path("execution/BIDIRECTIONAL_TASK_FILE_MAP.csv")
 POLYGLOT_GRAPH = Path("execution/POLYGLOT_TASK_GRAPH.csv")
@@ -147,10 +150,24 @@ PROOF_LEDGER_COLUMNS = [
     "notes",
 ]
 
+COMMAND_LEDGER_COLUMNS = [
+    "timestamp_utc",
+    "task_id",
+    "cwd",
+    "repo",
+    "command",
+    "output_path",
+    "exit_code",
+    "redaction",
+    "notes",
+]
+
 GRAPH_STATUS_VALUES = {"planned", "active", "blocked", "complete"}
 PROOF_STATUS_VALUES = {"verified", "partial", "missing", "contradicted", "blocked"}
 TASK_STATUS_VALUES = {"planned", "active", "blocked", "complete"}
 PATH_PATTERN = re.compile(r"[*?[]")
+EPHEMERAL_PATH_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", "target"}
+EPHEMERAL_SUFFIXES = {".pyc", ".pyo"}
 EXECUTABLE_COMMAND = re.compile(
     r"(^|[;&|]\s*)(cargo|python3?|pytest|bash|sh|nu|nix|codedb|envctl|git)\b"
 )
@@ -209,7 +226,9 @@ GRAPH_CONTRACTS = [
 
 MANIFEST_BOUND_INPUTS = {
     str(TASK_GRAPH),
+    str(TASK_GRAPH_PROJECTION),
     str(TASK_MAP),
+    str(COMMAND_LEDGER),
     str(BIDIRECTIONAL_GRAPH),
     str(BIDIRECTIONAL_MAP),
     str(POLYGLOT_GRAPH),
@@ -319,6 +338,14 @@ def _safe_package_path(value: str) -> bool:
     return not path.is_absolute() and ".." not in path.parts and "." not in path.parts
 
 
+def _ephemeral_package_path(value: str) -> bool:
+    path = PurePosixPath(value)
+    return bool(
+        EPHEMERAL_PATH_PARTS.intersection(path.parts)
+        or path.suffix.lower() in EPHEMERAL_SUFFIXES
+    )
+
+
 def _validate_path_value(
     issues: list[ValidationIssue],
     relative: Path,
@@ -342,6 +369,14 @@ def _validate_path_value(
             relative,
             task_id,
             "path pattern not allowed",
+            f"{field}={value!r}",
+        )
+    if _ephemeral_package_path(value):
+        _issue(
+            issues,
+            relative,
+            task_id,
+            "ephemeral package path",
             f"{field}={value!r}",
         )
 
@@ -609,6 +644,14 @@ def _validate_task_paths(
                     value,
                 )
                 continue
+            if _ephemeral_package_path(value):
+                _issue(
+                    issues,
+                    TASK_GRAPH,
+                    task_id,
+                    "ephemeral current artifact",
+                    value,
+                )
             if _safe_package_path(value) and not (root / value).exists():
                 _issue(
                     issues,
@@ -660,6 +703,21 @@ def _validate_task_paths(
                 task_id,
                 "path resolution contradicts status",
                 f"status={status}, path_resolution_status={resolution}",
+            )
+
+        evidence_status = row.get("evidence_status", "").strip()
+        expected_evidence_status = {
+            "complete": "evidence_files_present",
+            "planned": "pending_task_execution",
+        }.get(status)
+        if expected_evidence_status and evidence_status != expected_evidence_status:
+            _issue(
+                issues,
+                TASK_GRAPH,
+                task_id,
+                "evidence status contradicts task status",
+                f"status={status}, evidence_status={evidence_status or '<empty>'}, "
+                f"expected={expected_evidence_status}",
             )
         if status == "complete" and not resolution.startswith("complete_"):
             _issue(
@@ -728,6 +786,113 @@ def _validate_task_paths(
                     patterns_allowed=patterns_allowed,
                 )
 
+
+def _validate_task_graph_projection(
+    root: Path,
+    graph_rows: list[dict[str, str]],
+    issues: list[ValidationIssue],
+) -> None:
+    path = root / TASK_GRAPH_PROJECTION
+    if not path.is_file():
+        _issue(
+            issues,
+            TASK_GRAPH_PROJECTION,
+            "",
+            "missing required file",
+            "file not found",
+        )
+        return
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        _issue(
+            issues,
+            TASK_GRAPH_PROJECTION,
+            "",
+            "invalid task graph projection",
+            str(error),
+        )
+        return
+
+    projected: dict[str, list[str]] = {}
+    for line in text.splitlines():
+        if not re.match(r"^\|\s*CDB\d{3}\s*\|", line):
+            continue
+        fields = [field.strip() for field in line.strip().strip("|").split("|")]
+        task_id = fields[0] if fields else "<empty>"
+        if len(fields) != 9:
+            _issue(
+                issues,
+                TASK_GRAPH_PROJECTION,
+                task_id,
+                "task graph projection drift",
+                f"expected 9 table fields, got {len(fields)}",
+            )
+            continue
+        if task_id in projected:
+            _issue(
+                issues,
+                TASK_GRAPH_PROJECTION,
+                task_id,
+                "task graph projection drift",
+                "duplicate projected task row",
+            )
+        projected[task_id] = fields
+
+    graph_by_id = {row["task_id"].strip(): row for row in graph_rows}
+    if set(projected) != set(graph_by_id):
+        _issue(
+            issues,
+            TASK_GRAPH_PROJECTION,
+            "tasks",
+            "task graph projection drift",
+            "missing from projection="
+            f"{sorted(set(graph_by_id) - set(projected))}, extra="
+            f"{sorted(set(projected) - set(graph_by_id))}",
+        )
+
+    csv_fields = (
+        "task_id",
+        "status",
+        "phase",
+        "task_name",
+        "depends_on",
+        "primary_artifact",
+        "validation_gate",
+        "evidence_path",
+        "path_resolution_status",
+    )
+    for task_id in sorted(set(projected) & set(graph_by_id)):
+        expected = [graph_by_id[task_id].get(field, "").strip() for field in csv_fields]
+        if projected[task_id] != expected:
+            _issue(
+                issues,
+                TASK_GRAPH_PROJECTION,
+                task_id,
+                "task graph projection drift",
+                f"expected={expected!r}, got={projected[task_id]!r}",
+            )
+
+    row_match = re.search(r"^- Task rows: `(?P<count>\d+)`$", text, re.MULTILINE)
+    expected_count = len(graph_rows)
+    if row_match is None or int(row_match.group("count")) != expected_count:
+        _issue(
+            issues,
+            TASK_GRAPH_PROJECTION,
+            "summary",
+            "task graph projection drift",
+            f"task row summary must equal {expected_count}",
+        )
+    counts = dict(sorted(collections.Counter(row["status"].strip() for row in graph_rows).items()))
+    status_match = re.search(r"^- Status counts: `(?P<counts>.+)`$", text, re.MULTILINE)
+    if status_match is None or status_match.group("counts") != str(counts):
+        _issue(
+            issues,
+            TASK_GRAPH_PROJECTION,
+            "summary",
+            "task graph projection drift",
+            f"status count summary must equal {counts}",
+        )
 
 def _validate_supplemental_map_paths(
     graph_path: Path,
@@ -1241,10 +1406,16 @@ def audit_task_graph(root: Path, *, release: bool = False) -> list[ValidationIss
         )
 
     _validate_dependencies(graph_rows_by_path, issues)
+    _read_csv(root, COMMAND_LEDGER, COMMAND_LEDGER_COLUMNS, issues)
     _validate_task_paths(
         root,
         graph_rows_by_path[TASK_GRAPH],
         map_rows_by_path[TASK_MAP],
+        issues,
+    )
+    _validate_task_graph_projection(
+        root,
+        graph_rows_by_path[TASK_GRAPH],
         issues,
     )
     _validate_supplemental_map_paths(

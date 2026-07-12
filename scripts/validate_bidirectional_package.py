@@ -39,7 +39,9 @@ def read_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def audit_package(root: Path, *, direct_evidence: bool = False) -> list[str]:
+def audit_package(
+    root: Path, *, direct_evidence: bool = False, local_release: bool = False
+) -> list[str]:
     root = root.resolve()
     failures: list[str] = []
     for path in REQUIRED_DOCS:
@@ -110,6 +112,7 @@ def audit_package(root: Path, *, direct_evidence: bool = False) -> list[str]:
         root,
         require_all_verified=True,
         direct_evidence=direct_evidence,
+        local_release=local_release,
     )
     failures.extend(
         f"requirement proof ledger: {violation}" for violation in ledger_violations
@@ -128,15 +131,35 @@ def main() -> int:
             "the detached receipt currently being created"
         ),
     )
+    parser.add_argument(
+        "--local-release",
+        action="store_true",
+        help=(
+            "Owner-authorized local release: accept a genuine provider=local "
+            "receipt in place of the detached GitHub attestation (delegated to "
+            "the requirement-proof ledger validator, which never relaxes the "
+            "receipt integrity check)"
+        ),
+    )
     args = parser.parse_args()
 
-    failures = audit_package(args.root, direct_evidence=args.direct_evidence)
+    failures = audit_package(
+        args.root,
+        direct_evidence=args.direct_evidence,
+        local_release=args.local_release,
+    )
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
 
-    mode = "direct-evidence" if args.direct_evidence else "release"
+    mode = (
+        "direct-evidence"
+        if args.direct_evidence
+        else "local-release"
+        if args.local_release
+        else "release"
+    )
     print(
         "bidirectional package ok: 21 task rows and "
         f"140 current-head requirement proofs; mode={mode}"

@@ -4017,6 +4017,8 @@ fn relative_path(root: &Path, path: &Path) -> Result<String, RustStaticError> {
 }
 
 #[cfg(test)]
+mod compiler_broker;
+#[cfg(test)]
 mod compiler_execution_gate_tests;
 #[cfg(test)]
 mod compiler_observed_tests;
@@ -4025,7 +4027,6 @@ mod tests {
     // Test lane: default
 
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     // Defends: CDB022 captures simple static Rust items deterministically without semantic overclaim.
     #[test]
@@ -4908,22 +4909,59 @@ fn main() {
         );
     }
 
+    #[test]
+    fn fixture_workspace_roots_are_reserved_and_collision_free() {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    (0..16)
+                        .map(|_| {
+                            let workspace = FixtureWorkspace::new();
+                            workspace.write("src/lib.rs", "pub fn probe() {}\n");
+                            workspace
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut workspaces: Vec<FixtureWorkspace> = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().expect("fixture thread"))
+            .collect();
+        let mut roots: Vec<_> = workspaces
+            .iter()
+            .map(|workspace| workspace.root.clone())
+            .collect();
+        roots.sort();
+        roots.dedup();
+        assert_eq!(
+            roots.len(),
+            workspaces.len(),
+            "fixture roots must be unique so one Drop can never delete a live sibling"
+        );
+        let survivor = workspaces.pop().expect("at least one workspace");
+        drop(workspaces);
+        assert!(
+            survivor.root.join("src/lib.rs").is_file(),
+            "dropping sibling workspaces must not remove another workspace's files"
+        );
+    }
+
     struct FixtureWorkspace {
         root: PathBuf,
     }
 
     impl FixtureWorkspace {
         fn new() -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock before unix epoch")
-                .as_nanos();
+            static NEXT_FIXTURE_ID: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+            let sequence = NEXT_FIXTURE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let root = std::env::temp_dir().join(format!(
                 "codedb_rust_static_fixture_{}_{}",
                 std::process::id(),
-                nonce
+                sequence
             ));
-            fs::create_dir_all(&root).expect("create fixture root");
+            fs::create_dir(&root).expect("reserve unique fixture root");
             Self { root }
         }
 

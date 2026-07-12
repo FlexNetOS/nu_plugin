@@ -1,0 +1,13 @@
+   Compiling hyper-rustls v0.27.7
+   Compiling reqwest v0.12.28
+   Compiling envctl-agent-env v0.1.0 (/home/flexnetos/meta/src/envctl/crates/agent-env)
+   Compiling envctl-engine v0.1.0 (/home/flexnetos/meta/src/envctl/crates/engine)
+   Compiling envctl v0.1.0 (/home/flexnetos/meta/src/envctl/crates/cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.78s
+     Running unittests src/main.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/envctl-715b87b1393fc718)
+     Running unittests src/bin/meta-env.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/meta_env-a98ab10a48985b36)
+     Running tests/agent.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/agent-995e5381ba5ea3cb)
+     Running tests/cli_contract.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/cli_contract-d2fd835fcdb1b24c)
+     Running tests/dashboard.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/dashboard-1cd82cc357369add)
+     Running tests/db_golden.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/db_golden-8f908f681d4fcb8f)
+     Running tests/env.rs (/home/flexnetos/meta/src/envctl/target/debug/deps/env-856b7d74d8f7f4ea)
