@@ -9,15 +9,12 @@ Source: PRD section 20.
 - SQLite/libSQL export bridge
 - DuckDB read-only analytical export
 - dynamic file access tracing backend
-- rust-analyzer/HIR semantic backend
-- rustdoc JSON API-delta backend with pinned nightly where approved
 - change-plan generator without auto-apply
 - generated crate artifact tree and equivalence gate expansion
 - meta plugin wrapper
 - Yazelix status widget
 - envctl native CodeDB export importer
 - GitKB summarizer for capture gaps
-- compiler-observed macro expansion capture beyond static gap rows
 - alternate stores after redb V1.1 proves stable
 - DB-owned generated crates only after lossless round-trip and compiler proof gates
 - broader MCP write workflows only after read-only bounded surfaces prove safe
@@ -41,3 +38,15 @@ Source: PRD section 20.
 - no tracked Yazelix `config.nu` mutation
 - no envctl redb-internals dependency
 - no GitKB replacement for raw release logs or CodeDB source truth
+
+## Mandatory V1.1 release blockers
+
+The following are not backlog candidates and block V1.1 completion until direct tests pass:
+
+- compiler-observed macro expansion, resolution, and hygiene;
+- approval-gated proc-macro and build-script capture with complete provenance;
+- checksum-bound generated `OUT_DIR` artifacts;
+- real cfg/feature/profile/host/target/toolchain/lockfile contexts;
+- HIR/MIR semantic capture under a pinned compiler-facing backend;
+- rustdoc JSON and public-API equivalence proof;
+- materialize/check/test/rustdoc/checksum/provenance reproduction proof.

@@ -71,8 +71,11 @@ def main [] {
         let server = $config.mcpServers.codedb
         let policy = $config.codedbPolicy
 
-        if $server.command != "/absolute/path/to/codedb" {
-            fail "Codex MCP sample command must remain a placeholder path"
+        if $server.command != "codedb" {
+            fail "Codex MCP sample must use the profile-owned codedb command"
+        }
+        if (($server.args | first 2) | to json --raw) != ([mcp serve] | to json --raw) {
+            fail "Codex MCP sample must launch the codedb mcp serve frontdoor"
         }
         if not (($server.args | to json --raw) | str contains "--default-limit") {
             fail "Codex MCP sample must include --default-limit"
@@ -109,6 +112,13 @@ def main [] {
         let temp_root = (mktemp -d)
         let fixture = ([$temp_root secret_like] | path join)
         cp -r $source_fixture $fixture
+        let fixture_manifest = ([$fixture Cargo.toml] | path join)
+        run_cargo_checked [
+            generate-lockfile
+            --manifest-path
+            $fixture_manifest
+            --offline
+        ] | ignore
 
         let doctor_result = (run_cargo_checked [run --quiet -p codedb -- doctor --codex --format json])
         let scan_result = (run_cargo_checked [run --quiet -p codedb -- scan $fixture --format json])

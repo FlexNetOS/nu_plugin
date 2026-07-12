@@ -19,7 +19,7 @@ without losing evidence or mutating source without approval.
 
 ## Lossless Coverage
 
-Round-trip proof must cover or explicitly gap:
+Round-trip proof must cover every item below; any explicit gap blocks acceptance:
 
 - comments, attributes, formatting, newlines, and BOMs;
 - permissions, executable bits, symlinks, and platform limitations;

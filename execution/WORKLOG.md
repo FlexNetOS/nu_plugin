@@ -284,3 +284,59 @@ store supports schema `1.0.0`; future unknown schema values now return
 migration matrix and backup/restore recovery proof.
 
 Validation evidence is in `logs/CDB086-store-migrations.log`.
+
+## 2026-07-11T20:55:25Z - CDB106 - Mandatory security, backend, and proof-control wave
+
+This stopping wave preserves the execution tables as authoritative executable
+state. `scripts/validate_task_graph.py` now joins the package task-graph CSVs,
+their file maps, `REQUIREMENT_PROOF_LEDGER.csv`,
+`REQUIREMENT_SOURCE_RECEIPTS.json`, and the package manifests. Structure mode
+passes. Release mode fails closed because the package still contains mandatory
+unproved rows; no status was upgraded from implementation intent alone.
+
+Implemented and directly exercised in this wave:
+
+- descriptor-held repository reads and descriptor-relative materialization;
+- checksum-bound durable atomic no-replace publication and identity-bound
+  rollback that preserves concurrent replacement;
+- backend-neutral default-deny raw-persistence policy with core-owned
+  `safe-source` authority and exact-snapshot-bound external policy loading;
+- non-forgeable single-use build/compiler execution capabilities, mandatory
+  bubblewrap isolation, descriptor-bound redacted logs, and controlled
+  `OUT_DIR` reproduction;
+- compiler-observed macro/proc-macro and pinned HIR/MIR/rustdoc fixture
+  evidence, while preserving fail-closed public execution until a production
+  trusted broker exists;
+- real bounded read-only redb/PostgreSQL MCP adapters with raw source/blob
+  blocking and secret-safe inherited DSNs;
+- backend-neutral schema planning with redb and transactional PostgreSQL
+  backup/migrate/rollback;
+- verified-TLS-only PostgreSQL TCP transport and explicit Unix-socket-only
+  plaintext transport;
+- schema-3 detached all-requirement proof receipts with typed subjects,
+  read-only verification, and a separate protected signer.
+
+Verification at this stopping point:
+
+- `cargo test --workspace --all-features` passed with an explicit disposable
+  PostgreSQL 17 Unix-socket DSN, including all 13 live PostgreSQL differential
+  and migration tests.
+- The dynamic Nu plugin round trip passed for redb and PostgreSQL and
+  materialized exact source bytes from both stores.
+- `cargo test --workspace`, all 15 `tests/*.nu` gates, 67 Python tests,
+  workspace all-feature clippy, formatting, task-graph structure, and
+  proof-ledger structure passed.
+- A Nix-shell-specific sandbox fixture defect was found and fixed: the isolated
+  `/tmp` probe no longer depends on a nested host `TMPDIR` parent that is absent
+  inside bubblewrap. The focused sandbox proof and the complete Nu suite passed
+  after the repair.
+
+Mandatory release inventory remains open: `TASK_GRAPH.csv` has 19 complete and
+51 planned rows; `BIDIRECTIONAL_TASK_GRAPH.csv` has 7 complete and 14 active
+rows; `REQUIREMENT_PROOF_LEDGER.csv` has 90 partial and 50 missing rows, with
+all 140 `proof_artifacts` cells still empty. The production trusted
+compiler/build broker, row-by-row typed proof migration, exact-head detached
+receipts, and protected GitHub signer-environment policy remain mandatory.
+PR #21 remains draft and auto-merge remains disabled.
+
+Detailed evidence is in `logs/CDB106-mandatory-security-backend-proof-wave.log`.

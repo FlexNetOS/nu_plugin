@@ -39,6 +39,14 @@ def main [] {
         let fixture = ([$temp_root single_simple_crate] | path join)
 
         cp -r $source_fixture $fixture
+        let fixture_manifest = ([$fixture Cargo.toml] | path join)
+        let lock_result = (
+            ^cargo generate-lockfile --manifest-path $fixture_manifest --offline
+            | complete
+        )
+        if $lock_result.exit_code != 0 {
+            fail $"failed to generate isolated fixture lockfile\n($lock_result.stderr)"
+        }
         run_codedb [scan $fixture --format json] | ignore
 
         let scan_a = (run_codedb [scan $fixture --format json])

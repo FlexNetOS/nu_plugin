@@ -1,0 +1,36 @@
+CDB106 mandatory security, backend, and proof-control wave
+UTC stopping point: 2026-07-11T20:55:25Z
+
+PASS cargo fmt --all -- --check
+PASS cargo test --workspace
+PASS cargo clippy --workspace --all-targets --all-features -- -D warnings
+PASS cargo test --workspace --all-features
+  Environment: explicit disposable PostgreSQL 17 Unix-socket DSN
+  PostgreSQL integration: 13 passed, 0 failed
+  MCP PostgreSQL/redb policy and stdio: 24 passed, 0 failed
+PASS dynamic Nu redb/PostgreSQL capture-report-materialize round trip
+  Raw policy: built-in safe-source
+  Result: exact file.rs bytes materialized from both backends
+PASS all 15 tests/*.nu gates
+PASS python3 -m unittest discover -s tests -p test_*.py
+  Result: 67 passed, 0 failed
+PASS python3 scripts/validate_task_graph.py --structure-only
+PASS python3 scripts/validate_requirement_proof_ledger.py --structure
+
+EXPECTED RELEASE BLOCKER python3 scripts/validate_task_graph.py --release
+  Result: nonzero; 14 active bidirectional rows plus unresolved proof rows
+EXPECTED RELEASE BLOCKER python3 scripts/validate_requirement_proof_ledger.py --direct-evidence
+  Result: nonzero; 90 partial, 50 missing, and 140 empty proof_artifacts
+
+TDD defect found and fixed:
+  The Nix dev shell places fixtures under a nested TMPDIR. The mandatory
+  bubblewrap test attempted to write a host-sentinel path beneath that nested
+  parent, which correctly does not exist inside isolated /tmp. The probe now
+  targets one unique direct /tmp path. The host path remains absent after
+  execution, and both the focused sandbox test and complete Nu gate pass.
+
+Release status: NOT READY
+PR policy: draft; no auto-merge
+Remaining mandatory work: production trusted compiler/build broker, typed
+proof-artifact migration for all 140 rows, clean exact-head detached receipts,
+and protected requirement-proof-signer GitHub environment policy.

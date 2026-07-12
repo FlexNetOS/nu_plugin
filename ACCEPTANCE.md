@@ -36,3 +36,7 @@ The bidirectional roadmap package is acceptable only when:
 - V1.1 gap closure coverage is explicit in `docs/GAP_CLOSURE_PLAN.md`;
 - `docs/MUTATION_POLICY.md` preserves read-only defaults, bounded MCP, no hidden Git mutation, and no source overwrite before controlled apply gates;
 - `scripts/validate_bidirectional_package.py` passes.
+
+## Mandatory capability acceptance
+
+All named CodeDB capabilities are mandatory. Release is blocked unless current-head tests positively prove compiler-observed macros, approval-gated proc macros and build scripts, generated artifacts, real Cargo/cfg/feature/target/toolchain contexts, HIR/MIR semantics, rustdoc/API equivalence, database-neutral storage parity, and complete reproduction. GAP, QUESTION, degraded, deferred, optional, planned, or documentation-only evidence cannot satisfy implementation acceptance.

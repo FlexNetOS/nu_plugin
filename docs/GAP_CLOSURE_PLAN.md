@@ -4,12 +4,12 @@ Source: issue 212 V1.1 gap closure list.
 
 | Task | Gap | Closure Direction | Evidence Gate |
 |---|---|---|---|
-| CDB077 | macro expansion beyond static `macro_rules!` inventory | compiler-observed expansion rail or explicit GAP rows | fixture proves dynamic expansion facts or gated refusal |
+| CDB077 | macro expansion beyond static `macro_rules!` inventory | compiler-observed expansion, resolution, and hygiene rail | fixture proves compiler-observed expansion, resolution, and hygiene facts |
 | CDB078 | proc-macro execution gate | unsafe approval and provenance model | default refusal plus approved fixture proof |
 | CDB079 | build-script execution gate | unsafe approval and provenance model | default refusal plus approved fixture proof |
-| CDB080 | generated `OUT_DIR` artifact reproduction | controlled reproduction artifacts | checksum-bound generated artifacts or GAP |
+| CDB080 | generated `OUT_DIR` artifact reproduction | controlled reproduction artifacts | checksum-bound generated artifacts and environment provenance |
 | CDB081 | symlink materialization/platform limitations | platform capability rows | symlink support matrix and safe fallback |
-| CDB082 | native/linker facts requiring dynamic build execution | approved dynamic build capture | native/link rows or GAP |
+| CDB082 | native/linker facts requiring dynamic build execution | approved dynamic build capture | approved dynamic native/link rows with provenance |
 | CDB083 | raw source/blob reads through MCP blocked by default | MCP denial and bounded output tests | no raw source/blob leak proof |
 | CDB084 | stable object identity for anonymous/unstable syntax nodes | identity keys and instability policy | repeat scan identity tests |
 | CDB085 | semantic hashing and public API hashing | documented hash inputs and tests | stable hash fixtures |
@@ -30,28 +30,28 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - Raw blob capture records permission metadata as an explicit gap because no
   filesystem source exists for that API surface.
 
-## Closed By CDB077
+## CDB077 Interim Evidence - Still Active
 
 - Static macro capture now emits explicit `compiler_observed_expansion` gate
   rows with `gap` status for macro definitions and invocations.
 - The focused fixture proves CodeDB does not claim dynamic expansion or hygiene
   facts from syntax-only capture.
 
-## Closed By CDB078
+## CDB078 Interim Evidence - Still Active
 
 - Dynamic capture default refusal now records a dedicated
   `proc_macro_execution` gap with required flag `--unsafe-execute-build`.
 - Approved dynamic capture scaffold records unsafe approval provenance with
   status, flag, and approver.
 
-## Closed By CDB079
+## CDB079 Interim Evidence - Still Active
 
 - Dynamic capture default refusal records `build_script_execution` with
   required flag `--unsafe-execute-build`.
 - Approved fixture capture records approval provenance, build-script run rows,
   raw log rows, and observed Cargo warning output.
 
-## Closed By CDB080
+## CDB080 Interim Evidence - Still Active
 
 - Approved dynamic capture now records `out_dir_artifacts` as an explicit GAP
   until generated artifact manifests include relative paths, sha256 checksums,
@@ -68,7 +68,7 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - Unix fixture coverage proves scans capture symlink targets with
   `symlink_metadata` and emit supported materialization rows.
 
-## Closed By CDB082
+## CDB082 Interim Evidence - Still Active
 
 - Approved dynamic build capture now parses Cargo JSON
   `build-script-executed` messages for native `linked_libs` and `linked_paths`.
@@ -93,7 +93,7 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   `unstable_anonymous` so source-drift-sensitive identity cannot be treated as
   a permanent semantic key.
 
-## Closed By CDB085
+## CDB085 Interim Evidence - Still Active
 
 - Static Rust capture now emits semantic and public API hash reports from
   normalized item rows.
@@ -112,3 +112,86 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   schemas fail closed, and backup/restore remains the recovery proof.
 - Tests mutate a store to a future schema and assert
   `UnsupportedSchemaVersion`.
+
+## Mandatory closure semantics
+
+A GAP proves that CodeDB detected missing truth; it never proves that the capability was delivered. Every task in this plan remains active until its positive implementation path and failure path both have executable, current-head tests. Any remaining GAP blocks CDB090 and release readiness.
+
+## Exhaustive requirement-to-proof ledger
+
+`execution/REQUIREMENT_PROOF_LEDGER.csv` is the release authority for the
+mandatory implementation rail. It contains one row for every CDB013-CDB063 and
+CDB077-CDB090 task plus atomic rows for every CDB106 acceptance criterion and
+REQ-061 requirement group.
+
+| Scope | Mandatory rows | Current classification |
+|---|---:|---|
+| CDB013-CDB063 | 51 | planned; direct current-head proof not established |
+| CDB077-CDB090 | 14 | active; direct current-head proof not established |
+| CDB106 acceptance criteria | 10 | active |
+| REQ-061 constraints architecture commands acceptance and missed details | 65 | active |
+| Total | 140 | 90 partial; 50 missing; 0 verified |
+
+The classifications above are inventory truth rather than implementation
+completion. `partial` means a candidate implementation or test surface exists
+but lacks a current-head proof artifact. `missing` means a required positive
+path or direct test is absent. Neither status can satisfy release.
+
+The validator has three intentionally different modes:
+
+```bash
+# Inventory/schema/authority checks. This may pass while implementation remains open.
+python3 scripts/validate_requirement_proof_ledger.py --structure-only
+
+# Non-recursive complete-evidence check used inside external receipt generation.
+# This still requires every row/task to be verified/complete.
+python3 scripts/validate_requirement_proof_ledger.py --direct-evidence
+
+# Release mode. This fails until every row is verified at the exact current HEAD.
+python3 scripts/validate_requirement_proof_ledger.py
+```
+
+Direct-evidence mode skips only lookup and cryptographic verification of the
+receipt currently being created. Full release mode has no local trust bypass
+and requires every verified row in a detached, cryptographically verified
+receipt.
+
+The detached CI generator uses `--all-requirements`, not repeated selected-row
+flags. It requires the exact 140-row inventory, preflights all rows before any
+command runs, and then executes every row's exact verification command. Any
+unresolved row or partial receipt fails closed.
+
+A `verified` row must name an existing non-documentation implementation path,
+an existing direct test, an executable verification command, and logical proof
+artifacts present in an external current-head attestation. The attestation is
+generated after checkout outside the repository and binds the exact commit,
+tree, canonical repository, ledger, validator, complete selected ledger rows,
+command, output digests, evidence names, and clean worktree state.
+`proof_head_sha` is a deprecated self-referential field and must remain empty;
+exact revision identity lives in the external receipt.
+
+Release trust is detached from the receipt. A GitHub attestation bundle for the
+complete receipt file must verify cryptographically against the exact
+repository, signer workflow, and current source commit. Embedded signature URLs
+and self-asserted `github-actions` metadata are rejected as trust evidence.
+Missing rows, stale receipts, dirty checkouts, documentation-only evidence,
+GAP-compatible closure, and task-graph contradictions fail closed.
+
+Proof rows declare exact typed subjects: `stdout:<name>`, `stderr:<name>`, or
+`file:<name>:repository:<normalized-relative-path>`. Receipts bind each
+subject's type, byte size, and own SHA-256; file subjects additionally bind the
+approved root and normalized path. Missing, duplicate, symlinked, escaping,
+non-regular, or raced file subjects fail closed.
+
+Pre-merge verification is unprivileged for same-repository and fork PRs and
+also covers merge queues. It emits an unsigned exact-reviewed-SHA receipt
+without OIDC/write permission. A post-check job protected by the
+`requirement-proof-signer` GitHub environment never checks out or executes
+submitted code and is the only job with attestation-write permission. Fork
+receipts are not signed until represented by a trusted same-repository ref,
+merge queue, or protected push.
+
+No row is upgraded merely because its candidate command passes in a dirty or
+uncommitted development worktree. The row may move to `verified` only after the
+exact committed tree is checked out cleanly, the row command and named evidence
+pass, and the detached attestation for that receipt verifies.

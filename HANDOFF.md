@@ -123,3 +123,7 @@ current package evidence:
 Earlier scaffold tasks CDB064-CDB068 existed before implementation and may need resealing
 after later runtime integration tasks. Polyglot planning completion does not satisfy those
 implementation tasks.
+
+## Mandatory completion override
+
+All historical GAP and MVP deferral language is non-terminal. CDB077-CDB090 are active until positive implementation and current-head proof exist. The original task graph, bidirectional task graph, checklist, manifests, and release gate must be reconciled before completion.

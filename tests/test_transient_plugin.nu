@@ -86,6 +86,40 @@ def main [] {
             fail "transient plugin output did not include source_files table row"
         }
 
+        let relative_root = (mktemp -d)
+        let relative_fixture = ([$relative_root fixture] | path join)
+        let relative_cwd = ([$relative_root nested] | path join)
+        cp -r ([$repo_root fixtures single_simple_crate] | path join) $relative_fixture
+        mkdir $relative_cwd
+        run_checked cargo [
+            generate-lockfile
+            --manifest-path
+            ([$relative_fixture Cargo.toml] | path join)
+            --offline
+        ] | ignore
+        let relative_output = (
+            with-env {
+                HOME: $temp_home,
+                XDG_CONFIG_HOME: ([$temp_home .config] | path join),
+                XDG_DATA_HOME: ([$temp_home .local share] | path join),
+                XDG_CACHE_HOME: ([$temp_home .cache] | path join),
+            } {
+                run_checked nu [
+                    --no-config-file
+                    --plugin-config
+                    $temp_plugin_config
+                    --plugins
+                    $plugin
+                    -c
+                    $"cd '($relative_cwd)'; codedb scan '../fixture' | to json"
+                ]
+            }
+        )
+        let relative_rows = ($relative_output | from json)
+        if not (($relative_rows | where table == cargo_packages | length) > 0) {
+            fail "transient plugin relative scan omitted Cargo package evidence"
+        }
+
         let real_after = if $real_home == "" { [] } else { plugin_registry_snapshot $real_home }
         if ($real_before | to json --raw) != ($real_after | to json --raw) {
             fail "transient plugin smoke changed real HOME Nushell plugin registry files"
@@ -94,6 +128,7 @@ def main [] {
         {
             status: passed,
             row_count: ($rows | length),
+            relative_row_count: ($relative_rows | length),
             first_table: ($rows | first | get table),
             temp_plugin_config: $temp_plugin_config,
             plugin: $plugin,

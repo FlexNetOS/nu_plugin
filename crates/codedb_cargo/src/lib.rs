@@ -1,13 +1,8 @@
 #![forbid(unsafe_code)]
 
+use serde::Deserialize;
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
-use std::io;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 pub const STATUS: &str = "cargo_metadata_capture_available";
 
@@ -20,94 +15,6 @@ pub struct CargoMetadataCapture {
     pub resolve_nodes: Vec<CargoResolveNodeRow>,
     pub features: Vec<CargoFeatureRow>,
     pub sources: Vec<CargoSourceRow>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CargoContextCapture {
-    pub context: CodeDbContextRow,
-    pub toolchain: ToolchainRow,
-    pub cargo_version: CargoVersionRow,
-    pub rustc_version: RustcVersionRow,
-    pub target: TargetTripleRow,
-    pub host: HostTripleRow,
-    pub cfgs: Vec<TargetCfgRow>,
-    pub feature_set: FeatureSetRow,
-    pub profile: CargoProfileRow,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodeDbContextRow {
-    pub context_id: String,
-    pub toolchain_id: String,
-    pub target_triple: String,
-    pub feature_set_hash: String,
-    pub cfg_hash: String,
-    pub cargo_lock_hash: String,
-    pub profile: String,
-    pub edition: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolchainRow {
-    pub toolchain_id: String,
-    pub cargo_version: String,
-    pub rustc_version: String,
-    pub host_triple: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CargoVersionRow {
-    pub toolchain_id: String,
-    pub version: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RustcVersionRow {
-    pub toolchain_id: String,
-    pub version: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TargetTripleRow {
-    pub context_id: String,
-    pub triple: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostTripleRow {
-    pub toolchain_id: String,
-    pub triple: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TargetCfgRow {
-    pub context_id: String,
-    pub cfg: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FeatureSetRow {
-    pub feature_set_hash: String,
-    pub features: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CargoProfileRow {
-    pub context_id: String,
-    pub profile: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CargoContextInput {
-    pub cargo_version: String,
-    pub rustc_version: String,
-    pub host_triple: String,
-    pub target_triple: String,
-    pub cfgs: Vec<String>,
-    pub features: Vec<String>,
-    pub profile: String,
-    pub edition: String,
-    pub cargo_lock_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,22 +107,12 @@ pub enum CargoSourceObservation {
 
 #[derive(Debug)]
 pub enum CargoMetadataError {
-    NonUtf8Path { path: PathBuf },
-    Spawn { source: io::Error },
-    Failed { status: i32, stderr: String },
     Parse { source: serde_json::Error },
 }
 
 impl Display for CargoMetadataError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NonUtf8Path { path } => {
-                write!(f, "path is not valid UTF-8: {}", path.display())
-            }
-            Self::Spawn { source } => write!(f, "failed to run cargo metadata: {source}"),
-            Self::Failed { status, stderr } => {
-                write!(f, "cargo metadata exited with status {status}: {stderr}")
-            }
             Self::Parse { source } => write!(f, "failed to parse cargo metadata JSON: {source}"),
         }
     }
@@ -223,38 +120,11 @@ impl Display for CargoMetadataError {
 
 impl StdError for CargoMetadataError {}
 
-pub fn capture_cargo_metadata(
-    manifest_path: impl AsRef<Path>,
+pub fn capture_cargo_metadata_json(
+    metadata_json: &str,
 ) -> Result<CargoMetadataCapture, CargoMetadataError> {
-    let manifest_path = manifest_path.as_ref();
-    let manifest_path_arg =
-        manifest_path
-            .to_str()
-            .ok_or_else(|| CargoMetadataError::NonUtf8Path {
-                path: manifest_path.to_path_buf(),
-            })?;
-
-    let output = Command::new("cargo")
-        .args([
-            "metadata",
-            "--format-version",
-            "1",
-            "--manifest-path",
-            manifest_path_arg,
-        ])
-        .output()
-        .map_err(|source| CargoMetadataError::Spawn { source })?;
-
-    if !output.status.success() {
-        return Err(CargoMetadataError::Failed {
-            status: output.status.code().unwrap_or(-1),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        });
-    }
-
-    let metadata: Metadata = serde_json::from_slice(&output.stdout)
+    let metadata: Metadata = serde_json::from_str(metadata_json)
         .map_err(|source| CargoMetadataError::Parse { source })?;
-
     Ok(metadata.into_capture())
 }
 
@@ -453,89 +323,6 @@ pub fn classify_cargo_source(source: Option<&str>) -> CargoSourceKind {
     }
 }
 
-pub fn build_context_rows(input: CargoContextInput) -> CargoContextCapture {
-    let cfgs = sorted(input.cfgs);
-    let features = sorted(input.features);
-    let cfg_hash = stable_hash(&cfgs);
-    let feature_set_hash = stable_hash(&features);
-    let cargo_lock_hash = input.cargo_lock_hash.unwrap_or_else(|| "none".to_string());
-    let toolchain_material = [
-        input.cargo_version.as_str(),
-        input.rustc_version.as_str(),
-        input.host_triple.as_str(),
-    ];
-    let toolchain_id = stable_hash(toolchain_material);
-    let context_material = [
-        toolchain_id.as_str(),
-        input.target_triple.as_str(),
-        feature_set_hash.as_str(),
-        cfg_hash.as_str(),
-        cargo_lock_hash.as_str(),
-        input.profile.as_str(),
-        input.edition.as_str(),
-    ];
-    let context_id = stable_hash(context_material);
-
-    CargoContextCapture {
-        context: CodeDbContextRow {
-            context_id: context_id.clone(),
-            toolchain_id: toolchain_id.clone(),
-            target_triple: input.target_triple.clone(),
-            feature_set_hash: feature_set_hash.clone(),
-            cfg_hash: cfg_hash.clone(),
-            cargo_lock_hash,
-            profile: input.profile.clone(),
-            edition: input.edition,
-        },
-        toolchain: ToolchainRow {
-            toolchain_id: toolchain_id.clone(),
-            cargo_version: input.cargo_version.clone(),
-            rustc_version: input.rustc_version.clone(),
-            host_triple: input.host_triple.clone(),
-        },
-        cargo_version: CargoVersionRow {
-            toolchain_id: toolchain_id.clone(),
-            version: input.cargo_version,
-        },
-        rustc_version: RustcVersionRow {
-            toolchain_id: toolchain_id.clone(),
-            version: input.rustc_version,
-        },
-        target: TargetTripleRow {
-            context_id: context_id.clone(),
-            triple: input.target_triple,
-        },
-        host: HostTripleRow {
-            toolchain_id,
-            triple: input.host_triple,
-        },
-        cfgs: cfgs
-            .into_iter()
-            .map(|cfg| TargetCfgRow {
-                context_id: context_id.clone(),
-                cfg,
-            })
-            .collect(),
-        feature_set: FeatureSetRow {
-            feature_set_hash,
-            features,
-        },
-        profile: CargoProfileRow {
-            context_id,
-            profile: input.profile,
-        },
-    }
-}
-
-fn stable_hash(values: impl IntoIterator<Item = impl AsRef<str>>) -> String {
-    let mut hasher = Sha256::new();
-    for value in values {
-        hasher.update(value.as_ref().as_bytes());
-        hasher.update([0]);
-    }
-    format!("{:x}", hasher.finalize())
-}
-
 fn sorted(mut values: Vec<String>) -> Vec<String> {
     values.sort();
     values.dedup();
@@ -547,75 +334,45 @@ mod tests {
     // Test lane: default
 
     use super::*;
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     // Defends: CDB019 must use Cargo's structured metadata output and produce stable package/target rows.
     #[test]
-    fn cargo_metadata_fixture_capture_is_stable() {
-        let fixture = FixtureWorkspace::new();
-        fixture.write(
-            "Cargo.toml",
-            r#"[package]
-name = "codedb_fixture"
-version = "0.1.0"
-edition = "2024"
-
-[features]
-default = ["serde"]
-serde = []
-
-[dependencies]
-helper = { path = "helper", optional = true }
-"#,
-        );
-        fixture.write("src/lib.rs", "pub fn answer() -> u8 { 42 }\n");
-        fixture.write(
-            "helper/Cargo.toml",
-            r#"[package]
-name = "helper"
-version = "0.1.0"
-edition = "2024"
-"#,
-        );
-        fixture.write("helper/src/lib.rs", "pub fn helper() {}\n");
-
-        let manifest_path = fixture.root.join("Cargo.toml");
-        let first = capture_cargo_metadata(&manifest_path).expect("first metadata capture");
-        let second = capture_cargo_metadata(&manifest_path).expect("second metadata capture");
-
+    fn captured_metadata_json_projection_is_stable() {
+        let json = r#"{
+          "packages": [{
+            "id": "path+file:///fixture#codedb_fixture@0.1.0",
+            "name": "codedb_fixture",
+            "version": "0.1.0",
+            "source": null,
+            "manifest_path": "/fixture/Cargo.toml",
+            "edition": "2024",
+            "targets": [{
+              "name": "codedb_fixture",
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "src_path": "/fixture/src/lib.rs",
+              "edition": "2024"
+            }],
+            "dependencies": [],
+            "features": {"default": ["serde"], "serde": []}
+          }],
+          "workspace_members": ["path+file:///fixture#codedb_fixture@0.1.0"],
+          "workspace_root": "/fixture",
+          "target_directory": "/fixture/target",
+          "resolve": {"nodes": [{
+            "id": "path+file:///fixture#codedb_fixture@0.1.0",
+            "dependencies": [],
+            "features": ["default", "serde"]
+          }]}
+        }"#;
+        let first = capture_cargo_metadata_json(json).expect("first projection");
+        let second = capture_cargo_metadata_json(json).expect("second projection");
         assert_eq!(first, second);
         assert_eq!(first.packages.len(), 1);
-        assert_eq!(first.workspace.workspace_members.len(), 1);
-        assert!(
-            first
-                .packages
-                .iter()
-                .any(|package| package.name == "codedb_fixture")
-        );
-        assert!(
-            first
-                .targets
-                .iter()
-                .any(|target| target.name == "codedb_fixture" && target.kind == ["lib"])
-        );
-        assert!(first.dependencies.iter().any(|dependency| {
-            dependency.package_id.contains("codedb_fixture")
-                && dependency.name == "helper"
-                && dependency.optional
-        }));
-        assert!(
-            first
-                .features
-                .iter()
-                .any(|feature| feature.feature == "default" && feature.enables == ["serde"])
-        );
-        assert!(first.sources.iter().any(|source| {
-            source.source_name == "helper"
-                && source.kind == CargoSourceKind::Path
-                && source.observed_from == CargoSourceObservation::Dependency
-        }));
-        assert!(!first.resolve_nodes.is_empty());
+        assert_eq!(first.packages[0].name, "codedb_fixture");
+        assert_eq!(first.targets[0].kind, ["lib"]);
+        assert_eq!(first.features.len(), 2);
+        assert_eq!(first.resolve_nodes.len(), 1);
     }
 
     // Defends: CDB020 must classify registry, git, and path provenance without network mutation.
@@ -638,90 +395,5 @@ edition = "2024"
             )),
             CargoSourceKind::Git
         );
-    }
-
-    // Defends: CDB021 context rows must be keyed and deterministic across input ordering.
-    #[test]
-    fn context_rows_are_keyed_and_deterministic() {
-        let first = build_context_rows(CargoContextInput {
-            cargo_version: "cargo 1.92.0".to_string(),
-            rustc_version: "rustc 1.92.0".to_string(),
-            host_triple: "x86_64-unknown-linux-gnu".to_string(),
-            target_triple: "x86_64-unknown-linux-gnu".to_string(),
-            cfgs: vec![
-                "target_os=\"linux\"".to_string(),
-                "target_arch=\"x86_64\"".to_string(),
-                "target_os=\"linux\"".to_string(),
-            ],
-            features: vec!["serde".to_string(), "default".to_string()],
-            profile: "debug".to_string(),
-            edition: "2024".to_string(),
-            cargo_lock_hash: Some("lockhash".to_string()),
-        });
-        let second = build_context_rows(CargoContextInput {
-            cargo_version: "cargo 1.92.0".to_string(),
-            rustc_version: "rustc 1.92.0".to_string(),
-            host_triple: "x86_64-unknown-linux-gnu".to_string(),
-            target_triple: "x86_64-unknown-linux-gnu".to_string(),
-            cfgs: vec![
-                "target_arch=\"x86_64\"".to_string(),
-                "target_os=\"linux\"".to_string(),
-            ],
-            features: vec!["default".to_string(), "serde".to_string()],
-            profile: "debug".to_string(),
-            edition: "2024".to_string(),
-            cargo_lock_hash: Some("lockhash".to_string()),
-        });
-
-        assert_eq!(first, second);
-        assert!(!first.context.context_id.is_empty());
-        assert!(!first.context.toolchain_id.is_empty());
-        assert_eq!(first.context.profile, "debug");
-        assert_eq!(first.context.edition, "2024");
-        assert_eq!(first.feature_set.features, ["default", "serde"]);
-        assert_eq!(
-            first
-                .cfgs
-                .iter()
-                .map(|row| row.cfg.as_str())
-                .collect::<Vec<_>>(),
-            ["target_arch=\"x86_64\"", "target_os=\"linux\""]
-        );
-        assert_eq!(first.context.context_id, first.target.context_id);
-        assert_eq!(first.context.context_id, first.profile.context_id);
-    }
-
-    struct FixtureWorkspace {
-        root: PathBuf,
-    }
-
-    impl FixtureWorkspace {
-        fn new() -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock before unix epoch")
-                .as_nanos();
-            let root = std::env::temp_dir().join(format!(
-                "codedb_cargo_metadata_fixture_{}_{}",
-                std::process::id(),
-                nonce
-            ));
-            fs::create_dir_all(&root).expect("create fixture root");
-            Self { root }
-        }
-
-        fn write(&self, relative_path: &str, content: &str) {
-            let path = self.root.join(relative_path);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).expect("create fixture parent");
-            }
-            fs::write(path, content).expect("write fixture file");
-        }
-    }
-
-    impl Drop for FixtureWorkspace {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.root);
-        }
     }
 }

@@ -1,14 +1,14 @@
 {
   "mcpServers": {
     "codedb": {
-      "command": "/absolute/path/to/codedb",
+      "command": "codedb",
       "args": [
         "mcp",
         "serve",
         "--repo-path",
-        "/absolute/path/to/repo",
+        ".",
         "--store",
-        "/absolute/path/to/repo/.codedb/store.redb",
+        ".codedb/store.redb",
         "--default-limit",
         "50",
         "--max-bytes",
@@ -26,6 +26,6 @@
     "unsafeBuildCapture": "blocked_in_mcp",
     "mutation": "forbidden",
     "auth": "external_official_codex_auth_only",
-    "notes": "Replace absolute paths before use. Do not add credential or private material fields."
+    "notes": "Launch from the repository root with the profile-owned codedb command on PATH. For PostgreSQL, use --store pg plus explicit CODEDB_PG_CONN in the process environment; never put credentials in this file."
   }
 }

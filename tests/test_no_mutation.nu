@@ -26,6 +26,12 @@ def init_committed_repo [source_fixture: string, name: string] {
     let repo = ([$temp_root $name] | path join)
 
     cp -r $source_fixture $repo
+    run_checked cargo [
+        generate-lockfile
+        --manifest-path
+        ([$repo Cargo.toml] | path join)
+        --offline
+    ] | ignore
     run_codedb [scan $repo --format json] | ignore
 
     git_cmd $repo [init] | ignore

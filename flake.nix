@@ -67,15 +67,22 @@
             cp codedb-version.txt plugin-path.txt "$out"/
           '';
 
-          repo_truth_surface = pkgs.runCommand "codedb-repo-truth-surface" { } ''
-            set -eu
-            cp -R ${source} source
-            chmod -R u+w source
-            cd source
-            ${pkgs.python3}/bin/python3 scripts/truth_surface.py --check-source
-            mkdir -p "$out"
-            printf '%s\n' "repo truth surface ok" > "$out/result.txt"
-          '';
+          repo_truth_surface =
+            pkgs.runCommand "codedb-repo-truth-surface"
+              {
+                nativeBuildInputs = [ pkgs.git ];
+              }
+              ''
+                set -eu
+                cp -R ${source} source
+                chmod -R u+w source
+                cd source
+                git init --quiet
+                git add --all
+                ${pkgs.python3}/bin/python3 scripts/truth_surface.py --check-source
+                mkdir -p "$out"
+                printf '%s\n' "repo truth surface ok" > "$out/result.txt"
+              '';
 
           import_rows_smoke = pkgs.rustPlatform.buildRustPackage {
             pname = "codedb-import-rows-smoke";

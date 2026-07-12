@@ -52,7 +52,7 @@ def sha256_text(text: str) -> str:
 def included_files(repo: Path) -> list[str]:
     return [
         path
-        for path in git_ls_files(repo, include_untracked=True)
+        for path in git_ls_files(repo)
         if path not in GENERATED_PATHS and not path.startswith("target/")
     ]
 
@@ -215,6 +215,14 @@ def check_source_surfaces(repo: Path) -> int:
         if actual_bytes != expected_bytes:
             failures.append(f"byte count mismatch: {rel_path}")
         expected_lines.append(f"{expected_hash}  {rel_path}")
+
+    tracked_scope_paths = set(included_files(repo))
+    missing_paths = sorted(tracked_scope_paths - seen_paths)
+    unexpected_paths = sorted(seen_paths - tracked_scope_paths)
+    for rel_path in missing_paths:
+        failures.append(f"tracked checksum-scope path is missing from manifest: {rel_path}")
+    for rel_path in unexpected_paths:
+        failures.append(f"manifest path is not a tracked checksum-scope path: {rel_path}")
 
     expected_checksums = "\n".join(expected_lines) + "\n"
     if checksums != expected_checksums:
