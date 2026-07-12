@@ -168,7 +168,7 @@ fn approved_cli_capture_persists_receipt_and_never_mutates_source() {
         serde_json::from_slice(&reproduced.stdout).expect("reproduction JSON rows");
     assert!(!reproduction_rows.is_empty());
     assert!(reproduction_rows.iter().all(|row| {
-        row.get("table").map(String::as_str) == Some("out_dir_reproduction")
+        row.get("table").map(String::as_str) == Some("out_dir_reproduction_proofs")
             && row.get("status").map(String::as_str) == Some("verified")
     }));
     assert_eq!(
@@ -184,8 +184,8 @@ fn approved_cli_capture_records_instrumented_proc_macro_tokens() {
     let root = temp_root();
     let repo = root.join("repo");
     let evidence = root.join("evidence");
-    let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/proc_macro_consumer");
+    let fixture_root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/proc_macro_consumer");
     for relative in [
         "Cargo.toml",
         "crates/demo_macro/Cargo.toml",

@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -30,6 +31,10 @@ use codedb_core::{
     table_inventory, validation_errors,
 };
 use codedb_rust_static::capture_rust_items;
+use codedb_rust_static::{
+    ApprovedCompilerEvidenceOutcome, ApprovedCompilerEvidenceRequest, CompilerEvidenceOptions,
+    capture_approved_compiler_evidence, capture_compiler_evidence,
+};
 use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
 use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
@@ -115,6 +120,11 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
         // selected CodeDB store as a content-addressed blob (sha256) with its relative path
         // and unix mode; anything unpersistable becomes a capture_gaps row —
         // silent omission is failure (PRD CDB015/017/018 wiring).
+        "capture" if args.get(1).map(String::as_str) == Some("compiler") => {
+            let format = parse_format(&args)?;
+            let rows = compiler_capture_rows(&args)?;
+            print_rows(rows, format)
+        }
         "capture" if args.get(1).map(String::as_str) == Some("build") => {
             let format = parse_format(&args)?;
             let rows = build_capture_rows(&args)?;
@@ -208,7 +218,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             Ok(())
         }
         _ => Err(CliError::Message(format!(
-            "unsupported command: {command}; supported commands: mcp serve, scan, capture, capture build, materialize, reproduce, merge-plan, store-report, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
+            "unsupported command: {command}; supported commands: mcp serve, scan, capture, capture build, capture compiler, materialize, reproduce, merge-plan, store-report, export, schema, tables, gaps, validation-errors, doctor, generate-yazelix-bridge, --version"
         ))),
     }
 }
@@ -336,22 +346,18 @@ fn persist_build_capture_receipt(
 }
 
 fn reproduce_build_artifacts_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
-    let store = strict_option_value(args, "--store")
-        .map_err(|error| error)?
+    let store = strict_option_value(args, "--store")?
         .ok_or_else(|| CliError::Message("reproduce requires --store <path>".to_string()))?;
-    let approval_id = strict_option_value(args, "--approval-id")
-        .map_err(|error| error)?
-        .ok_or_else(|| CliError::Message("reproduce requires --approval-id <sha256>".to_string()))?;
+    let approval_id = strict_option_value(args, "--approval-id")?.ok_or_else(|| {
+        CliError::Message("reproduce requires --approval-id <sha256>".to_string())
+    })?;
     if approval_id.len() != 64 || !approval_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(CliError::Message(
             "reproduce --approval-id must be a 64-character SHA-256 identifier".to_string(),
         ));
     }
-    let artifact_dir = strict_option_value(args, "--artifact-dir")
-        .map_err(|error| error)?
-        .ok_or_else(|| {
-            CliError::Message("reproduce requires --artifact-dir <path>".to_string())
-        })?;
+    let artifact_dir = strict_option_value(args, "--artifact-dir")?
+        .ok_or_else(|| CliError::Message("reproduce requires --artifact-dir <path>".to_string()))?;
     let artifact_dir = absolute_cli_path(artifact_dir)?;
     if artifact_dir.exists() {
         return Err(CliError::Message(
@@ -389,6 +395,386 @@ fn reproduce_build_artifacts_rows(args: &[String]) -> Result<Vec<Row>, CliError>
         .map_err(|source| CliError::Core(Box::new(source)))?;
     reproduce_out_dir_artifacts(&artifacts, &destination)
         .map_err(|source| CliError::Core(Box::new(source)))
+}
+
+fn compiler_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
+    let source = positional(args, 2, "capture compiler requires <source.rs>")?;
+    if source.starts_with("--") {
+        return Err(CliError::Message(
+            "capture compiler requires <source.rs> before options".to_string(),
+        ));
+    }
+    let source_path = fs::canonicalize(source).map_err(|source| CliError::Core(Box::new(source)))?;
+    if !source_path.is_file() {
+        return Err(CliError::Message(
+            "capture compiler source must be a regular file".to_string(),
+        ));
+    }
+    if !has_flag(args, "--unsafe-execute-build") {
+        let report = capture_compiler_evidence(&source_path, CompilerEvidenceOptions::default());
+        let mut rows = vec![row([
+            ("table", "unsafe_execution_approval".to_string()),
+            ("status", "missing".to_string()),
+            ("flag", "--unsafe-execute-build".to_string()),
+            ("source_path", source_path.display().to_string()),
+            (
+                "note",
+                "compiler-observed capture refused without explicit approval".to_string(),
+            ),
+        ])];
+        rows.push(row([
+            ("table", "validation_errors".to_string()),
+            ("code", "unsafe_execution_refused".to_string()),
+            (
+                "message",
+                "capture compiler requires --unsafe-execute-build".to_string(),
+            ),
+            ("source_path", source_path.display().to_string()),
+        ]));
+        rows.extend(report.gaps.into_iter().map(|gap| {
+            row([
+                ("table", "capture_gaps".to_string()),
+                ("missing_truth", "compiler_observed_evidence".to_string()),
+                (
+                    "artifact_kind",
+                    gap.artifact
+                        .map(|artifact| artifact.as_str().to_string())
+                        .unwrap_or_default(),
+                ),
+                ("reason", gap.reason),
+            ])
+        }));
+        rows.push(row([
+            ("table", "raw_log_paths".to_string()),
+            ("status", "not_written".to_string()),
+            ("path", String::new()),
+            (
+                "note",
+                "refusal-only compiler capture creates no evidence directory".to_string(),
+            ),
+        ]));
+        return Ok(rows);
+    }
+
+    let repo = strict_option_value(args, "--repo-path")?;
+    let evidence_dir = strict_option_value(args, "--evidence-dir")?;
+    let store = strict_option_value(args, "--store")?;
+    let approver = strict_option_value(args, "--approver")?;
+    let task_id = strict_option_value(args, "--task-id")?;
+    let before_state = strict_option_value(args, "--before-state")?;
+    let cleanup_plan = strict_option_value(args, "--cleanup-plan")?;
+    let mut missing = Vec::new();
+    for (name, value) in [
+        ("--repo-path", repo),
+        ("--evidence-dir", evidence_dir),
+        ("--store", store),
+        ("--approver", approver),
+        ("--task-id", task_id),
+        ("--before-state", before_state),
+        ("--cleanup-plan", cleanup_plan),
+    ] {
+        if value.is_none_or(|value| value.trim().is_empty()) {
+            missing.push(name);
+        }
+    }
+    if !missing.is_empty() {
+        return Err(CliError::Message(format!(
+            "approved capture compiler requires complete provenance: {}",
+            missing.join(", ")
+        )));
+    }
+    let repo_path = fs::canonicalize(repo.expect("validated repo option"))
+        .map_err(|source| CliError::Core(Box::new(source)))?;
+    let evidence_dir = absolute_cli_path(evidence_dir.expect("validated evidence option"))?;
+    if evidence_dir.exists() {
+        return Err(CliError::Message(
+            "compiler evidence directory must not already exist".to_string(),
+        ));
+    }
+    let evidence_parent = evidence_dir.parent().ok_or_else(|| {
+        CliError::Message("compiler evidence directory must have a parent".to_string())
+    })?;
+    fs::create_dir_all(evidence_parent).map_err(|source| CliError::Core(Box::new(source)))?;
+    let evidence_parent = evidence_parent
+        .canonicalize()
+        .map_err(|source| CliError::Core(Box::new(source)))?;
+    let evidence_dir = evidence_parent.join(
+        evidence_dir
+            .file_name()
+            .ok_or_else(|| {
+                CliError::Message("compiler evidence directory must have a final name".to_string())
+            })?,
+    );
+    let store = store.expect("validated store option");
+    parse_store_spec(store, args)?;
+    let edition = strict_option_value(args, "--edition")?.unwrap_or("2024");
+    if !matches!(edition, "2015" | "2018" | "2021" | "2024") {
+        return Err(CliError::Message(
+            "capture compiler --edition must be 2015, 2018, 2021, or 2024".to_string(),
+        ));
+    }
+    let options = CompilerEvidenceOptions {
+        enabled: true,
+        edition: edition.to_string(),
+        crate_name: strict_option_value(args, "--crate-name")?.map(str::to_string),
+        ..CompilerEvidenceOptions::default()
+    };
+    let outcome = capture_approved_compiler_evidence(ApprovedCompilerEvidenceRequest {
+        repo_path,
+        source_path,
+        evidence_dir,
+        approver: approver.expect("validated approver").to_string(),
+        task_id: task_id.expect("validated task id").to_string(),
+        before_state: before_state.expect("validated before state").to_string(),
+        cleanup_plan: cleanup_plan.expect("validated cleanup plan").to_string(),
+        options,
+    })
+    .map_err(CliError::Message)?;
+    persist_compiler_evidence(outcome, store, args)
+}
+
+fn compiler_artifact_filename(kind: codedb_rust_static::CompilerEvidenceArtifactKind) -> String {
+    let extension = if kind.as_str() == "rustdoc_public_api" {
+        "json"
+    } else {
+        "txt"
+    };
+    format!("{}.{}", kind.as_str(), extension)
+}
+
+fn write_new_evidence_file(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|source| CliError::Core(Box::new(source)))?;
+    file.write_all(bytes)
+        .map_err(|source| CliError::Core(Box::new(source)))?;
+    file.sync_all()
+        .map_err(|source| CliError::Core(Box::new(source)))
+}
+
+fn persist_compiler_evidence(
+    outcome: ApprovedCompilerEvidenceOutcome,
+    store: &str,
+    args: &[String],
+) -> Result<Vec<Row>, CliError> {
+    fs::create_dir(&outcome.evidence_dir).map_err(|source| CliError::Core(Box::new(source)))?;
+    let result = persist_compiler_evidence_in_created_dir(&outcome, store, args);
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&outcome.evidence_dir);
+    }
+    result
+}
+
+fn persist_compiler_evidence_in_created_dir(
+    outcome: &ApprovedCompilerEvidenceOutcome,
+    store: &str,
+    args: &[String],
+) -> Result<Vec<Row>, CliError> {
+    let report = &outcome.report;
+    let mut rows = vec![row([
+        ("table", "unsafe_execution_approval".to_string()),
+        ("status", "approved".to_string()),
+        ("flag", "--unsafe-execute-build".to_string()),
+        ("approval_id", outcome.approval_id.clone()),
+        ("approver", outcome.approver.clone()),
+        ("task_id", outcome.task_id.clone()),
+        ("before_state", outcome.before_state.clone()),
+        ("cleanup_plan", outcome.cleanup_plan.clone()),
+        ("repo_path", outcome.repo_path.display().to_string()),
+        ("source_path", report.source_path.display().to_string()),
+        ("evidence_dir", outcome.evidence_dir.display().to_string()),
+    ])];
+    if let Some(toolchain) = &report.toolchain {
+        rows.push(row([
+            ("table", "compiler_toolchain_provenance".to_string()),
+            ("approval_id", outcome.approval_id.clone()),
+            ("status", "compiler_observed".to_string()),
+            ("rustc_path", toolchain.rustc_path.display().to_string()),
+            ("rustc_version", toolchain.rustc_version.clone()),
+            ("rustdoc_path", toolchain.rustdoc_path.display().to_string()),
+            ("rustdoc_version", toolchain.rustdoc_version.clone()),
+            ("sysroot", toolchain.sysroot.display().to_string()),
+            ("target_libdir", toolchain.target_libdir.display().to_string()),
+            ("host", toolchain.host.clone()),
+            ("toolchain_sha256", toolchain.toolchain_sha256.clone()),
+        ]));
+    }
+    if let Some(context) = &report.context {
+        rows.push(row([
+            ("table", "compiler_context_provenance".to_string()),
+            ("approval_id", outcome.approval_id.clone()),
+            ("source_path", context.source_path.display().to_string()),
+            ("source_sha256", context.source_sha256.clone()),
+            ("crate_name", context.crate_name.clone()),
+            ("crate_type", context.crate_type.clone()),
+            ("edition", context.edition.clone()),
+            ("target", context.target.clone()),
+            ("context_sha256", context.context_sha256.clone()),
+        ]));
+    }
+
+    let mut store_files = Vec::new();
+    for artifact in &report.artifacts {
+        let filename = compiler_artifact_filename(artifact.kind);
+        let evidence_path = outcome.evidence_dir.join(&filename);
+        let store_relative_path = format!(
+            "compiler-evidence/{}/{}",
+            outcome.approval_id, filename
+        );
+        if let Some(output) = &artifact.output {
+            write_new_evidence_file(&evidence_path, output.as_bytes())?;
+            store_files.push((store_relative_path.clone(), output.as_bytes().to_vec()));
+        }
+        rows.push(row([
+            ("table", "compiler_artifacts".to_string()),
+            ("approval_id", outcome.approval_id.clone()),
+            ("artifact_kind", artifact.kind.as_str().to_string()),
+            ("status", artifact.status.as_str().to_string()),
+            (
+                "evidence_path",
+                artifact
+                    .output
+                    .as_ref()
+                    .map(|_| evidence_path.display().to_string())
+                    .unwrap_or_default(),
+            ),
+            ("store_relative_path", store_relative_path),
+            (
+                "evidence_sha256",
+                artifact.evidence_sha256.clone().unwrap_or_default(),
+            ),
+            (
+                "evidence_bytes",
+                artifact
+                    .evidence_bytes
+                    .map(|bytes| bytes.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "context_sha256",
+                artifact.context_sha256.clone().unwrap_or_default(),
+            ),
+            (
+                "toolchain_sha256",
+                artifact.toolchain_sha256.clone().unwrap_or_default(),
+            ),
+            (
+                "pin_sha256",
+                artifact.pin_sha256.clone().unwrap_or_default(),
+            ),
+            ("diagnostic", artifact.diagnostic.clone()),
+        ]));
+    }
+    if let (Some(semantic_hash), Some(public_api_hash)) =
+        (&report.semantic_hash, &report.public_api_hash)
+    {
+        rows.push(row([
+            ("table", "compiler_semantic_hashes".to_string()),
+            ("approval_id", outcome.approval_id.clone()),
+            ("status", report.collection_status.as_str().to_string()),
+            ("semantic_hash", semantic_hash.clone()),
+            ("public_api_hash", public_api_hash.clone()),
+            (
+                "context_sha256",
+                report
+                    .context
+                    .as_ref()
+                    .map(|context| context.context_sha256.clone())
+                    .unwrap_or_default(),
+            ),
+        ]));
+    }
+    rows.extend(report.gaps.iter().map(|gap| {
+        row([
+            ("table", "capture_gaps".to_string()),
+            ("approval_id", outcome.approval_id.clone()),
+            ("missing_truth", "compiler_observed_evidence".to_string()),
+            (
+                "artifact_kind",
+                gap.artifact
+                    .map(|artifact| artifact.as_str().to_string())
+                    .unwrap_or_default(),
+            ),
+            ("reason", gap.reason.clone()),
+        ])
+    }));
+
+    let raw_log_path = outcome.evidence_dir.join("compiler.log");
+    let raw_log = format!(
+        "status={}\napproval_id={}\nsource_sha256={}\nsemantic_hash={}\npublic_api_hash={}\nartifact_count={}\ngap_count={}\n",
+        report.collection_status.as_str(),
+        outcome.approval_id,
+        report.source_sha256.as_deref().unwrap_or_default(),
+        report.semantic_hash.as_deref().unwrap_or_default(),
+        report.public_api_hash.as_deref().unwrap_or_default(),
+        report.artifacts.len(),
+        report.gaps.len(),
+    );
+    write_new_evidence_file(&raw_log_path, raw_log.as_bytes())?;
+    let raw_log_store_path = format!("compiler-evidence/{}/compiler.log", outcome.approval_id);
+    store_files.push((raw_log_store_path, raw_log.into_bytes()));
+    rows.push(row([
+        ("table", "raw_log_paths".to_string()),
+        ("approval_id", outcome.approval_id.clone()),
+        ("status", "written".to_string()),
+        ("path", raw_log_path.display().to_string()),
+        (
+            "note",
+            "compiler artifact hashes and collection status; full artifacts are sibling files"
+                .to_string(),
+        ),
+    ]));
+
+    let (mut backend, store_identity) = open_store_for_capture(store, args)?;
+    let persisted = backend.persist_batch(&store_files).map_err(|source| {
+        CliError::Message(format!("compiler evidence persistence failed: {source}"))
+    })?;
+    let persisted = persisted
+        .into_iter()
+        .map(|receipt| (receipt.relative_path.clone(), receipt))
+        .collect::<BTreeMap<_, _>>();
+    for artifact in rows.iter_mut().filter(|row| {
+        row.get("table").map(String::as_str) == Some("compiler_artifacts")
+    }) {
+        if let Some(receipt) = artifact
+            .get("store_relative_path")
+            .and_then(|path| persisted.get(path))
+        {
+            artifact.insert("blob_ref".to_string(), receipt.blob_ref.clone());
+        }
+    }
+    let receipt_path = format!("compiler-evidence/{}/receipt.json", outcome.approval_id);
+    let receipt_bytes = serde_json::to_vec(&rows).map_err(|source| {
+        CliError::Message(format!("compiler receipt encoding failed: {source}"))
+    })?;
+    let receipt = backend
+        .persist_batch(&[(receipt_path.clone(), receipt_bytes)])
+        .map_err(|source| {
+            CliError::Message(format!("compiler receipt persistence failed: {source}"))
+        })?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            CliError::Message("compiler receipt persistence returned no receipt".to_string())
+        })?;
+    rows.push(row([
+        ("table", "compiler_capture_receipts".to_string()),
+        ("approval_id", outcome.approval_id.clone()),
+        ("status", "persisted".to_string()),
+        ("relative_path", receipt_path),
+        ("blob_ref", receipt.blob_ref),
+        ("sha256", receipt.sha256),
+        ("bytes", receipt.bytes.to_string()),
+        ("store_identity", store_identity),
+    ]));
+    Ok(rows)
 }
 
 fn run_mcp_frontdoor(args: &[String]) -> Result<(), CliError> {

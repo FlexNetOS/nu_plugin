@@ -14,7 +14,39 @@ Source: PRD section 13.
 | `codedb doctor --codex` | CLI/MCP bridge status | read-only |
 | `codedb archive` | archive manifest + checksums | read-only except declared archive output |
 | `codedb restore --verify` | restore validation report | refuses unsafe overwrite |
-| `codedb capture build` | refusal unless unsafe flag present | blocked by default |
+| `codedb capture build <repo>` | compiler/build rows plus optional persisted receipt | refuses without the explicit execution flag |
+| `codedb reproduce --approval-id <sha256>` | verified OUT_DIR reproduction rows | writes only to a new declared artifact directory |
+
+Approved dynamic capture is non-interactive and requires complete provenance:
+
+```bash
+codedb capture build /repo \
+  --unsafe-execute-build \
+  --approver operator-name \
+  --task-id CDB078,CDB079,CDB080,CDB082 \
+  --before-state source-snapshot-recorded \
+  --cleanup-plan remove-isolated-sandbox \
+  --raw-log /evidence/capture.log \
+  --store /evidence/capture.redb \
+  --format json
+```
+
+The raw log must be outside `/repo`. When `--store` is supplied, CodeDB
+persists a checksum-addressed JSON receipt at
+`dynamic-build-captures/<approval-id>.json`. Reproduce an observed OUT_DIR
+from that receipt with:
+
+```bash
+codedb reproduce \
+  --approval-id <approval-id> \
+  --store /evidence/capture.redb \
+  --artifact-dir /evidence/reproduced-out-dir \
+  --format json
+```
+
+The artifact directory must not already exist. CodeDB verifies every emitted
+file or symlink against the captured reproduction digest and does not mutate
+the source repository.
 
 ## Nushell plugin commands
 
