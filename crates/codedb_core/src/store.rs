@@ -58,6 +58,43 @@ pub struct SourceFileRow {
     pub bytes: u64,
 }
 
+/// Exact metadata for one captured symbolic link.
+///
+/// A link target is metadata, never source-file content. `target_sha256` binds
+/// the stored target bytes so backends can detect corruption before replay and
+/// callers cannot accidentally materialize the target text as a regular file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSymlinkRow {
+    pub relative_path: String,
+    pub target: String,
+    pub target_sha256: String,
+}
+
+impl SourceSymlinkRow {
+    pub fn new(relative_path: impl Into<String>, target: impl Into<String>) -> Self {
+        let relative_path = relative_path.into();
+        let target = target.into();
+        let target_sha256 = format!("{:x}", Sha256::digest(target.as_bytes()));
+        Self {
+            relative_path,
+            target,
+            target_sha256,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), StoreError> {
+        let observed = format!("{:x}", Sha256::digest(self.target.as_bytes()));
+        if observed == self.target_sha256 {
+            Ok(())
+        } else {
+            Err(StoreError::new(format!(
+                "captured symlink target checksum mismatch for {:?}: expected {}, observed {}",
+                self.relative_path, self.target_sha256, observed
+            )))
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MaterializedFile {
     pub path: PathBuf,
@@ -1310,11 +1347,19 @@ pub trait BlobStore {
         files: &[(String, Vec<u8>)],
     ) -> Result<Vec<SourceFileRow>, StoreError>;
 
+    fn persist_symlink(
+        &mut self,
+        relative_path: &str,
+        target: &str,
+    ) -> Result<SourceSymlinkRow, StoreError>;
+
     fn captured_paths(&self) -> Result<BTreeSet<String>, StoreError>;
 
     fn read_source_file_blob(&self, relative_path: &str) -> Result<Option<Vec<u8>>, StoreError>;
 
     fn list_source_files(&self) -> Result<Vec<SourceFileRow>, StoreError>;
+
+    fn list_source_symlinks(&self) -> Result<Vec<SourceSymlinkRow>, StoreError>;
 
     fn materialize_source_file(
         &self,

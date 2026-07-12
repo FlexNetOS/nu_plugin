@@ -83,7 +83,7 @@
       "context_sha256": "5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f",
       "pin_sha256": "16cc3eb6f501760561d1a335cb27188bb0162a90200c10e6bea86828b38153ff",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f --emit=metadata -o /tmp/codedb_compiler_evidence_62263_1783896228847410085/metadata.rmeta /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f --emit=metadata -o /tmp/codedb_compiler_evidence_367695_1783899005768779112/metadata.rmeta /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
     },
     {
       "kind": "macro_hygiene",
@@ -123,7 +123,7 @@
       "context_sha256": "5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f",
       "pin_sha256": "6faefe2a54e106e63c30db9f0ea18be54fca00c7d3cb324c27dd3b197179da04",
       "file": "rustdoc_public_api.json",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_62263_1783896228847410085/rustdoc /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_fixture_macro_rules --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=5696bbb3ec11676aae8b728fe8af2c205440c5f520b4f6722d5d42853cde9c2f -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_367695_1783899005768779112/rustdoc /home/flexnetos/meta/src/nu_plugin/fixtures/macro_rules/src/lib.rs"
     }
   ],
   "capture_gaps": []

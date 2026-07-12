@@ -168,6 +168,8 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
       - name: Run every mandatory Nu behavior gate
         run: |
+          # Variables expand in the inner bash process.
+          # shellcheck disable=SC2016
           nix develop .#ci -c bash -lc '
             set -euo pipefail
             for test in tests/*.nu; do
@@ -198,7 +200,7 @@ jobs:
     timeout-minutes: 180
     env:
       CODEDB_REVIEWED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-      CODEDB_PROOF_RECEIPT: ${{ runner.temp }}/codedb-requirement-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}.json
+      CODEDB_PROOF_RECEIPT: /tmp/codedb-requirement-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}.json
     steps:
       - name: Check out the exact submitted commit without push credentials
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -302,7 +304,7 @@ jobs:
       artifact-metadata: write
     env:
       CODEDB_REVIEWED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-      CODEDB_PROOF_RECEIPT: ${{ runner.temp }}/codedb-requirement-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}.json
+      CODEDB_PROOF_RECEIPT: /tmp/codedb-requirement-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}.json
     steps:
       - name: Download only the receipt produced by the successful verifier
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

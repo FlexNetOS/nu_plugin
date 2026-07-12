@@ -16,7 +16,7 @@ Source: PRD section 13.
 | `codedb restore --verify` | restore validation report | refuses unsafe overwrite |
 | `codedb capture build <repo>` | compiler/build rows plus optional persisted receipt | refuses without the explicit execution flag |
 | `codedb capture compiler <source.rs>` | bounded macro/HIR/MIR/rustdoc metadata + persisted full artifacts | refuses without the explicit execution flag |
-| `codedb reproduce --approval-id <sha256>` | verified OUT_DIR reproduction rows | writes only to a new declared artifact directory |
+| `codedb reproduce --approval-id <sha256> [--package-id <id>]` | verified OUT_DIR reproduction rows | writes only to a new declared artifact directory; multi-package receipts require an exact package selector |
 
 Approved dynamic capture is non-interactive and requires complete provenance:
 
@@ -47,7 +47,12 @@ codedb reproduce \
 
 The artifact directory must not already exist. CodeDB verifies every emitted
 file or symlink against the captured reproduction digest and does not mutate
-the source repository.
+the source repository. A receipt containing OUT_DIR artifacts from more than
+one package refuses reproduction until `--package-id <exact-captured-package-id>`
+selects one package. The exact IDs are present on the capture's
+`out_dir_artifacts` rows. This prevents identically named artifacts such as
+`generated.rs` from different build scripts from being flattened into one
+output tree. Single-package receipts retain the command shape shown above.
 
 Compiler-observed expansion, resolution, hygiene, HIR, MIR, and rustdoc
 public-API evidence use the same named approval provenance:

@@ -316,6 +316,15 @@ impl CompilerEvidenceArtifactKind {
     }
 }
 
+const MANDATORY_COMPILER_ARTIFACTS: [CompilerEvidenceArtifactKind; 6] = [
+    CompilerEvidenceArtifactKind::MacroExpansion,
+    CompilerEvidenceArtifactKind::MacroResolution,
+    CompilerEvidenceArtifactKind::MacroHygiene,
+    CompilerEvidenceArtifactKind::Hir,
+    CompilerEvidenceArtifactKind::Mir,
+    CompilerEvidenceArtifactKind::RustdocPublicApi,
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilerArtifactEvidence {
     pub kind: CompilerEvidenceArtifactKind,
@@ -1444,6 +1453,7 @@ pub fn capture_approved_compiler_evidence(
         &source_path,
         request.options,
     );
+    validate_approved_compiler_report(&report)?;
     Ok(ApprovedCompilerEvidenceOutcome {
         approval_id,
         repo_path,
@@ -1454,6 +1464,40 @@ pub fn capture_approved_compiler_evidence(
         cleanup_plan: request.cleanup_plan,
         report,
     })
+}
+
+fn validate_approved_compiler_report(report: &CompilerEvidenceReport) -> Result<(), String> {
+    let mut failures = Vec::new();
+    if report.collection_status != CompilerEvidenceCollectionStatus::CompilerObserved {
+        failures.push(format!(
+            "collection_status={}",
+            report.collection_status.as_str()
+        ));
+    }
+    for kind in MANDATORY_COMPILER_ARTIFACTS {
+        let matching = report
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.kind == kind)
+            .collect::<Vec<_>>();
+        match matching.as_slice() {
+            [artifact] if artifact.status == CompilerArtifactStatus::CompilerObserved => {}
+            [artifact] => failures.push(format!("{}={}", kind.as_str(), artifact.status.as_str())),
+            artifacts => failures.push(format!(
+                "{}=expected_one_observed_artifact_found_{}",
+                kind.as_str(),
+                artifacts.len()
+            )),
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "approved compiler evidence capture incomplete: {}",
+            failures.join(", ")
+        ))
+    }
 }
 
 /// Runs compiler-observed capture only after validating a single-use,
@@ -4460,6 +4504,36 @@ pub fn visible() -> u32 {
                 .iter()
                 .any(|gap| gap.reason.contains("disabled"))
         );
+    }
+
+    #[test]
+    fn approved_compiler_evidence_rejects_an_unavailable_compiler() {
+        let fixture = FixtureWorkspace::new();
+        fixture.write("src/lib.rs", "pub fn visible() -> u32 { 42 }\n");
+        let source_path = fixture.root.join("src/lib.rs");
+        let evidence_dir = fixture.root.with_extension("compiler-evidence");
+        let options = CompilerEvidenceOptions {
+            enabled: true,
+            rustc: fixture.root.join("missing-rustc"),
+            rustdoc: fixture.root.join("missing-rustdoc"),
+            ..CompilerEvidenceOptions::default()
+        };
+
+        let error = capture_approved_compiler_evidence(ApprovedCompilerEvidenceRequest {
+            repo_path: fixture.root.clone(),
+            source_path,
+            evidence_dir,
+            approver: "unit-test".to_string(),
+            task_id: "CDB077,CDB085".to_string(),
+            before_state: "source-sha256-recorded".to_string(),
+            cleanup_plan: "remove-isolated-compiler-sandbox".to_string(),
+            options,
+        })
+        .expect_err("unavailable compiler evidence must not return an approved outcome");
+
+        assert!(error.contains("approved compiler evidence capture incomplete"));
+        assert!(error.contains("collection_status=evidence_unavailable"));
+        assert!(error.contains("macro_expansion=expected_one_observed_artifact_found_0"));
     }
 
     // Defends: CDB084 retains named identities across a source shift but refuses to
