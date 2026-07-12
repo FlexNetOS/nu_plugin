@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "257b7f6af86553bb48ab6d239d29982d1354114d83e2ab5920131533d2703f9e",
+  "checksum_scope_files_sha256": "891fbd515484c419f54add2a19e8347b75051f192f2c50f92ac2c0b1122c2358",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 794,
   "files": [
@@ -3771,9 +3771,9 @@
       "sha256": "ff6d87e64836aa7983a1ae604f050fe63b425462b1cced331bfc5130602888ed"
     },
     {
-      "bytes": 13910,
+      "bytes": 13990,
       "path": "scripts/generate_requirement_proof_receipt.py",
-      "sha256": "57cd4c7adba2b59396545cbda5c5fd51e20ef26f48352299be14a8f0e9572eda"
+      "sha256": "9828dc0ac3d00c82af8af6346e617a4f93017cdd41932a41aa48a26f1a186b2d"
     },
     {
       "bytes": 7216,
@@ -3926,9 +3926,9 @@
       "sha256": "beed398d63522aaa8a29b4a666a9c8121b4d5ff50401fbfea002ab8260f5942d"
     },
     {
-      "bytes": 24509,
+      "bytes": 25360,
       "path": "tests/test_requirement_proof_attestation.py",
-      "sha256": "7a7ca95afd455d99c7cdfcc52d8c1645f5c9349cd5924a8db2235c490e298ebe"
+      "sha256": "9226d610da4ea61ef27f5031022ce9fe6a374a18f6e543b121ad8e64df7d8f15"
     },
     {
       "bytes": 26199,
@@ -3981,7 +3981,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-12T22:45:55+00:00",
+  "generated_at_utc": "2026-07-12T22:48:49+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

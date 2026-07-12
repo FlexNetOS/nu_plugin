@@ -27,6 +27,7 @@ from requirement_proof_attestation import (  # noqa: E402
 import generate_requirement_proof_receipt as receipt_generator  # noqa: E402
 from generate_requirement_proof_receipt import (  # noqa: E402
     build_receipt,
+    ensure_attestable_row,
     ensure_external_output,
     run_requirement,
 )
@@ -127,6 +128,25 @@ def identity(*, clean: bool = True) -> CheckoutIdentity:
 
 
 class RequirementProofAttestationTest(unittest.TestCase):
+    def test_generator_requires_external_sibling_test_to_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            root = workspace / "nu_plugin"
+            external_test = workspace / "envctl/tests/db_docs_contract.rs"
+            root.mkdir()
+            external_test.parent.mkdir(parents=True)
+            external_test.write_text("proof\n", encoding="utf-8")
+
+            row = ledger_row()
+            row["test_paths"] = "external:../envctl/tests/db_docs_contract.rs"
+            ensure_attestable_row(root, row)
+
+            row["test_paths"] = "external:../envctl/tests/missing.rs"
+            with self.assertRaisesRegex(
+                RuntimeError, "direct test path does not exist"
+            ):
+                ensure_attestable_row(root, row)
+
     def test_artifact_declarations_are_typed_exact_and_unique(self) -> None:
         declarations = parse_artifact_declarations(ledger_row()["proof_artifacts"])
         self.assertEqual(
