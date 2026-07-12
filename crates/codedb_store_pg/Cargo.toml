@@ -15,8 +15,12 @@ pg-integration = []
 [dependencies]
 codedb-core.workspace = true
 postgres = "0.19"
+postgres_rustls = "0.1.5"
+rustls-pemfile = "2.2"
 serde_json = "1"
 sha2 = "0.10"
+tokio-rustls = "0.26.4"
+url = "2.5"
 
 [dev-dependencies]
 codedb-store-redb = { path = "../codedb_store_redb" }

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
@@ -11,11 +11,19 @@ use codedb_cargo::{CargoMetadataCapture, capture_cargo_metadata_json};
 use codedb_context::{
     CapturedCargoContext, CargoContextRequest, capture_context, detect_host_triple,
 };
-use codedb_core::store::{BlobStore, prepare_materialization_path};
+use codedb_core::capture_policy::{
+    ExactSourceRequirement, RawPersistenceAuthorization, RawPersistenceDecision,
+    authorize_raw_persistence, load_external_policy,
+};
+use codedb_core::store::{
+    BlobStore, ContainedDirectory, MaterializedFileRollback, prepare_materialization_path,
+    rollback_materialized_file, take_materialized_file_rollback,
+};
 use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
-    TableRow, capture_gaps, capture_source_metadata, classify_source_secret, prove_no_mutation,
-    scan_filesystem, schema_rows, table_inventory, validation_errors,
+    FilesystemEntry, SourceBlobMetadata, TableRow, capture_gaps,
+    capture_source_metadata_from_bytes, prove_no_mutation, scan_filesystem, schema_rows,
+    table_inventory, validation_errors,
 };
 use codedb_rust_static::capture_rust_items;
 use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
@@ -152,7 +160,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             )?;
             let format = parse_format(&args)?;
             let harness_home_path = option_value(&args, "--home-path").map(PathBuf::from);
-            let rows = export_rows(table, &selection, harness_home_path.as_deref())?;
+            let rows = export_rows(table, &selection, harness_home_path.as_deref(), &args)?;
             print_rows(rows, format)
         }
         // merge-plan = classify every source file across two repo roots as
@@ -210,40 +218,46 @@ fn run_mcp_frontdoor(args: &[String]) -> Result<(), CliError> {
     }
     let store = option_value(args, "--store")
         .ok_or_else(|| CliError::Message("mcp serve requires --store <selector>".to_string()))?;
-    if store.starts_with("postgres://") || store.starts_with("postgresql://") {
-        return Err(CliError::Message(
-            "mcp serve rejects PostgreSQL URLs in argv; use --store pg with inherited CODEDB_PG_CONN"
-                .to_string(),
-        ));
-    }
-    if store == "pg"
-        && env::var("CODEDB_PG_CONN")
-            .ok()
-            .is_none_or(|value| value.trim().is_empty())
-    {
-        return Err(CliError::Message(
-            "mcp serve --store pg requires inherited CODEDB_PG_CONN".to_string(),
-        ));
-    }
+    parse_store_spec(store, args)?;
     let current_exe = env::current_exe().map_err(|source| CliError::Core(Box::new(source)))?;
-    let sibling_server =
-        current_exe.with_file_name(format!("codedb-mcp{}", env::consts::EXE_SUFFIX));
-    let server = env::var_os("CODEDB_MCP_SERVER_BIN")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            if sibling_server.is_file() {
-                sibling_server
-            } else {
-                PathBuf::from("codedb-mcp")
-            }
-        });
+    let server = sibling_mcp_server_path(&current_exe)?;
 
+    let mut command = mcp_server_command(&server, &allowed_root, store, args);
+    let status = command
+        .status()
+        .map_err(|_| CliError::Message("failed to launch codedb-mcp server".to_string()))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(CliError::Message(
+            "codedb-mcp server exited unsuccessfully".to_string(),
+        ))
+    }
+}
+
+fn sibling_mcp_server_path(current_exe: &Path) -> Result<PathBuf, CliError> {
+    let sibling = current_exe.with_file_name(format!("codedb-mcp{}", env::consts::EXE_SUFFIX));
+    if sibling.is_file() {
+        Ok(sibling)
+    } else {
+        Err(CliError::Message(
+            "trusted sibling codedb-mcp executable is unavailable".to_string(),
+        ))
+    }
+}
+
+fn mcp_server_command(server: &Path, allowed_root: &Path, store: &str, args: &[String]) -> Command {
     let mut command = Command::new(server);
     command
-        .env("CODEDB_MCP_ALLOWED_ROOT", &allowed_root)
+        .env_clear()
+        .env("CODEDB_MCP_ALLOWED_ROOT", allowed_root)
         .env("CODEDB_MCP_STORE", store)
-        .env("CODEDB_MCP_CODEDB_BIN", &current_exe)
         .env("CODEDB_MCP_RAW_SOURCE_ENABLED", "false");
+    if store == "pg"
+        && let Some(pg_conn) = external_pg_conn_string()
+    {
+        command.env("CODEDB_PG_CONN", pg_conn);
+    }
     if let Some(default_limit) = option_value(args, "--default-limit") {
         command.env("CODEDB_MCP_DEFAULT_ROW_LIMIT", default_limit);
     }
@@ -258,17 +272,7 @@ fn run_mcp_frontdoor(args: &[String]) -> Result<(), CliError> {
     if let Some(pg_table) = option_value(args, "--pg-table") {
         command.env("CODEDB_MCP_PG_TABLE", pg_table);
     }
-
-    let status = command
-        .status()
-        .map_err(|_| CliError::Message("failed to launch codedb-mcp server".to_string()))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(CliError::Message(
-            "codedb-mcp server exited unsuccessfully".to_string(),
-        ))
-    }
+    command
 }
 
 #[derive(Debug, Clone)]
@@ -304,6 +308,19 @@ struct CaptureConfig {
     resume: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CapturePolicySelection {
+    DefaultDeny,
+    BuiltInSafeSourceClasses,
+    ExternalOperatorPolicy(PathBuf),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RepositorySnapshot {
+    binding: String,
+    exact_sources: BTreeMap<String, ExactSourceRequirement>,
+}
+
 impl CaptureConfig {
     fn from_args(args: &[String]) -> Result<Self, CliError> {
         let batch_files = match option_value(args, "--batch-files") {
@@ -328,6 +345,55 @@ impl CaptureConfig {
             resume: has_flag(args, "--resume"),
         })
     }
+}
+
+/// Parse the deliberately narrow raw-persistence authorization surface.
+///
+/// Absence means default deny. The only built-in positive authority is the
+/// exact literal `safe-source`; external policy contents never enter argv.
+fn capture_policy_selection(args: &[String]) -> Result<CapturePolicySelection, CliError> {
+    let built_in = strict_option_value(args, "--raw-persistence")?;
+    let external = strict_option_value(args, "--raw-persistence-policy")?;
+    if built_in.is_some() && external.is_some() {
+        return Err(CliError::Message(
+            "--raw-persistence and --raw-persistence-policy are mutually exclusive".to_string(),
+        ));
+    }
+    if let Some(value) = built_in {
+        return if value == "safe-source" {
+            Ok(CapturePolicySelection::BuiltInSafeSourceClasses)
+        } else {
+            Err(CliError::Message(
+                "--raw-persistence accepts only the built-in safe-source authority".to_string(),
+            ))
+        };
+    }
+    if let Some(path) = external {
+        return Ok(CapturePolicySelection::ExternalOperatorPolicy(
+            PathBuf::from(path),
+        ));
+    }
+    Ok(CapturePolicySelection::DefaultDeny)
+}
+
+fn strict_option_value<'a>(args: &'a [String], option: &str) -> Result<Option<&'a str>, CliError> {
+    let mut found = None;
+    for (index, arg) in args.iter().enumerate() {
+        if arg != option {
+            continue;
+        }
+        if found.is_some() {
+            return Err(CliError::Message(format!(
+                "{option} may be specified only once"
+            )));
+        }
+        let value = args
+            .get(index + 1)
+            .filter(|value| !value.starts_with("--"))
+            .ok_or_else(|| CliError::Message(format!("{option} requires one value")))?;
+        found = Some(value.as_str());
+    }
+    Ok(found)
 }
 
 /// Parse a byte size: plain bytes or a K/M/G (binary) suffix, e.g. `64M`.
@@ -374,16 +440,14 @@ fn parse_time_budget(s: &str) -> Result<Duration, CliError> {
 /// resumable rather than one fsync per file.
 // `batch_bytes` is a flush-and-reset accumulator; the reset after the final flush
 // is intentionally not read again.
-/// True when a `--store` spec selects the PostgreSQL backend rather than a redb
-/// file path. Recognizes the bare selector `pg` and URL schemes.
-/// Resolve an externally supplied PostgreSQL DSN for the bare `pg` selector.
-/// URL store specifications remain self-contained and are parsed by
-/// `StoreSpec`; there is no host-specific default DSN.
-fn external_pg_conn_string(args: &[String]) -> Option<String> {
-    option_value(args, "--pg-conn")
-        .map(str::to_string)
-        .or_else(|| env::var("CODEDB_PG_CONN").ok())
-        .or_else(|| env::var("DATABASE_URL").ok())
+/// Resolve the only CLI-approved PostgreSQL DSN source.
+///
+/// PostgreSQL connection strings are inherited through `CODEDB_PG_CONN` so
+/// they never enter process arguments. Ambient `DATABASE_URL` is deliberately
+/// ignored because it is not a CodeDB-scoped authorization boundary.
+fn external_pg_conn_string() -> Option<String> {
+    env::var("CODEDB_PG_CONN")
+        .ok()
         .filter(|dsn| !dsn.trim().is_empty())
 }
 
@@ -391,11 +455,27 @@ fn external_pg_conn_string(args: &[String]) -> Option<String> {
 /// the filesystem. Unknown URI schemes fail closed instead of becoming redb
 /// pathnames.
 fn parse_store_spec(store_spec: &str, args: &[String]) -> Result<StoreSpec, CliError> {
-    let external_dsn = external_pg_conn_string(args);
+    if option_value(args, "--pg-conn").is_some() {
+        return Err(CliError::Message(
+            "--pg-conn is forbidden because DSNs must not enter process arguments; use --store pg with inherited CODEDB_PG_CONN"
+                .to_string(),
+        ));
+    }
+    if store_spec.split_once(':').is_some_and(|(scheme, _)| {
+        matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "postgres" | "postgresql"
+        )
+    }) {
+        return Err(CliError::Message(
+            "PostgreSQL URLs are forbidden in --store; use --store pg with inherited CODEDB_PG_CONN"
+                .to_string(),
+        ));
+    }
+    let external_dsn = external_pg_conn_string();
     if store_spec == "pg" && external_dsn.is_none() {
         return Err(CliError::Message(
-            "PostgreSQL DSN is required: pass --pg-conn, CODEDB_PG_CONN, DATABASE_URL, or a postgres:// store URL"
-                .to_string(),
+            "PostgreSQL DSN is required: use --store pg with inherited CODEDB_PG_CONN".to_string(),
         ));
     }
     StoreSpec::parse(store_spec, external_dsn.as_deref())
@@ -498,24 +578,279 @@ fn materialize_store_identity(store_spec: &StoreSpec, args: &[String]) -> String
     }
 }
 
-#[allow(unused_assignments)]
+fn capture_store_selector(selection: &RepoSelection) -> String {
+    if selection.store_path.is_empty() {
+        selection
+            .repo_path
+            .join(".codedb/store.redb")
+            .display()
+            .to_string()
+    } else {
+        selection.store_path.clone()
+    }
+}
+
+fn capture_snapshot_exclusions(
+    repo_path: &Path,
+    store_selector: &str,
+    args: &[String],
+) -> Result<BTreeSet<String>, CliError> {
+    let store_spec = parse_store_spec(store_selector, args)?;
+    let mut exclusions = BTreeSet::new();
+    if store_spec.backend() != StoreBackend::Redb {
+        return Ok(exclusions);
+    }
+    let store_path = store_spec
+        .redb_path()
+        .expect("redb StoreSpec has a filesystem path");
+    let absolute_store = if store_path.is_absolute() {
+        store_path.to_path_buf()
+    } else {
+        env::current_dir()
+            .map_err(|source| CliError::Core(Box::new(source)))?
+            .join(store_path)
+    };
+    let Ok(relative_store) = absolute_store.strip_prefix(repo_path) else {
+        return Ok(exclusions);
+    };
+    let relative_store = relative_store.to_string_lossy().replace('\\', "/");
+    if relative_store.is_empty() {
+        return Err(CliError::Message(
+            "capture store cannot replace the repository root".to_string(),
+        ));
+    }
+    exclusions.insert(relative_store.clone());
+    let mut parent = Path::new(&relative_store).parent();
+    while let Some(path) = parent {
+        let value = path.to_string_lossy().replace('\\', "/");
+        if value.is_empty() {
+            break;
+        }
+        exclusions.insert(value);
+        parent = path.parent();
+    }
+    Ok(exclusions)
+}
+
+fn repository_snapshot(
+    contained_repo: &ContainedDirectory,
+    entries: &[FilesystemEntry],
+    exclusions: &BTreeSet<String>,
+) -> Result<RepositorySnapshot, CliError> {
+    let mut hasher = Sha256::new();
+    hash_snapshot_field(&mut hasher, "codedb.repository-snapshot.v1");
+    let mut exact_sources = BTreeMap::new();
+    for entry in entries {
+        if exclusions.contains(&entry.relative_path) {
+            continue;
+        }
+        hash_snapshot_field(&mut hasher, &entry.relative_path);
+        hash_snapshot_field(&mut hasher, entry.kind.as_str());
+        if entry.kind.as_str() == "file" && !entry.is_symlink {
+            let contained_file = contained_repo
+                .read_regular_file(&entry.relative_path)
+                .map_err(|error| {
+                    CliError::Message(format!(
+                        "contained snapshot read failed for {}: {error}",
+                        entry.relative_path
+                    ))
+                })?;
+            let requirement = ExactSourceRequirement {
+                relative_path: entry.relative_path.clone(),
+                byte_len: contained_file.bytes.len() as u64,
+                sha256: sha256_hex(&contained_file.bytes),
+            };
+            hash_snapshot_field(&mut hasher, &requirement.byte_len.to_string());
+            hash_snapshot_field(&mut hasher, &requirement.sha256);
+            exact_sources.insert(entry.relative_path.clone(), requirement);
+        } else {
+            hash_snapshot_field(&mut hasher, entry.symlink_target.as_deref().unwrap_or(""));
+        }
+    }
+    Ok(RepositorySnapshot {
+        binding: format!("sha256:{:x}", hasher.finalize()),
+        exact_sources,
+    })
+}
+
+fn hash_snapshot_field(hasher: &mut Sha256, value: &str) {
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value.as_bytes());
+}
+
+fn resolve_capture_authorization(
+    repo_path: &Path,
+    repository_binding: &str,
+    selection: &CapturePolicySelection,
+) -> Result<Option<RawPersistenceAuthorization>, CliError> {
+    match selection {
+        CapturePolicySelection::DefaultDeny => Ok(None),
+        CapturePolicySelection::BuiltInSafeSourceClasses => {
+            Ok(Some(RawPersistenceAuthorization::BuiltInSafeSourceClasses))
+        }
+        CapturePolicySelection::ExternalOperatorPolicy(policy_path) => {
+            load_external_policy(repo_path, policy_path, repository_binding)
+                .map(RawPersistenceAuthorization::External)
+                .map(Some)
+                .map_err(|error| CliError::Message(format!("capture policy rejected: {error}")))
+        }
+    }
+}
+
+fn capture_policy_context_row(
+    repository_snapshot: &RepositorySnapshot,
+    authorization: Option<&RawPersistenceAuthorization>,
+) -> Row {
+    let context = authorize_raw_persistence(
+        "src/__codedb_policy_context.rs",
+        b"",
+        &repository_snapshot.binding,
+        authorization,
+    );
+    row([
+        ("table", "capture_policy_context".to_string()),
+        (
+            "repository_snapshot_id",
+            repository_snapshot.binding.clone(),
+        ),
+        ("policy_id", context.policy.policy_id),
+        ("policy_digest", context.policy.policy_digest),
+        ("policy_binding_digest", context.policy.binding_digest),
+        ("policy_authority", context.policy.authority),
+        (
+            "policy_authority_source",
+            context.policy.authority_source.as_str().to_string(),
+        ),
+        (
+            "policy_location",
+            if context.policy.external_policy_path.is_some() {
+                "external-to-repository"
+            } else {
+                "codedb-core-built-in"
+            }
+            .to_string(),
+        ),
+        (
+            "reproduction_contract",
+            "exact-source-sha256-and-byte-length".to_string(),
+        ),
+        ("raw_source_bytes_emitted", "false".to_string()),
+    ])
+}
+
+fn source_policy_decision_row(
+    source_metadata: &SourceBlobMetadata,
+    decision: &RawPersistenceDecision,
+) -> Row {
+    let evidence = decision
+        .classifier_evidence
+        .iter()
+        .map(|item| item.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    row([
+        ("table", "source_policy".to_string()),
+        ("relative_path", source_metadata.relative_path.clone()),
+        ("sha256", source_metadata.sha256.clone()),
+        ("bytes", source_metadata.byte_len.to_string()),
+        (
+            "exact_source_sha256",
+            format!("sha256:{}", decision.exact_source.sha256),
+        ),
+        (
+            "exact_source_bytes",
+            decision.exact_source.byte_len.to_string(),
+        ),
+        ("source_class", decision.source_class.as_str().to_string()),
+        ("mode", source_metadata.default_mode.as_str().to_string()),
+        (
+            "persistence_disposition",
+            decision.disposition.as_str().to_string(),
+        ),
+        (
+            "has_secret_like_material",
+            source_metadata.has_secret_like_material.to_string(),
+        ),
+        (
+            "classification_status",
+            decision.classifier_status.as_str().to_string(),
+        ),
+        (
+            "classification_evidence",
+            if evidence.is_empty() {
+                "none".to_string()
+            } else {
+                evidence
+            },
+        ),
+        (
+            "raw_blob_persisted",
+            decision.raw_persistence_allowed().to_string(),
+        ),
+        ("reason", decision.reason.as_str().to_string()),
+        ("policy_id", decision.policy.policy_id.clone()),
+        ("policy_digest", decision.policy.policy_digest.clone()),
+        (
+            "policy_binding_digest",
+            decision.policy.binding_digest.clone(),
+        ),
+        ("policy_authority", decision.policy.authority.clone()),
+        (
+            "policy_authority_source",
+            decision.policy.authority_source.as_str().to_string(),
+        ),
+        (
+            "repository_snapshot_id",
+            decision.policy.repository_binding.clone(),
+        ),
+        (
+            "policy_location",
+            if decision.policy.external_policy_path.is_some() {
+                "external-to-repository"
+            } else {
+                "codedb-core-built-in"
+            }
+            .to_string(),
+        ),
+        (
+            "reproduction_contract",
+            "operator-must-supply-exact-bytes-matching-sha256-and-byte-length".to_string(),
+        ),
+        ("raw_source_bytes_emitted", "false".to_string()),
+    ])
+}
+
 fn capture_rows(
     selection: &RepoSelection,
     config: &CaptureConfig,
     args: &[String],
 ) -> Result<Vec<Row>, CliError> {
-    let repo_path = selection.repo_path.as_path();
-    // Store spec: empty --store defaults to the repo-local redb file for backward
-    // compatibility. Otherwise the shared StoreSpec grammar selects redb or
-    // PostgreSQL, and store_path is the redacted label echoed into result rows.
-    let store_spec = if selection.store_path.is_empty() {
-        repo_path.join(".codedb/store.redb").display().to_string()
-    } else {
-        selection.store_path.clone()
-    };
+    capture_rows_after_scan(selection, config, args, || {})
+}
 
+#[allow(unused_assignments)]
+fn capture_rows_after_scan<F>(
+    selection: &RepoSelection,
+    config: &CaptureConfig,
+    args: &[String],
+    after_scan: F,
+) -> Result<Vec<Row>, CliError>
+where
+    F: FnOnce(),
+{
+    let repo_path = selection.repo_path.as_path();
+    let store_spec = capture_store_selector(selection);
+    let policy_selection = capture_policy_selection(args)?;
+    let snapshot_exclusions = capture_snapshot_exclusions(repo_path, &store_spec, args)?;
+    let contained_repo = ContainedDirectory::open_existing(repo_path)
+        .map_err(|error| CliError::Message(format!("opening contained repository: {error}")))?;
     let entries = scan_filesystem(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
-    // One store open for the whole import; each batch is a durable commit.
+    after_scan();
+    let repository_snapshot = repository_snapshot(&contained_repo, &entries, &snapshot_exclusions)?;
+    let authorization =
+        resolve_capture_authorization(repo_path, &repository_snapshot.binding, &policy_selection)?;
+    // One store open for the whole import; each batch is a durable commit. The
+    // repository snapshot and policy are validated before either backend opens.
     let (mut store, store_path) = open_store_for_capture(&store_spec, args)?;
     // Resume: skip paths already durably captured by a prior (possibly interrupted)
     // run so an import continues from its last checkpoint instead of restarting.
@@ -539,10 +874,15 @@ fn capture_rows(
             "read_only_scan_store_is_only_write_target".to_string(),
         ),
     ]));
+    rows.push(capture_policy_context_row(
+        &repository_snapshot,
+        authorization.as_ref(),
+    ));
 
     let started = Instant::now();
     let mut captured = 0usize;
     let mut captured_bytes = 0u64;
+    let mut metadata_only = 0usize;
     let mut directories = 0usize;
     let mut gaps = 0usize;
     let mut resumed = 0usize;
@@ -579,6 +919,9 @@ fn capture_rows(
     }
 
     for entry in entries {
+        if snapshot_exclusions.contains(&entry.relative_path) {
+            continue;
+        }
         let kind = entry.kind.as_str();
         if kind == "directory" && !entry.is_symlink {
             directories += 1;
@@ -589,50 +932,41 @@ fn capture_rows(
                 resumed += 1;
                 continue;
             }
-            let source = repo_path.join(&entry.relative_path);
-            let bytes = fs::read(&source).map_err(|e| {
-                CliError::Message(format!("read failed for {}: {e}", entry.relative_path))
-            })?;
-            let classification = classify_source_secret(&entry.relative_path, &bytes);
-            let source_metadata = capture_source_metadata(repo_path, &source).map_err(|error| {
-                CliError::Message(format!(
-                    "source policy capture failed for {}: {error}",
+            let contained_file = contained_repo
+                .read_regular_file(&entry.relative_path)
+                .map_err(|error| {
+                    CliError::Message(format!(
+                        "contained read failed for {}: {error}",
+                        entry.relative_path
+                    ))
+                })?;
+            let bytes = contained_file.bytes;
+            let source_metadata =
+                capture_source_metadata_from_bytes(entry.relative_path.clone(), &bytes);
+            let decision = authorize_raw_persistence(
+                &entry.relative_path,
+                &bytes,
+                &repository_snapshot.binding,
+                authorization.as_ref(),
+            );
+            let expected = repository_snapshot
+                .exact_sources
+                .get(&entry.relative_path)
+                .ok_or_else(|| {
+                    CliError::Message(format!(
+                        "repository snapshot omitted regular file {}",
+                        entry.relative_path
+                    ))
+                })?;
+            if decision.exact_source != *expected {
+                return Err(CliError::Message(format!(
+                    "repository changed after policy snapshot for {}",
                     entry.relative_path
-                ))
-            })?;
-            if !classification.raw_persistence_safe() {
-                gaps += 1;
-                let evidence = classification
-                    .evidence
-                    .iter()
-                    .map(|item| item.as_str())
-                    .collect::<Vec<_>>()
-                    .join(",");
-                rows.push(row([
-                    ("table", "source_policy".to_string()),
-                    ("relative_path", entry.relative_path),
-                    ("sha256", source_metadata.sha256),
-                    ("bytes", source_metadata.byte_len.to_string()),
-                    ("mode", source_metadata.default_mode.as_str().to_string()),
-                    (
-                        "has_secret_like_material",
-                        classification.has_secret().to_string(),
-                    ),
-                    (
-                        "classification_status",
-                        classification.status.as_str().to_string(),
-                    ),
-                    (
-                        "classification_evidence",
-                        if evidence.is_empty() {
-                            "none".to_string()
-                        } else {
-                            evidence
-                        },
-                    ),
-                    ("raw_blob_persisted", "false".to_string()),
-                    ("reason", source_metadata.policy_reason),
-                ]));
+                )));
+            }
+            rows.push(source_policy_decision_row(&source_metadata, &decision));
+            if !decision.raw_persistence_allowed() {
+                metadata_only += 1;
                 continue;
             }
             let len = bytes.len() as u64;
@@ -695,6 +1029,7 @@ fn capture_rows(
         ("store_path", store_path),
         ("files_captured", captured.to_string()),
         ("bytes_captured", captured_bytes.to_string()),
+        ("files_metadata_only", metadata_only.to_string()),
         ("directories_walked", directories.to_string()),
         ("capture_gaps", gaps.to_string()),
         ("files_resumed_skipped", resumed.to_string()),
@@ -766,25 +1101,42 @@ fn materialize_rows(
     let mut rows: Vec<Row> = Vec::new();
     let mut count = 0usize;
     let mut bytes = 0u64;
+    let mut published_paths = Vec::new();
     for file in files {
         if only.is_some_and(|filter| file.relative_path != filter) {
             continue;
         }
-        let out_path =
-            prepare_materialization_path(out_dir, &file.relative_path).map_err(|error| {
-                CliError::Message(format!(
+        let out_path = match prepare_materialization_path(out_dir, &file.relative_path) {
+            Ok(path) => path,
+            Err(error) => {
+                rollback_materialized_files(published_paths)?;
+                return Err(CliError::Message(format!(
                     "unsafe materialization path {}: {error}",
                     file.relative_path
-                ))
-            })?;
-        let report = store
-            .materialize_source_file(&file.relative_path, &out_path)
-            .map_err(|e| {
-                CliError::Message(format!(
-                    "materialize failed for {}: {e}",
+                )));
+            }
+        };
+        let report = match store.materialize_source_file(&file.relative_path, &out_path) {
+            Ok(report) => report,
+            Err(error) => {
+                rollback_materialized_files(published_paths)?;
+                return Err(CliError::Message(format!(
+                    "materialize failed for {}: {error}",
                     file.relative_path
-                ))
-            })?;
+                )));
+            }
+        };
+        let rollback = match take_materialized_file_rollback(&report.path) {
+            Ok(rollback) => rollback,
+            Err(error) => {
+                rollback_materialized_files(published_paths)?;
+                return Err(CliError::Message(format!(
+                    "materialization publication identity unavailable for {}; residual requires audit: {error}",
+                    report.path.display()
+                )));
+            }
+        };
+        published_paths.push(rollback);
         let roundtrip_ok = report.sha256 == file.sha256;
         count += 1;
         bytes += report.bytes;
@@ -804,6 +1156,7 @@ fn materialize_rows(
             ),
         ]));
         if !roundtrip_ok {
+            rollback_materialized_files(published_paths)?;
             return Err(CliError::Message(format!(
                 "sha256 roundtrip mismatch materializing {}",
                 rows.last()
@@ -821,6 +1174,25 @@ fn materialize_rows(
         ("status", "complete".to_string()),
     ]));
     Ok(rows)
+}
+
+fn rollback_materialized_files(
+    publications: Vec<MaterializedFileRollback>,
+) -> Result<(), CliError> {
+    let failures = publications
+        .into_iter()
+        .rev()
+        .filter_map(|publication| rollback_materialized_file(publication).err())
+        .map(|error| error.to_string())
+        .collect::<Vec<_>>();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(CliError::Message(format!(
+            "materialization rollback conflict/residual audit: {}",
+            failures.join("; ")
+        )))
+    }
 }
 
 fn scan_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
@@ -905,11 +1277,12 @@ fn export_rows(
     table: &str,
     selection: &RepoSelection,
     harness_home_path: Option<&Path>,
+    args: &[String],
 ) -> Result<Vec<Row>, CliError> {
     let repo_path = selection.repo_path.as_path();
     match table {
         "meta_repo_selection" | "repo_selection" => Ok(vec![meta_repo_selection_row(selection)]),
-        "envctl" | "envctl_export" => envctl_export_rows(selection),
+        "envctl" | "envctl_export" => envctl_export_rows(selection, args),
         "agent_harness" | "agent_harness_export" => {
             let rows = agent_harness_export_rows(
                 selection,
@@ -941,7 +1314,7 @@ fn export_rows(
         }
         "codedb_tool_versions" | "tool_versions" => Ok(codedb_tool_version_rows()),
         "codedb_database_endpoints" | "database_endpoints" => {
-            Ok(codedb_database_endpoint_rows(repo_path))
+            with_envctl_store_contract(codedb_database_endpoint_rows(repo_path), selection, args)
         }
         "codedb_capture_status" | "capture_status" => codedb_capture_status_rows(repo_path),
         "codedb_table_checksums" | "table_checksums" => codedb_table_checksum_rows(repo_path),
@@ -954,9 +1327,11 @@ fn export_rows(
         "codedb_source_root_hashes" | "source_root_hashes" => {
             codedb_source_root_hash_rows(repo_path)
         }
-        "codedb_materialization_targets" | "materialization_targets" => {
-            codedb_materialization_target_rows(repo_path)
-        }
+        "codedb_materialization_targets" | "materialization_targets" => with_envctl_store_contract(
+            codedb_materialization_target_rows(repo_path)?,
+            selection,
+            args,
+        ),
         "codedb_export_manifests" | "export_manifests" => codedb_export_manifest_rows(repo_path),
         "codedb_runtime_integration" | "runtime_integration" => {
             Ok(codedb_runtime_integration_rows(repo_path))
@@ -1801,7 +2176,61 @@ fn secret_env_entries() -> Vec<(String, String)> {
     entries
 }
 
-fn envctl_export_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
+fn envctl_store_spec(selection: &RepoSelection, args: &[String]) -> Result<StoreSpec, CliError> {
+    let selector = if selection.store_path.is_empty() {
+        selection
+            .repo_path
+            .join(".codedb/store.redb")
+            .display()
+            .to_string()
+    } else {
+        selection.store_path.clone()
+    };
+    parse_store_spec(&selector, args)
+}
+
+fn with_envctl_store_contract(
+    rows: Vec<Row>,
+    selection: &RepoSelection,
+    args: &[String],
+) -> Result<Vec<Row>, CliError> {
+    let store_spec = envctl_store_spec(selection, args)?;
+    let (store_backend, store_identity) = match store_spec.backend() {
+        StoreBackend::Redb => ("redb", format!("redb:{}", store_spec.redacted())),
+        StoreBackend::PostgreSql => ("postgresql", format!("postgresql:{}", pg_table_name(args))),
+    };
+
+    Ok(rows
+        .into_iter()
+        .map(|mut row| {
+            let backend_relevant = matches!(
+                row.get("table").map(String::as_str),
+                Some(
+                    "meta_repo_selection"
+                        | "codedb_database_endpoints"
+                        | "codedb_materialization_targets"
+                )
+            );
+            let meta_selection = row
+                .get("table")
+                .is_some_and(|table| table == "meta_repo_selection");
+            if backend_relevant {
+                row.insert("store_backend".to_string(), store_backend.to_string());
+                row.insert("store_identity".to_string(), store_identity.clone());
+                row.insert(
+                    "backend_internal_access".to_string(),
+                    "forbidden".to_string(),
+                );
+            }
+            if meta_selection {
+                row.insert("store_path".to_string(), store_identity.clone());
+            }
+            row
+        })
+        .collect())
+}
+
+fn envctl_export_rows(selection: &RepoSelection, args: &[String]) -> Result<Vec<Row>, CliError> {
     let repo_path = selection.repo_path.as_path();
     let mut rows = Vec::new();
     rows.push(meta_repo_selection_row(selection));
@@ -1821,7 +2250,7 @@ fn envctl_export_rows(selection: &RepoSelection) -> Result<Vec<Row>, CliError> {
     rows.extend(codedb_log_dir_rows(repo_path));
     rows.extend(codedb_release_artifact_rows(repo_path));
     rows.extend(codedb_runtime_integration_rows(repo_path));
-    Ok(rows)
+    with_envctl_store_contract(rows, selection, args)
 }
 
 fn codedb_export_manifest_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
@@ -1897,7 +2326,6 @@ fn codedb_database_endpoint_rows(repo_path: &Path) -> Vec<Row> {
         [
             ("endpoint_kind", "export_only".to_string()),
             ("repo_path", repo_path.display().to_string()),
-            ("storage_engine", "redb".to_string()),
             ("direct_storage_access", "forbidden".to_string()),
             (
                 "export_surface",
@@ -1905,7 +2333,7 @@ fn codedb_database_endpoint_rows(repo_path: &Path) -> Vec<Row> {
             ),
             (
                 "validation_message",
-                "envctl consumes exported datatables and never reads CodeDB redb internals"
+                "envctl consumes exported datatables and never reads CodeDB backend internals"
                     .to_string(),
             ),
         ],
@@ -2166,7 +2594,7 @@ fn codedb_materialization_target_rows(repo_path: &Path) -> Result<Vec<Row>, CliE
                 ("target_table", "source_blobs".to_string()),
                 ("source_table", "codedb_source_root_hashes".to_string()),
                 ("source_table_checksum", checksum),
-                ("materialization_owner", "codedb_store_redb".to_string()),
+                ("materialization_owner", "codedb_selected_store".to_string()),
                 (
                     "materialization_mode",
                     "sha256_blob_ref_roundtrip".to_string(),
@@ -2178,7 +2606,7 @@ fn codedb_materialization_target_rows(repo_path: &Path) -> Result<Vec<Row>, CliE
                 ),
                 (
                     "validation_message",
-                    "redb source blobs are restored by hash before envctl consumes file rows"
+                    "the selected CodeDB store restores source blobs by hash before envctl consumes file rows"
                         .to_string(),
                 ),
             ],
@@ -2201,7 +2629,7 @@ fn codedb_runtime_integration_rows(repo_path: &Path) -> Vec<Row> {
                     "envctl_or_yazelix_when_requested".to_string(),
                 ),
                 ("envctl_role", "consume_exports_materialize_files_when_requested".to_string()),
-                ("redb_access", "forbidden".to_string()),
+                ("backend_internal_access", "forbidden".to_string()),
                 ("native_nu_file_tables", "interactive_edge_only".to_string()),
                 (
                     "accuracy_basis",
@@ -2227,7 +2655,7 @@ fn codedb_runtime_integration_rows(repo_path: &Path) -> Vec<Row> {
                 ("source_authority", "codedb_bridge_templates".to_string()),
                 ("materialization_owner", "yazelix_or_envctl_state_generation".to_string()),
                 ("envctl_role", "materialize_declared_bridge_files_when_requested".to_string()),
-                ("redb_access", "forbidden".to_string()),
+                ("backend_internal_access", "forbidden".to_string()),
                 ("bridge_manifest_ref", "codedb_yazelix_bridge_artifacts".to_string()),
                 (
                     "source_template_ref",
@@ -2254,7 +2682,7 @@ fn codedb_runtime_integration_rows(repo_path: &Path) -> Vec<Row> {
                 ("source_authority", "codedb_runtime_tool_package".to_string()),
                 ("materialization_owner", "yazelix_runtime_package".to_string()),
                 ("envctl_role", "consume_tool_and_checksum_rows".to_string()),
-                ("redb_access", "forbidden".to_string()),
+                ("backend_internal_access", "forbidden".to_string()),
                 ("tool_table_ref", "codedb_tool_versions".to_string()),
                 ("release_artifact_ref", "codedb_release_artifacts".to_string()),
                 ("runtime_tool_metadata_ref", "share/codedb/runtime-tool-metadata.json".to_string()),
@@ -2276,7 +2704,7 @@ fn codedb_runtime_integration_rows(repo_path: &Path) -> Vec<Row> {
                 ("source_authority", "codedb_table_checksums".to_string()),
                 ("materialization_owner", "envctl_or_yazelix_when_requested".to_string()),
                 ("envctl_role", "verify_rows_before_file_materialization".to_string()),
-                ("redb_access", "forbidden".to_string()),
+                ("backend_internal_access", "forbidden".to_string()),
                 ("checksum_format", "codedb_row_stream_v1".to_string()),
                 (
                     "checksum_source_tables",
@@ -3318,9 +3746,9 @@ mod tests {
     #[test]
     fn materialize_postgresql_identity_hides_url_credentials() {
         let sentinel = "CODEDB_CREDENTIAL_SENTINEL";
-        let spec = parse_store_spec(
-            &format!("postgresql://codedb:{sentinel}@db.example.test/codedb"),
-            &[],
+        let spec = StoreSpec::parse(
+            format!("postgresql://codedb:{sentinel}@db.example.test/codedb"),
+            None,
         )
         .expect("parse PostgreSQL selector");
         let identity = materialize_store_identity(&spec, &[]);
@@ -3333,11 +3761,11 @@ mod tests {
     #[test]
     fn materialize_postgresql_identity_hides_query_values() {
         let sentinel = "CODEDB_QUERY_SENTINEL";
-        let spec = parse_store_spec(
-            &format!(
+        let spec = StoreSpec::parse(
+            format!(
                 "postgresql://codedb@db.example.test/codedb?application_name={sentinel}&sslpassword=hidden"
             ),
-            &[],
+            None,
         )
         .expect("parse PostgreSQL selector");
         let identity = materialize_store_identity(&spec, &[]);
@@ -3350,9 +3778,9 @@ mod tests {
     #[test]
     fn materialize_postgresql_identity_hides_percent_encoded_sentinels() {
         let sentinel = "%43%4f%44%45%44%42%5f%53%45%4e%54%49%4e%45%4c";
-        let spec = parse_store_spec(
-            &format!("postgresql://codedb@db.example.test/codedb?options={sentinel}"),
-            &[],
+        let spec = StoreSpec::parse(
+            format!("postgresql://codedb@db.example.test/codedb?options={sentinel}"),
+            None,
         )
         .expect("parse PostgreSQL selector");
         let identity = materialize_store_identity(&spec, &[]);
@@ -3360,6 +3788,84 @@ mod tests {
         assert_eq!(identity, "postgresql:codebase_codedb");
         assert!(!identity.contains(sentinel));
         assert!(!identity.contains('%'));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn multi_file_materialization_rolls_back_new_files_after_late_failure() {
+        let repo = temp_repo();
+        let store = repo.with_extension("rollback.redb");
+        let output = repo.with_extension("materialized");
+        fs::write(repo.join("a.rs"), b"pub fn newly_published() {}\n").expect("write first source");
+        fs::write(repo.join("z.rs"), b"pub fn must_not_replace() {}\n")
+            .expect("write second source");
+        let selection = RepoSelection {
+            repo_id: "rollback".to_string(),
+            repo_path: repo.clone(),
+            store_path: store.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        capture_rows(
+            &selection,
+            &CaptureConfig {
+                batch_files: 32,
+                batch_bytes: 1024 * 1024,
+                time_budget: None,
+                resume: false,
+            },
+            &safe_source_policy_args(),
+        )
+        .expect("capture rollback fixture");
+        fs::create_dir_all(&output).expect("create output");
+        fs::write(output.join("z.rs"), b"pre-existing").expect("write protected destination");
+
+        let error = materialize_rows(&store.display().to_string(), &output, None, &[])
+            .expect_err("late no-replace conflict must fail the whole materialization");
+
+        assert!(error.to_string().contains("no-replace") || error.to_string().contains("exists"));
+        assert!(
+            !output.join("a.rs").exists(),
+            "file published earlier in the failed attempt was not rolled back"
+        );
+        assert_eq!(
+            fs::read(output.join("z.rs")).expect("read protected destination"),
+            b"pre-existing"
+        );
+        let _ = fs::remove_dir_all(repo);
+        let _ = fs::remove_dir_all(output);
+        let _ = fs::remove_file(store);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn replacement_before_late_failure_is_preserved_and_audited_as_residual() {
+        use codedb_core::store::atomic_materialize_file;
+
+        let root = temp_repo();
+        let output = root.join("published.rs");
+        let published = b"pub fn published_by_attempt() {}\n";
+        let replacement = b"pub fn concurrent_replacement() {}\n";
+        let sha256 = format!("{:x}", Sha256::digest(published));
+        atomic_materialize_file(&output, published, &sha256, None)
+            .expect("publish earlier batch entry");
+        let rollback =
+            take_materialized_file_rollback(&output).expect("retain batch rollback identity");
+        fs::remove_file(&output).expect("remove published entry before replacement");
+        fs::write(&output, replacement).expect("install deterministic concurrent replacement");
+
+        let error = rollback_materialized_files(vec![rollback])
+            .expect_err("late failure rollback must report the replacement conflict");
+
+        assert!(
+            error.to_string().contains("conflict/residual audit"),
+            "unexpected rollback audit: {error}"
+        );
+        assert_eq!(
+            fs::read(&output).expect("replacement remains"),
+            replacement,
+            "batch rollback deleted a concurrently replaced path"
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -3396,11 +3902,115 @@ mod tests {
         assert!(!diagnostic.contains(percent_sentinel));
         assert!(!diagnostic.contains("postgresql://codedb:"));
 
+        let uppercase_error = run_mcp_frontdoor(&[
+            "mcp".to_string(),
+            "serve".to_string(),
+            "--repo-path".to_string(),
+            root.display().to_string(),
+            "--store".to_string(),
+            format!(
+                "PostgreSQL://codedb:{credential_sentinel}@db.example.test/codedb?password={query_sentinel}"
+            ),
+        ])
+        .expect_err("PostgreSQL URL scheme matching must be case-insensitive");
+        let uppercase_diagnostic = uppercase_error.to_string();
+        assert!(uppercase_diagnostic.contains("use --store pg"));
+        assert!(!uppercase_diagnostic.contains(credential_sentinel));
+        assert!(!uppercase_diagnostic.contains(query_sentinel));
+
         fs::remove_dir_all(root).expect("remove MCP root");
     }
-    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[cfg(unix)]
+    #[test]
+    fn mcp_frontdoor_ignores_arbitrary_server_override_without_executing_marker() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _env_lock = TEST_ENV_LOCK.lock().expect("lock test environment");
+        let root = temp_repo();
+        let marker = root.join("override-executed");
+        let override_bin = root.join("forbidden-override.sh");
+        fs::write(
+            &override_bin,
+            format!("#!/bin/sh\nprintf executed > '{}'\n", marker.display()),
+        )
+        .expect("write override marker");
+        fs::set_permissions(&override_bin, fs::Permissions::from_mode(0o700))
+            .expect("make override executable");
+        let _override_guard =
+            TestEnvGuard::set("CODEDB_MCP_SERVER_BIN", &override_bin.display().to_string());
+
+        let result = run_mcp_frontdoor(&[
+            "mcp".to_string(),
+            "serve".to_string(),
+            "--repo-path".to_string(),
+            root.display().to_string(),
+            "--store".to_string(),
+            root.join("store.redb").display().to_string(),
+        ]);
+
+        assert!(result.is_err(), "missing sibling server must fail closed");
+        assert!(!marker.exists(), "arbitrary MCP override executed");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mcp_child_environment_is_minimal_and_pg_conn_is_backend_scoped() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _env_lock = TEST_ENV_LOCK.lock().expect("lock test environment");
+        let root = temp_repo();
+        let ambient_sentinel = "CODEDB_MCP_AMBIENT_SECRET_SENTINEL";
+        let pg_sentinel = "CODEDB_MCP_PG_CONN_SENTINEL";
+        let _ambient_guard = TestEnvGuard::set("CODEDB_MCP_ENV_SENTINEL", ambient_sentinel);
+        let _pg_guard = TestEnvGuard::set(
+            "CODEDB_PG_CONN",
+            &format!("postgresql://codedb:{pg_sentinel}@db.example.test/codedb"),
+        );
+
+        let write_probe = |name: &str| {
+            let output = root.join(format!("{name}.env"));
+            let script = root.join(format!("{name}.sh"));
+            fs::write(
+                &script,
+                format!(
+                    "#!/bin/sh\nprintf '%s\\n%s\\n' \"${{CODEDB_MCP_ENV_SENTINEL-unset}}\" \"${{CODEDB_PG_CONN-unset}}\" > '{}'\n",
+                    output.display()
+                ),
+            )
+            .expect("write environment probe");
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o700))
+                .expect("make environment probe executable");
+            (script, output)
+        };
+
+        let (redb_probe, redb_output) = write_probe("redb");
+        let mut redb_command = mcp_server_command(&redb_probe, &root, "store.redb", &[]);
+        assert!(redb_command.status().expect("run redb probe").success());
+        let redb_env = fs::read_to_string(redb_output).expect("read redb child env");
+        assert_eq!(redb_env, "unset\nunset\n");
+
+        let (pg_probe, pg_output) = write_probe("pg");
+        let mut pg_command = mcp_server_command(&pg_probe, &root, "pg", &[]);
+        assert!(pg_command.status().expect("run PostgreSQL probe").success());
+        let pg_env = fs::read_to_string(pg_output).expect("read PostgreSQL child env");
+        assert_eq!(
+            pg_env,
+            format!("unset\npostgresql://codedb:{pg_sentinel}@db.example.test/codedb\n")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    };
 
     static NEXT_TEMP_REPO_ID: AtomicU64 = AtomicU64::new(0);
+    static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn temp_repo() -> PathBuf {
         for _ in 0..1024 {
@@ -3414,6 +4024,62 @@ mod tests {
             }
         }
         panic!("unable to reserve a unique CodeDB CLI test repository");
+    }
+
+    fn test_capture_config() -> CaptureConfig {
+        CaptureConfig {
+            batch_files: 32,
+            batch_bytes: 1024 * 1024,
+            time_budget: None,
+            resume: false,
+        }
+    }
+
+    fn safe_source_policy_args() -> Vec<String> {
+        vec!["--raw-persistence".to_string(), "safe-source".to_string()]
+    }
+
+    fn external_policy_args(path: &Path) -> Vec<String> {
+        vec![
+            "--raw-persistence-policy".to_string(),
+            path.display().to_string(),
+        ]
+    }
+
+    fn external_policy_document(repository_binding: &str, allow: &str) -> String {
+        format!(
+            "version=codedb.raw-persistence-policy.v1\n\
+             policy_id=operator-reviewed-source\n\
+             authority=operator:local-user\n\
+             repository_binding={repository_binding}\n\
+             allow={allow}\n"
+        )
+    }
+
+    fn source_policy_row_for<'a>(rows: &'a [Row], relative_path: &str) -> &'a Row {
+        rows.iter()
+            .find(|row| {
+                row.get("table")
+                    .is_some_and(|table| table == "source_policy")
+                    && row
+                        .get("relative_path")
+                        .is_some_and(|path| path == relative_path)
+            })
+            .unwrap_or_else(|| panic!("missing source_policy row for {relative_path}"))
+    }
+
+    fn assert_prefixed_sha256(row: &Row, field: &str) {
+        let value = row
+            .get(field)
+            .unwrap_or_else(|| panic!("missing {field} in {row:?}"));
+        assert_eq!(value.len(), "sha256:".len() + 64, "{field}: {value}");
+        assert!(value.starts_with("sha256:"), "{field}: {value}");
+        assert!(
+            value["sha256:".len()..]
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit()),
+            "{field}: {value}"
+        );
     }
 
     #[test]
@@ -3438,12 +4104,73 @@ mod tests {
     }
 
     #[test]
-    fn default_capture_keeps_secret_like_files_metadata_only() {
+    fn cli_store_selection_rejects_postgresql_argv_credentials_without_echoing_them() {
+        let credential_sentinel = "CODEDB_CLI_ARGV_CREDENTIAL_SENTINEL";
+        let query_sentinel = "CODEDB_CLI_ARGV_QUERY_SENTINEL";
+        let pg_conn_args = vec![
+            "--pg-conn".to_string(),
+            format!(
+                "postgresql://codedb:{credential_sentinel}@db.example.test/codedb?sslpassword={query_sentinel}"
+            ),
+        ];
+        let pg_conn_error = parse_store_spec("pg", &pg_conn_args)
+            .expect_err("--pg-conn must be rejected before opening a backend");
+        let pg_conn_diagnostic = pg_conn_error.to_string();
+        assert!(pg_conn_diagnostic.contains("CODEDB_PG_CONN"));
+        assert!(!pg_conn_diagnostic.contains(credential_sentinel));
+        assert!(!pg_conn_diagnostic.contains(query_sentinel));
+
+        let url_error = parse_store_spec(
+            &format!(
+                "postgresql://codedb:{credential_sentinel}@db.example.test/codedb?sslpassword={query_sentinel}"
+            ),
+            &[],
+        )
+        .expect_err("PostgreSQL --store URLs must be rejected before opening a backend");
+        let url_diagnostic = url_error.to_string();
+        assert!(url_diagnostic.contains("use --store pg"));
+        assert!(!url_diagnostic.contains(credential_sentinel));
+        assert!(!url_diagnostic.contains(query_sentinel));
+    }
+
+    #[test]
+    fn cli_pg_selector_uses_only_codedb_pg_conn_not_ambient_database_url() {
+        let _env_lock = TEST_ENV_LOCK.lock().expect("lock test environment");
+        let database_url_sentinel = "CODEDB_DATABASE_URL_SENTINEL";
+        let codedb_pg_sentinel = "CODEDB_PG_CONN_SENTINEL";
+
+        {
+            let _codedb_pg_guard = TestEnvGuard::remove("CODEDB_PG_CONN");
+            let _database_url_guard = TestEnvGuard::set(
+                "DATABASE_URL",
+                &format!("postgresql://codedb:{database_url_sentinel}@db.example.test/codedb"),
+            );
+            let error = parse_store_spec("pg", &[])
+                .expect_err("ambient DATABASE_URL must not enable PostgreSQL");
+            let diagnostic = error.to_string();
+            assert!(diagnostic.contains("CODEDB_PG_CONN"));
+            assert!(!diagnostic.contains(database_url_sentinel));
+        }
+
+        {
+            let _codedb_pg_guard = TestEnvGuard::set(
+                "CODEDB_PG_CONN",
+                &format!("postgresql://codedb:{codedb_pg_sentinel}@db.example.test/codedb"),
+            );
+            let spec = parse_store_spec("pg", &[])
+                .expect("inherited CODEDB_PG_CONN is the sole PostgreSQL positive path");
+            assert_eq!(spec.backend(), StoreBackend::PostgreSql);
+            assert!(!spec.redacted().contains(codedb_pg_sentinel));
+        }
+    }
+
+    #[test]
+    fn default_capture_persists_metadata_only_even_for_classifier_clear_source() {
         let repo = temp_repo();
         fs::create_dir_all(repo.join("src")).expect("create src");
         fs::write(repo.join("src/lib.rs"), "pub fn safe() {}\n").expect("safe source");
         fs::write(repo.join(".env"), "OPENAI_API_KEY=sk-test-secret\n").expect("secret fixture");
-        let store_path = repo.join("capture.redb");
+        let store_path = repo.with_extension("default-deny.redb");
         let selection = RepoSelection {
             repo_id: "secret-policy".to_string(),
             repo_path: repo.clone(),
@@ -3461,23 +4188,280 @@ mod tests {
         let store = CaptureBatcher::open(&store_path).expect("open captured store");
         let paths = store.captured_paths().expect("captured paths");
 
-        assert!(paths.contains("src/lib.rs"));
+        assert!(
+            paths.is_empty(),
+            "default capture persisted raw bytes: {paths:?}"
+        );
         assert!(!paths.contains(".env"));
-        assert!(rows.iter().any(|row| {
-            row.get("table")
-                .is_some_and(|value| value == "source_policy")
-                && row
-                    .get("relative_path")
-                    .is_some_and(|value| value == ".env")
-                && row
-                    .get("mode")
-                    .is_some_and(|value| value == "redacted-export")
-                && row
-                    .get("raw_blob_persisted")
-                    .is_some_and(|value| value == "false")
-        }));
+        for relative_path in ["src/lib.rs", ".env"] {
+            let policy = source_policy_row_for(&rows, relative_path);
+            assert_eq!(
+                policy.get("raw_blob_persisted").map(String::as_str),
+                Some("false")
+            );
+            assert_eq!(
+                policy.get("policy_authority_source").map(String::as_str),
+                Some("default-deny")
+            );
+            assert_eq!(
+                policy.get("persistence_disposition").map(String::as_str),
+                Some("metadata-only")
+            );
+            assert_prefixed_sha256(policy, "repository_snapshot_id");
+            assert_prefixed_sha256(policy, "policy_digest");
+            assert_prefixed_sha256(policy, "policy_binding_digest");
+            assert_prefixed_sha256(policy, "exact_source_sha256");
+            assert!(!format!("{policy:?}").contains("sk-test-secret"));
+        }
 
         let _ = fs::remove_dir_all(repo);
+        let _ = fs::remove_file(store_path);
+    }
+
+    #[test]
+    fn explicit_safe_source_policy_persists_source_but_never_secret_bytes() {
+        let repo = temp_repo();
+        fs::create_dir_all(repo.join("src")).expect("create src");
+        fs::write(repo.join("src/lib.rs"), "pub fn safe() {}\n").expect("safe source");
+        fs::write(
+            repo.join("src/secret.rs"),
+            "const CLIENT_SECRET: &str = \"do-not-persist\";\n",
+        )
+        .expect("secret source fixture");
+        let store_path = repo.with_extension("safe-source.redb");
+        let selection = RepoSelection {
+            repo_id: "safe-source-policy".to_string(),
+            repo_path: repo.clone(),
+            store_path: store_path.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+
+        let rows = capture_rows(
+            &selection,
+            &test_capture_config(),
+            &safe_source_policy_args(),
+        )
+        .expect("safe-source capture");
+        let store = CaptureBatcher::open(&store_path).expect("open captured store");
+        let paths = store.captured_paths().expect("captured paths");
+
+        assert!(paths.contains("src/lib.rs"));
+        assert!(!paths.contains("src/secret.rs"));
+        let safe_policy = source_policy_row_for(&rows, "src/lib.rs");
+        assert_eq!(
+            safe_policy
+                .get("policy_authority_source")
+                .map(String::as_str),
+            Some("built-in-safe-source-classes")
+        );
+        assert_eq!(
+            safe_policy
+                .get("persistence_disposition")
+                .map(String::as_str),
+            Some("persist-raw")
+        );
+        assert_eq!(
+            safe_policy.get("raw_blob_persisted").map(String::as_str),
+            Some("true")
+        );
+        let denied_policy = source_policy_row_for(&rows, "src/secret.rs");
+        assert_eq!(
+            denied_policy.get("reason").map(String::as_str),
+            Some("classifier-secret-detected")
+        );
+        assert_eq!(
+            denied_policy
+                .get("persistence_disposition")
+                .map(String::as_str),
+            Some("metadata-only")
+        );
+        assert!(!format!("{rows:?}").contains("do-not-persist"));
+
+        let _ = fs::remove_dir_all(repo);
+        let _ = fs::remove_file(store_path);
+    }
+
+    #[test]
+    fn external_policy_requires_outside_path_and_exact_repository_snapshot_binding() {
+        let repo = temp_repo();
+        let policy_home = temp_repo();
+        fs::create_dir_all(repo.join("src")).expect("create src");
+        fs::write(repo.join("src/lib.rs"), "pub fn reviewed() {}\n").expect("source");
+        let probe_store = repo.with_extension("policy-probe.redb");
+        let probe_selection = RepoSelection {
+            repo_id: "external-policy".to_string(),
+            repo_path: repo.clone(),
+            store_path: probe_store.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+
+        let probe_rows =
+            capture_rows(&probe_selection, &test_capture_config(), &[]).expect("binding probe");
+        let repository_binding = source_policy_row_for(&probe_rows, "src/lib.rs")
+            .get("repository_snapshot_id")
+            .expect("repository snapshot binding")
+            .clone();
+        let policy_path = policy_home.join("capture.policy");
+        fs::write(
+            &policy_path,
+            external_policy_document(&repository_binding, "source-code"),
+        )
+        .expect("write external policy");
+
+        let external_store = repo.with_extension("external-policy.redb");
+        let external_selection = RepoSelection {
+            store_path: external_store.display().to_string(),
+            ..probe_selection.clone()
+        };
+        let rows = capture_rows(
+            &external_selection,
+            &test_capture_config(),
+            &external_policy_args(&policy_path),
+        )
+        .expect("external policy capture");
+        let store = CaptureBatcher::open(&external_store).expect("open external-policy store");
+        assert!(
+            store
+                .captured_paths()
+                .expect("captured paths")
+                .contains("src/lib.rs")
+        );
+        let provenance = source_policy_row_for(&rows, "src/lib.rs");
+        assert_eq!(
+            provenance
+                .get("policy_authority_source")
+                .map(String::as_str),
+            Some("external-operator-policy")
+        );
+        assert_eq!(
+            provenance.get("repository_snapshot_id"),
+            Some(&repository_binding)
+        );
+        assert!(!format!("{rows:?}").contains("pub fn reviewed"));
+
+        let in_repo_policy = repo.join("capture.policy");
+        fs::write(
+            &in_repo_policy,
+            external_policy_document(&repository_binding, "source-code"),
+        )
+        .expect("write repository-controlled policy");
+        let in_repo_error = capture_rows(
+            &external_selection,
+            &test_capture_config(),
+            &external_policy_args(&in_repo_policy),
+        )
+        .expect_err("repository-controlled policy must fail closed");
+        assert!(
+            in_repo_error
+                .to_string()
+                .contains("must be external to the repository")
+        );
+
+        fs::write(
+            &policy_path,
+            external_policy_document(
+                "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "source-code",
+            ),
+        )
+        .expect("write binding mismatch policy");
+        let mismatch_error = capture_rows(
+            &external_selection,
+            &test_capture_config(),
+            &external_policy_args(&policy_path),
+        )
+        .expect_err("repository binding mismatch must fail closed");
+        assert!(
+            mismatch_error
+                .to_string()
+                .contains("repository binding mismatch")
+        );
+
+        let _ = fs::remove_dir_all(repo);
+        let _ = fs::remove_dir_all(policy_home);
+        let _ = fs::remove_file(probe_store);
+        let _ = fs::remove_file(external_store);
+    }
+
+    #[test]
+    fn capture_policy_cli_construction_is_backend_neutral_and_rejects_secret_bearing_values() {
+        let redb_args = vec![
+            "capture".to_string(),
+            ".".to_string(),
+            "--store".to_string(),
+            "capture.redb".to_string(),
+            "--raw-persistence".to_string(),
+            "safe-source".to_string(),
+        ];
+        let pg_args = vec![
+            "capture".to_string(),
+            ".".to_string(),
+            "--store".to_string(),
+            "pg".to_string(),
+            "--raw-persistence".to_string(),
+            "safe-source".to_string(),
+        ];
+        assert_eq!(
+            capture_policy_selection(&redb_args).expect("redb policy"),
+            capture_policy_selection(&pg_args).expect("PostgreSQL policy")
+        );
+
+        let sentinel = "RAW_POLICY_SECRET_SENTINEL";
+        let error = capture_policy_selection(&[
+            "--raw-persistence".to_string(),
+            format!("safe-source={sentinel}"),
+        ])
+        .expect_err("unbounded policy values must be rejected");
+        assert!(error.to_string().contains("safe-source"));
+        assert!(!error.to_string().contains(sentinel));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn capture_reads_remain_bound_to_scanned_root_after_path_symlink_swap() {
+        use std::os::unix::fs::symlink;
+
+        let repo = temp_repo();
+        let held_repo = repo.with_extension("held-original");
+        let outside = repo.with_extension("outside");
+        let store_path = repo.with_extension("capture.redb");
+        fs::create_dir_all(repo.join("src")).expect("create repo src");
+        fs::create_dir_all(outside.join("src")).expect("create outside src");
+        fs::write(repo.join("src/lib.rs"), b"inside payload\n").expect("write inside source");
+        fs::write(outside.join("src/lib.rs"), b"outside payload\n").expect("write outside source");
+
+        let selection = RepoSelection {
+            repo_id: "contained-capture".to_string(),
+            repo_path: repo.clone(),
+            store_path: store_path.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        let config = CaptureConfig {
+            batch_files: 32,
+            batch_bytes: 1024 * 1024,
+            time_budget: None,
+            resume: false,
+        };
+
+        capture_rows_after_scan(&selection, &config, &safe_source_policy_args(), || {
+            fs::rename(&repo, &held_repo).expect("hold scanned repository");
+            symlink(&outside, &repo).expect("replace repository path with outside symlink");
+        })
+        .expect("capture remains bound to scanned root");
+
+        let store = CaptureBatcher::open(&store_path).expect("open captured store");
+        let captured = store
+            .read_source_file_blob("src/lib.rs")
+            .expect("read captured source")
+            .expect("captured source exists");
+        assert_eq!(captured, b"inside payload\n");
+        assert_ne!(captured, b"outside payload\n");
+
+        fs::remove_file(&repo).expect("remove replacement symlink");
+        fs::rename(&held_repo, &repo).expect("restore repository path");
+        let _ = fs::remove_dir_all(repo);
+        let _ = fs::remove_dir_all(outside);
+        let _ = fs::remove_file(store_path);
     }
 
     // Test lane: default
@@ -3494,7 +4478,7 @@ mod tests {
             selection_source: "test".to_string(),
         };
 
-        let rows = envctl_export_rows(&selection).expect("envctl rows");
+        let rows = envctl_export_rows(&selection, &[]).expect("envctl rows");
         assert!(rows.iter().any(|row| {
             row.get("table")
                 .is_some_and(|table| table == "codedb_materialization_targets")
@@ -3503,9 +4487,178 @@ mod tests {
                     .is_some_and(|status| status == "store_restore_materialize_proven")
         }));
         assert!(rows.iter().any(|row| {
-            row.get("redb_access")
+            row.get("backend_internal_access")
                 .is_some_and(|access| access == "forbidden")
         }));
+
+        let _ = fs::remove_dir_all(repo);
+    }
+
+    // Test lane: default (the PostgreSQL selector is parsed but no backend is opened).
+    // Defends: envctl export has one backend-neutral observable contract, carries
+    // explicit safe backend identity, forbids internal access, and never emits a DSN.
+    #[test]
+    fn envctl_export_normalizes_redb_and_postgresql_store_contracts_without_dsn_leakage() {
+        let _env_lock = TEST_ENV_LOCK.lock().expect("lock test environment");
+        let repo = temp_repo();
+        fs::create_dir_all(repo.join("src")).expect("create src");
+        fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");
+
+        let redb_selection = RepoSelection {
+            repo_id: "test".to_string(),
+            repo_path: repo.clone(),
+            store_path: repo.join(".codedb/contract.redb").display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        let credential_sentinel = "CODEDB_ENVCTL_DSN_CREDENTIAL_SENTINEL";
+        let query_sentinel = "CODEDB_ENVCTL_DSN_QUERY_SENTINEL";
+        let postgresql_selection = RepoSelection {
+            repo_id: "test".to_string(),
+            repo_path: repo.clone(),
+            store_path: "pg".to_string(),
+            selection_source: "test".to_string(),
+        };
+        let postgresql_args = vec![
+            "--pg-table".to_string(),
+            "codedb_envctl_contract".to_string(),
+        ];
+
+        let redb_rows = envctl_export_rows(&redb_selection, &[]).expect("redb envctl rows");
+        let _pg_conn_guard = TestEnvGuard::set(
+            "CODEDB_PG_CONN",
+            &format!(
+                "postgresql://codedb:{credential_sentinel}@db.example.test/codedb?sslpassword={query_sentinel}"
+            ),
+        );
+        let postgresql_rows =
+            envctl_export_rows(&postgresql_selection, &postgresql_args).expect("PostgreSQL rows");
+
+        for row in &redb_rows {
+            assert!(!row.contains_key("redb_access"));
+            let table = row.get("table").map(String::as_str);
+            if matches!(
+                table,
+                Some(
+                    "meta_repo_selection"
+                        | "codedb_database_endpoints"
+                        | "codedb_materialization_targets"
+                )
+            ) {
+                assert_eq!(row.get("store_backend").map(String::as_str), Some("redb"));
+                assert!(
+                    row.get("store_identity")
+                        .is_some_and(|identity| identity.starts_with("redb:"))
+                );
+                assert_eq!(
+                    row.get("backend_internal_access").map(String::as_str),
+                    Some("forbidden")
+                );
+            }
+            if table == Some("codedb_runtime_integration") {
+                assert_eq!(
+                    row.get("backend_internal_access").map(String::as_str),
+                    Some("forbidden")
+                );
+            }
+        }
+        for row in &postgresql_rows {
+            assert!(!row.contains_key("redb_access"));
+            let table = row.get("table").map(String::as_str);
+            if matches!(
+                table,
+                Some(
+                    "meta_repo_selection"
+                        | "codedb_database_endpoints"
+                        | "codedb_materialization_targets"
+                )
+            ) {
+                assert_eq!(
+                    row.get("store_backend").map(String::as_str),
+                    Some("postgresql")
+                );
+                assert_eq!(
+                    row.get("store_identity").map(String::as_str),
+                    Some("postgresql:codedb_envctl_contract")
+                );
+                assert_eq!(
+                    row.get("backend_internal_access").map(String::as_str),
+                    Some("forbidden")
+                );
+            }
+            if table == Some("codedb_runtime_integration") {
+                assert_eq!(
+                    row.get("backend_internal_access").map(String::as_str),
+                    Some("forbidden")
+                );
+            }
+            for (key, value) in row {
+                assert!(!key.contains(credential_sentinel));
+                assert!(!key.contains(query_sentinel));
+                assert!(!value.contains(credential_sentinel));
+                assert!(!value.contains(query_sentinel));
+                assert!(!value.contains("postgresql://"));
+            }
+        }
+
+        let normalize = |rows: &[Row]| {
+            rows.iter()
+                .cloned()
+                .map(|mut row| {
+                    row.remove("store_backend");
+                    row.remove("store_identity");
+                    row.remove("store_path");
+                    row.remove("generation_timestamp");
+                    row
+                })
+                .collect::<Vec<_>>()
+        };
+        let normalized_redb = normalize(&redb_rows);
+        let normalized_postgresql = normalize(&postgresql_rows);
+        assert_eq!(normalized_redb, normalized_postgresql);
+
+        let normalized_text = format!("{normalized_redb:?}").to_ascii_lowercase();
+        assert!(!normalized_text.contains("redb"));
+        assert!(!normalized_text.contains("postgres"));
+
+        let _ = fs::remove_dir_all(repo);
+    }
+
+    // Test lane: default.
+    // Defends: backend identity metadata does not alter the checksummed row
+    // stream after the export manifest binds to it.
+    #[test]
+    fn envctl_export_manifest_checksum_matches_observable_checksum_rows() {
+        let repo = temp_repo();
+        fs::create_dir_all(repo.join("src")).expect("create src");
+        fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");
+        let selection = RepoSelection {
+            repo_id: "test".to_string(),
+            repo_path: repo.clone(),
+            store_path: repo.join(".codedb/contract.redb").display().to_string(),
+            selection_source: "test".to_string(),
+        };
+
+        let rows = envctl_export_rows(&selection, &[]).expect("envctl rows");
+        let observable_checksum_rows = rows
+            .iter()
+            .filter(|row| {
+                row.get("table")
+                    .is_some_and(|table| table == "codedb_table_checksums")
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let observable_checksum =
+            rows_checksum("codedb_table_checksums", &observable_checksum_rows);
+        let manifest_checksum = rows
+            .iter()
+            .find(|row| {
+                row.get("table")
+                    .is_some_and(|table| table == "codedb_export_manifests")
+            })
+            .and_then(|row| row.get("source_table_checksum"))
+            .expect("envctl export manifest checksum");
+
+        assert_eq!(manifest_checksum, &observable_checksum);
 
         let _ = fs::remove_dir_all(repo);
     }
@@ -3861,6 +5014,16 @@ enabled = false
             let previous = env::var(key).ok();
             // SAFETY: this test mutates process env in a scoped guard while focused test runs single-threaded.
             unsafe { env::set_var(key, value) };
+            Self {
+                key: key.to_string(),
+                previous,
+            }
+        }
+
+        fn remove(key: &str) -> Self {
+            let previous = env::var(key).ok();
+            // SAFETY: this test mutates process env in a scoped guard while focused test runs single-threaded.
+            unsafe { env::remove_var(key) };
             Self {
                 key: key.to_string(),
                 previous,

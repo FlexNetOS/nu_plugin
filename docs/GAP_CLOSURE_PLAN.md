@@ -137,22 +137,61 @@ completion. `partial` means a candidate implementation or test surface exists
 but lacks a current-head proof artifact. `missing` means a required positive
 path or direct test is absent. Neither status can satisfy release.
 
-The validator has two intentionally different modes:
+The validator has three intentionally different modes:
 
 ```bash
 # Inventory/schema/authority checks. This may pass while implementation remains open.
 python3 scripts/validate_requirement_proof_ledger.py --structure-only
 
+# Non-recursive complete-evidence check used inside external receipt generation.
+# This still requires every row/task to be verified/complete.
+python3 scripts/validate_requirement_proof_ledger.py --direct-evidence
+
 # Release mode. This fails until every row is verified at the exact current HEAD.
 python3 scripts/validate_requirement_proof_ledger.py
 ```
+
+Direct-evidence mode skips only lookup and cryptographic verification of the
+receipt currently being created. Full release mode has no local trust bypass
+and requires every verified row in a detached, cryptographically verified
+receipt.
+
+The detached CI generator uses `--all-requirements`, not repeated selected-row
+flags. It requires the exact 140-row inventory, preflights all rows before any
+command runs, and then executes every row's exact verification command. Any
+unresolved row or partial receipt fails closed.
 
 A `verified` row must name an existing non-documentation implementation path,
 an existing direct test, an executable verification command, and logical proof
 artifacts present in an external current-head attestation. The attestation is
 generated after checkout outside the repository and binds the exact commit,
-tree, ledger, validator, command, output digests, evidence names, and clean
-worktree state. `proof_head_sha` is a deprecated self-referential field and must
-remain empty; exact revision identity lives in the external receipt. Missing
-rows, stale receipts, dirty checkouts, documentation-only evidence,
+tree, canonical repository, ledger, validator, complete selected ledger rows,
+command, output digests, evidence names, and clean worktree state.
+`proof_head_sha` is a deprecated self-referential field and must remain empty;
+exact revision identity lives in the external receipt.
+
+Release trust is detached from the receipt. A GitHub attestation bundle for the
+complete receipt file must verify cryptographically against the exact
+repository, signer workflow, and current source commit. Embedded signature URLs
+and self-asserted `github-actions` metadata are rejected as trust evidence.
+Missing rows, stale receipts, dirty checkouts, documentation-only evidence,
 GAP-compatible closure, and task-graph contradictions fail closed.
+
+Proof rows declare exact typed subjects: `stdout:<name>`, `stderr:<name>`, or
+`file:<name>:repository:<normalized-relative-path>`. Receipts bind each
+subject's type, byte size, and own SHA-256; file subjects additionally bind the
+approved root and normalized path. Missing, duplicate, symlinked, escaping,
+non-regular, or raced file subjects fail closed.
+
+Pre-merge verification is unprivileged for same-repository and fork PRs and
+also covers merge queues. It emits an unsigned exact-reviewed-SHA receipt
+without OIDC/write permission. A post-check job protected by the
+`requirement-proof-signer` GitHub environment never checks out or executes
+submitted code and is the only job with attestation-write permission. Fork
+receipts are not signed until represented by a trusted same-repository ref,
+merge queue, or protected push.
+
+No row is upgraded merely because its candidate command passes in a dirty or
+uncommitted development worktree. The row may move to `verified` only after the
+exact committed tree is checked out cleanly, the row command and named evidence
+pass, and the detached attestation for that receipt verifies.

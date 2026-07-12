@@ -8,17 +8,27 @@ use std::path::{Path, PathBuf};
 
 use codedb_core::SchemaVersion;
 use codedb_core::store::{
-    BlobStore, MaterializedFile as CoreMaterializedFile, SourceFileRow as CoreSourceFileRow,
-    StoreError as CoreStoreError, StoreMetadataRow as CoreStoreMetadataRow,
+    BlobStore, CURRENT_STORE_SCHEMA_VERSION, LEGACY_STORE_SCHEMA_VERSION,
+    MaterializedFile as CoreMaterializedFile, SourceFileRow as CoreSourceFileRow, StoreBackupKind,
+    StoreError as CoreStoreError, StoreMetadataRow as CoreStoreMetadataRow, StoreMigrationBackup,
+    StoreMigrationReport, StoreMigrationStep, atomic_materialize_file, parse_schema_version,
+    plan_store_migration,
 };
+use codedb_core::store_spec::StoreBackend;
 use redb::{
-    CommitError, Database, DatabaseError, ReadableDatabase, ReadableTable, StorageError,
-    TableDefinition, TableError, TransactionError,
+    CommitError, Database, DatabaseError, ReadOnlyDatabase, ReadableDatabase, ReadableTable,
+    StorageError, TableDefinition, TableError, TransactionError,
 };
 use sha2::{Digest, Sha256};
 
 pub const STATUS: &str = "source_blob_store_available";
-pub const STORE_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(1, 0, 0);
+pub const STORE_SCHEMA_VERSION: SchemaVersion = CURRENT_STORE_SCHEMA_VERSION;
+
+const REDB_MIGRATIONS: [StoreMigrationStep; 1] = [StoreMigrationStep::new(
+    "redb_legacy_v0_9_to_v1",
+    LEGACY_STORE_SCHEMA_VERSION,
+    CURRENT_STORE_SCHEMA_VERSION,
+)];
 
 const SCHEMA_VERSION_TABLE: TableDefinition<&str, &str> = TableDefinition::new("schema_versions");
 const STORE_METADATA_TABLE: TableDefinition<&str, &str> = TableDefinition::new("store_metadata");
@@ -92,6 +102,8 @@ pub enum StoreError {
     Table(TableError),
     Storage(StorageError),
     Io(io::Error),
+    Materialization(CoreStoreError),
+    Migration(CoreStoreError),
     UnsupportedSchemaVersion {
         observed: String,
     },
@@ -110,6 +122,8 @@ impl Display for StoreError {
             Self::Table(err) => write!(f, "table error: {err}"),
             Self::Storage(err) => write!(f, "storage error: {err}"),
             Self::Io(err) => write!(f, "io error: {err}"),
+            Self::Materialization(err) => write!(f, "materialization error: {err}"),
+            Self::Migration(err) => write!(f, "migration error: {err}"),
             Self::UnsupportedSchemaVersion { observed } => {
                 write!(f, "unsupported store schema version: {observed}")
             }
@@ -165,20 +179,23 @@ pub fn initialize_store(
 ) -> Result<StoreInitReport, StoreError> {
     let path = path.as_ref().to_path_buf();
     let db = Database::create(&path)?;
+    let schema_version = STORE_SCHEMA_VERSION.to_string();
 
     {
         let write_txn = db.begin_write()?;
         {
             let mut schema_versions = write_txn.open_table(SCHEMA_VERSION_TABLE)?;
-            schema_versions.insert("schema_version", "1.0.0")?;
+            schema_versions.insert("schema_version", schema_version.as_str())?;
         }
         {
             let mut store_metadata = write_txn.open_table(STORE_METADATA_TABLE)?;
             store_metadata.insert("store_status", "initialized")?;
             store_metadata.insert("store_created", "true")?;
             store_metadata.insert("codedb_version", context.codedb_version)?;
-            store_metadata.insert("schema_version", "1.0.0")?;
-            store_metadata.insert("migration_state", "schema_1_no_migrations_supported")?;
+            store_metadata.insert("schema_version", schema_version.as_str())?;
+            store_metadata.insert("migration_state", "current")?;
+            store_metadata.insert("last_migration", "initialize_v1")?;
+            store_metadata.insert("migration_plan", "explicit_known_steps_only")?;
             store_metadata.insert("unsupported_state_behavior", "refuse_unknown_schema")?;
             store_metadata.insert("corruption_validation", "backup_restore_smoke_required")?;
             store_metadata.insert("checksum_algorithm", "sha256")?;
@@ -222,7 +239,10 @@ pub fn read_store_report(path: impl AsRef<Path>) -> Result<StoreInitReport, Stor
 
 /// Shared store-report read against an already-open database.
 #[allow(clippy::result_large_err)]
-fn read_store_report_db(db: &Database, path: PathBuf) -> Result<StoreInitReport, StoreError> {
+fn read_store_report_db<D: ReadableDatabase>(
+    db: &D,
+    path: PathBuf,
+) -> Result<StoreInitReport, StoreError> {
     let read_txn = db.begin_read()?;
 
     let schema_version = {
@@ -233,14 +253,17 @@ fn read_store_report_db(db: &Database, path: PathBuf) -> Result<StoreInitReport,
                 table: "schema_versions",
                 key: "schema_version",
             })?;
-        match value.value() {
-            "1.0.0" => STORE_SCHEMA_VERSION,
-            other => {
-                return Err(StoreError::UnsupportedSchemaVersion {
-                    observed: other.to_string(),
-                });
+        let observed = parse_schema_version(value.value()).map_err(|_| {
+            StoreError::UnsupportedSchemaVersion {
+                observed: value.value().to_string(),
             }
+        })?;
+        if observed != STORE_SCHEMA_VERSION {
+            return Err(StoreError::UnsupportedSchemaVersion {
+                observed: value.value().to_string(),
+            });
         }
+        observed
     };
 
     let mut rows = Vec::new();
@@ -369,7 +392,9 @@ impl CaptureBatcher {
 
 /// Shared read of the resume skip-set from an already-open database.
 #[allow(clippy::result_large_err)]
-fn captured_paths_db(db: &Database) -> Result<std::collections::BTreeSet<String>, StoreError> {
+fn captured_paths_db<D: ReadableDatabase>(
+    db: &D,
+) -> Result<std::collections::BTreeSet<String>, StoreError> {
     let read_txn = db.begin_read()?;
     let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
     let mut set = std::collections::BTreeSet::new();
@@ -469,7 +494,7 @@ pub fn list_source_files(store_path: impl AsRef<Path>) -> Result<Vec<SourceBlobR
 
 /// Shared list against an already-open database.
 #[allow(clippy::result_large_err)]
-fn list_source_files_db(db: &Database) -> Result<Vec<SourceBlobRow>, StoreError> {
+fn list_source_files_db<D: ReadableDatabase>(db: &D) -> Result<Vec<SourceBlobRow>, StoreError> {
     let read_txn = db.begin_read()?;
     let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
     let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
@@ -497,7 +522,7 @@ fn list_source_files_db(db: &Database) -> Result<Vec<SourceBlobRow>, StoreError>
 /// [`BlobStore::read_source_file_blob`] read path against an open database.
 #[allow(clippy::result_large_err)]
 fn read_source_blob_bytes_db(
-    db: &Database,
+    db: &impl ReadableDatabase,
     relative_path: &str,
 ) -> Result<Option<Vec<u8>>, StoreError> {
     let read_txn = db.begin_read()?;
@@ -527,11 +552,12 @@ pub fn materialize_source_file(
     materialize_source_file_db(&db, relative_path, &output_path)
 }
 
-/// Shared materialize against an already-open database — restores the stored
-/// unix mode when present, then re-checksums the written file.
+/// Shared materialize against an already-open database. The core publication
+/// helper checksum-binds the stored bytes, restores the optional unix mode,
+/// fsyncs file and destination directory, and publishes with no-replace.
 #[allow(clippy::result_large_err)]
 fn materialize_source_file_db(
-    db: &Database,
+    db: &impl ReadableDatabase,
     relative_path: &str,
     output_path: &Path,
 ) -> Result<FileMaterializationReport, StoreError> {
@@ -560,31 +586,25 @@ fn materialize_source_file_db(
             .value()
             .to_vec()
     };
+    #[cfg(unix)]
     let unix_mode = {
         let metadata = read_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
         metadata
             .get(source_file_metadata_key(relative_path, "unix_mode").as_str())?
             .map(|value| value.value().to_string())
+            .as_deref()
+            .and_then(|mode| u32::from_str_radix(mode, 8).ok())
     };
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(&output_path, &bytes)?;
-    #[cfg(unix)]
-    if let Some(mode) = unix_mode {
-        use std::os::unix::fs::PermissionsExt;
-
-        if let Ok(parsed_mode) = u32::from_str_radix(&mode, 8) {
-            fs::set_permissions(&output_path, fs::Permissions::from_mode(parsed_mode))?;
-        }
-    }
-    let materialized_sha256 = checksum_file_sha256(&output_path)?;
+    #[cfg(not(unix))]
+    let unix_mode = None;
+    let materialized = atomic_materialize_file(&output_path, &bytes, &sha256, unix_mode)
+        .map_err(StoreError::Materialization)?;
 
     Ok(FileMaterializationReport {
-        path: output_path,
+        path: materialized.path,
         blob_ref,
-        sha256: materialized_sha256,
-        bytes: bytes.len() as u64,
+        sha256: materialized.sha256,
+        bytes: materialized.bytes,
     })
 }
 
@@ -667,11 +687,23 @@ pub fn backup_store(
 ) -> Result<StoreBackupReport, StoreError> {
     let source_path = source_path.as_ref().to_path_buf();
     let backup_path = backup_path.as_ref().to_path_buf();
+    if source_path == backup_path {
+        return Err(StoreError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "store backup path must differ from source path",
+        )));
+    }
     if let Some(parent) = backup_path.parent() {
         fs::create_dir_all(parent)?;
     }
 
-    read_store_report(&source_path)?;
+    let observed = inspect_store_schema_version(&source_path)?;
+    if observed != STORE_SCHEMA_VERSION && !REDB_MIGRATIONS.iter().any(|step| step.from == observed)
+    {
+        return Err(StoreError::UnsupportedSchemaVersion {
+            observed: observed.to_string(),
+        });
+    }
     let bytes = fs::copy(&source_path, &backup_path)?;
     let sha256 = checksum_file_sha256(&backup_path)?;
 
@@ -681,6 +713,183 @@ pub fn backup_store(
         bytes,
         sha256,
     })
+}
+
+/// Inspect only the schema version table without opening any data surface or
+/// performing migration/repair.
+#[allow(clippy::result_large_err)]
+pub fn inspect_store_schema_version(path: impl AsRef<Path>) -> Result<SchemaVersion, StoreError> {
+    let db = ReadOnlyDatabase::open(path)?;
+    let read_txn = db.begin_read()?;
+    let table = read_txn.open_table(SCHEMA_VERSION_TABLE)?;
+    let value = table
+        .get("schema_version")?
+        .ok_or(StoreError::MissingValue {
+            table: "schema_versions",
+            key: "schema_version",
+        })?;
+    parse_schema_version(value.value()).map_err(|_| StoreError::UnsupportedSchemaVersion {
+        observed: value.value().to_string(),
+    })
+}
+
+/// Explicitly migrate a known redb schema after writing a checksum-bound file
+/// backup. Unknown/future versions are rejected before backup or mutation.
+#[allow(clippy::result_large_err)]
+pub fn migrate_store(
+    store_path: impl AsRef<Path>,
+    backup_path: impl AsRef<Path>,
+) -> Result<StoreMigrationReport, StoreError> {
+    let store_path = store_path.as_ref().to_path_buf();
+    let backup_path = backup_path.as_ref().to_path_buf();
+    let observed = inspect_store_schema_version(&store_path)?;
+    let plan = plan_store_migration(
+        StoreBackend::Redb,
+        observed,
+        STORE_SCHEMA_VERSION,
+        &REDB_MIGRATIONS,
+    )
+    .map_err(|_| StoreError::UnsupportedSchemaVersion {
+        observed: observed.to_string(),
+    })?;
+    if plan.steps.is_empty() {
+        return Ok(StoreMigrationReport {
+            plan,
+            backup: None,
+            applied_steps: Vec::new(),
+            rolled_back: false,
+        });
+    }
+
+    let backup = backup_store(&store_path, &backup_path)?;
+    let db = Database::open(&store_path)?;
+    let write_txn = db.begin_write()?;
+    for step in &plan.steps {
+        match step.id {
+            "redb_legacy_v0_9_to_v1" => {
+                write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+                let target = step.to.to_string();
+                {
+                    let mut versions = write_txn.open_table(SCHEMA_VERSION_TABLE)?;
+                    versions.insert("schema_version", target.as_str())?;
+                }
+                {
+                    let mut metadata = write_txn.open_table(STORE_METADATA_TABLE)?;
+                    metadata.insert("schema_version", target.as_str())?;
+                    metadata.insert("migration_state", "current")?;
+                    metadata.insert("last_migration", step.id)?;
+                    metadata.insert("migration_plan", "explicit_known_steps_only")?;
+                    metadata.insert("unsupported_state_behavior", "refuse_unknown_schema")?;
+                    metadata.insert("corruption_validation", "backup_restore_smoke_required")?;
+                }
+                {
+                    let mut validation = write_txn.open_table(VALIDATION_ROWS_TABLE)?;
+                    validation.insert("migration_backup", "checksum_bound_file_copy")?;
+                    validation.insert("migration_rollback", "explicit_file_restore")?;
+                }
+            }
+            other => {
+                return Err(StoreError::Migration(CoreStoreError::new(format!(
+                    "redb migration implementation is missing for step {other:?}"
+                ))));
+            }
+        }
+    }
+    write_txn.commit()?;
+    drop(db);
+
+    if let Err(error) = read_store_report(&store_path) {
+        restore_backup_exact(&backup_path, &store_path)?;
+        return Err(StoreError::Migration(CoreStoreError::new(format!(
+            "redb migration validation failed and the backup was restored: {error}"
+        ))));
+    }
+
+    Ok(StoreMigrationReport {
+        applied_steps: plan.steps.iter().map(|step| step.id).collect(),
+        plan,
+        backup: Some(StoreMigrationBackup {
+            kind: StoreBackupKind::FileCopy,
+            reference: backup.backup_path.display().to_string(),
+            sha256: Some(backup.sha256),
+        }),
+        rolled_back: false,
+    })
+}
+
+/// Replace a migrated redb store with its exact checksum-validated
+/// pre-migration backup.
+#[allow(clippy::result_large_err)]
+pub fn rollback_store_migration(
+    store_path: impl AsRef<Path>,
+    backup_path: impl AsRef<Path>,
+) -> Result<StoreMigrationReport, StoreError> {
+    let store_path = store_path.as_ref().to_path_buf();
+    let backup_path = backup_path.as_ref().to_path_buf();
+    let current = inspect_store_schema_version(&store_path)?;
+    if current != STORE_SCHEMA_VERSION {
+        return Err(StoreError::UnsupportedSchemaVersion {
+            observed: current.to_string(),
+        });
+    }
+    let observed = inspect_store_schema_version(&backup_path)?;
+    let plan = plan_store_migration(
+        StoreBackend::Redb,
+        observed,
+        STORE_SCHEMA_VERSION,
+        &REDB_MIGRATIONS,
+    )
+    .map_err(StoreError::Migration)?;
+    if plan.steps.is_empty() {
+        return Err(StoreError::Migration(CoreStoreError::new(
+            "rollback backup does not contain a pre-migration schema",
+        )));
+    }
+    let sha256 = checksum_file_sha256(&backup_path)?;
+    restore_backup_exact(&backup_path, &store_path)?;
+    let restored = inspect_store_schema_version(&store_path)?;
+    if restored != observed {
+        return Err(StoreError::Migration(CoreStoreError::new(
+            "redb rollback validation observed the wrong schema version",
+        )));
+    }
+
+    Ok(StoreMigrationReport {
+        applied_steps: plan.steps.iter().map(|step| step.id).collect(),
+        plan,
+        backup: Some(StoreMigrationBackup {
+            kind: StoreBackupKind::FileCopy,
+            reference: backup_path.display().to_string(),
+            sha256: Some(sha256),
+        }),
+        rolled_back: true,
+    })
+}
+
+fn restore_backup_exact(backup_path: &Path, store_path: &Path) -> Result<(), StoreError> {
+    if backup_path == store_path {
+        return Err(StoreError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "rollback backup path must differ from store path",
+        )));
+    }
+    let sequence = std::process::id();
+    let temporary = store_path.with_extension(format!("rollback-{sequence}.tmp"));
+    if temporary.exists() {
+        fs::remove_file(&temporary)?;
+    }
+    fs::copy(backup_path, &temporary)?;
+    let expected = checksum_file_sha256(backup_path)?;
+    let observed = checksum_file_sha256(&temporary)?;
+    if expected != observed {
+        fs::remove_file(&temporary).ok();
+        return Err(StoreError::Migration(CoreStoreError::new(
+            "redb rollback temporary copy checksum mismatch",
+        )));
+    }
+    inspect_store_schema_version(&temporary)?;
+    fs::rename(&temporary, store_path)?;
+    Ok(())
 }
 
 #[allow(clippy::result_large_err)]
@@ -780,6 +989,82 @@ impl BlobStore for CaptureBatcher {
                 value: row.value,
             })
             .collect())
+    }
+}
+
+/// Strictly read-only redb adapter for MCP/reporting surfaces.
+///
+/// `ReadOnlyDatabase::open` never performs repair or write-side bookkeeping on
+/// the selected store. Mutating trait operations fail closed.
+pub struct ReadOnlyStore {
+    db: ReadOnlyDatabase,
+}
+
+impl ReadOnlyStore {
+    #[allow(clippy::result_large_err)]
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
+        Ok(Self {
+            db: ReadOnlyDatabase::open(path)?,
+        })
+    }
+}
+
+impl BlobStore for ReadOnlyStore {
+    fn persist_batch(
+        &mut self,
+        _files: &[(String, Vec<u8>)],
+    ) -> Result<Vec<CoreSourceFileRow>, CoreStoreError> {
+        Err(CoreStoreError::new(
+            "read-only redb store refuses persistence",
+        ))
+    }
+
+    fn captured_paths(&self) -> Result<std::collections::BTreeSet<String>, CoreStoreError> {
+        captured_paths_db(&self.db).map_err(to_core_err)
+    }
+
+    fn read_source_file_blob(
+        &self,
+        relative_path: &str,
+    ) -> Result<Option<Vec<u8>>, CoreStoreError> {
+        read_source_blob_bytes_db(&self.db, relative_path).map_err(to_core_err)
+    }
+
+    fn list_source_files(&self) -> Result<Vec<CoreSourceFileRow>, CoreStoreError> {
+        list_source_files_db(&self.db)
+            .map_err(to_core_err)
+            .map(|rows| rows.into_iter().map(to_core_row).collect())
+    }
+
+    fn materialize_source_file(
+        &self,
+        relative_path: &str,
+        output_path: &Path,
+    ) -> Result<CoreMaterializedFile, CoreStoreError> {
+        let report = materialize_source_file_db(&self.db, relative_path, output_path)
+            .map_err(to_core_err)?;
+        Ok(CoreMaterializedFile {
+            path: report.path,
+            blob_ref: report.blob_ref,
+            sha256: report.sha256,
+            bytes: report.bytes,
+        })
+    }
+
+    fn store_metadata_rows(&self) -> Result<Vec<CoreStoreMetadataRow>, CoreStoreError> {
+        read_store_report_db(&self.db, PathBuf::new())
+            .map_err(to_core_err)
+            .map(|report| {
+                report
+                    .rows
+                    .into_iter()
+                    .map(|row| CoreStoreMetadataRow {
+                        table: row.table,
+                        key: row.key,
+                        value: row.value,
+                    })
+                    .collect()
+            })
     }
 }
 
@@ -1044,8 +1329,7 @@ mod tests {
                 .restored_store
                 .rows
                 .iter()
-                .any(|row| row.key == "migration_state"
-                    && row.value == "schema_1_no_migrations_supported")
+                .any(|row| row.key == "migration_state" && row.value == "current")
         );
         assert!(
             restore
@@ -1168,5 +1452,310 @@ mod tests {
         fs::remove_file(&path).ok();
         fs::remove_file(&source_path).ok();
         fs::remove_file(&output_path).ok();
+    }
+
+    // Test lane: default
+    // Defends: publication is no-replace and a failed publish removes its
+    // destination-local temporary file without disturbing existing content.
+    #[test]
+    fn materialization_refuses_replace_and_cleans_publication_temporary_file() {
+        let path = temp_store_path();
+        let output_dir = path.with_extension("materialization-output");
+        let output_path = output_dir.join("artifact.bin");
+        let original = b"existing destination must survive";
+        let captured = b"captured replacement must not win";
+
+        initialize_store(&path, &init_ctx()).expect("store init");
+        persist_source_blob(&path, "artifact.bin", captured).expect("persist captured bytes");
+        fs::create_dir(&output_dir).expect("create output directory");
+        fs::write(&output_path, original).expect("seed existing destination");
+
+        let error = materialize_source_file(&path, "artifact.bin", &output_path)
+            .expect_err("materialization must never replace an existing destination");
+        assert!(
+            error.to_string().contains("exists") || error.to_string().contains("replace"),
+            "unexpected no-replace error: {error}"
+        );
+        assert_eq!(
+            fs::read(&output_path).expect("read preserved destination"),
+            original
+        );
+        let entries = fs::read_dir(&output_dir)
+            .expect("read output directory")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect output entries");
+        assert_eq!(
+            entries.len(),
+            1,
+            "failed publication leaked a destination-local temporary file: {entries:?}"
+        );
+        assert_eq!(entries[0].path(), output_path);
+
+        fs::remove_file(&path).ok();
+        fs::remove_dir_all(&output_dir).ok();
+    }
+
+    // Test lane: default
+    // Defends: stored bytes are verified against their content-addressed key
+    // before publication; corrupt blobs publish nothing and leave no temp file.
+    #[test]
+    fn corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file() {
+        let path = temp_store_path();
+        let output_dir = path.with_extension("corrupt-output");
+        let output_path = output_dir.join("artifact.bin");
+        let persisted = persist_after_init(&path, "artifact.bin", b"checksum-bound captured bytes");
+
+        {
+            let db = Database::open(&path).expect("open store for corruption fixture");
+            let write_txn = db.begin_write().expect("begin corruption transaction");
+            {
+                let mut blobs = write_txn
+                    .open_table(SOURCE_BLOBS_TABLE)
+                    .expect("open blob table");
+                blobs
+                    .insert(
+                        persisted.sha256.as_str(),
+                        b"corrupt stored bytes".as_slice(),
+                    )
+                    .expect("inject corrupt blob bytes");
+            }
+            write_txn.commit().expect("commit corrupt blob fixture");
+        }
+
+        let error = materialize_source_file(&path, "artifact.bin", &output_path)
+            .expect_err("checksum mismatch must fail before publication");
+        assert!(
+            error.to_string().contains("checksum"),
+            "unexpected corrupt-blob error: {error}"
+        );
+        assert!(!output_path.exists(), "corrupt bytes were published");
+        if output_dir.exists() {
+            let entries = fs::read_dir(&output_dir)
+                .expect("read output directory")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("collect output entries");
+            assert!(
+                entries.is_empty(),
+                "corrupt-blob failure leaked a temporary file: {entries:?}"
+            );
+        }
+
+        fs::remove_file(&path).ok();
+        fs::remove_dir_all(&output_dir).ok();
+    }
+
+    // Test lane: default
+    // Defends: concurrent writers use atomic no-replace publication, yielding
+    // exactly one complete winner and no destination-local temporary residue.
+    #[test]
+    fn concurrent_materializations_have_exactly_one_complete_winner() {
+        const WRITERS: usize = 16;
+
+        let path = temp_store_path();
+        let output_dir = path.with_extension("concurrent-output");
+        let output_path = output_dir.join("artifact.bin");
+        let captured = b"one complete atomic publication".to_vec();
+
+        initialize_store(&path, &init_ctx()).expect("store init");
+        let mut batcher = CaptureBatcher::open(&path).expect("open store");
+        BlobStore::persist_batch(
+            &mut batcher,
+            &[("artifact.bin".to_string(), captured.clone())],
+        )
+        .expect("persist captured bytes");
+        let batcher = Arc::new(batcher);
+        let barrier = Arc::new(std::sync::Barrier::new(WRITERS));
+        let writers = (0..WRITERS)
+            .map(|_| {
+                let batcher = Arc::clone(&batcher);
+                let barrier = Arc::clone(&barrier);
+                let output_path = output_path.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    BlobStore::materialize_source_file(
+                        batcher.as_ref(),
+                        "artifact.bin",
+                        &output_path,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let results = writers
+            .into_iter()
+            .map(|writer| writer.join().expect("writer thread must not panic"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            results.iter().filter(|result| result.is_ok()).count(),
+            1,
+            "exactly one concurrent no-replace publication must win: {results:?}"
+        );
+        assert_eq!(
+            fs::read(&output_path).expect("read winning publication"),
+            captured
+        );
+        let entries = fs::read_dir(&output_dir)
+            .expect("read output directory")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect output entries");
+        assert_eq!(
+            entries.len(),
+            1,
+            "concurrent publication leaked temporary files: {entries:?}"
+        );
+        assert_eq!(entries[0].path(), output_path);
+
+        drop(batcher);
+        fs::remove_file(&path).ok();
+        fs::remove_dir_all(&output_dir).ok();
+    }
+
+    // Test lane: default
+    // Defends: CDB086 upgrades a known legacy redb layout only after creating
+    // a checksum-bound backup, preserves captured bytes, and can explicitly
+    // roll the store back to the exact pre-migration image.
+    #[test]
+    fn legacy_schema_migrates_with_backup_and_explicit_rollback() {
+        use codedb_core::store::{
+            CURRENT_STORE_SCHEMA_VERSION, LEGACY_STORE_SCHEMA_VERSION, StoreBackend,
+            StoreBackupKind,
+        };
+
+        let path = temp_store_path();
+        let backup_path = path.with_extension("pre-migration.redb");
+        initialize_legacy_store(&path);
+
+        let migrated = migrate_store(&path, &backup_path).expect("migrate known legacy store");
+        assert_eq!(migrated.plan.backend, StoreBackend::Redb);
+        assert_eq!(migrated.plan.observed_version, LEGACY_STORE_SCHEMA_VERSION);
+        assert_eq!(migrated.plan.target_version, CURRENT_STORE_SCHEMA_VERSION);
+        assert_eq!(migrated.applied_steps, vec!["redb_legacy_v0_9_to_v1"]);
+        let backup = migrated.backup.expect("pre-migration backup report");
+        assert_eq!(backup.kind, StoreBackupKind::FileCopy);
+        assert_eq!(backup.reference, backup_path.display().to_string());
+        assert_eq!(backup.sha256.as_deref().map(str::len), Some(64));
+
+        let current = read_store_report(&path).expect("read migrated store");
+        assert_eq!(current.schema_version, CURRENT_STORE_SCHEMA_VERSION);
+        assert_eq!(
+            read_source_blob_bytes(&path, "legacy/file.rs"),
+            b"fn legacy() {}\n"
+        );
+
+        let rolled_back =
+            rollback_store_migration(&path, &backup_path).expect("rollback from backup");
+        assert!(rolled_back.rolled_back);
+        assert_eq!(
+            inspect_store_schema_version(&path).expect("inspect rolled-back schema"),
+            LEGACY_STORE_SCHEMA_VERSION
+        );
+        assert_eq!(
+            read_source_blob_bytes(&path, "legacy/file.rs"),
+            b"fn legacy() {}\n"
+        );
+
+        fs::remove_file(&path).ok();
+        fs::remove_file(&backup_path).ok();
+    }
+
+    #[test]
+    fn migration_refuses_unknown_schema_without_creating_a_backup() {
+        let path = temp_store_path();
+        let backup_path = path.with_extension("must-not-exist.redb");
+        initialize_legacy_store(&path);
+        {
+            let db = Database::open(&path).expect("open legacy store");
+            let write_txn = db.begin_write().expect("begin schema mutation");
+            {
+                let mut versions = write_txn
+                    .open_table(SCHEMA_VERSION_TABLE)
+                    .expect("schema versions");
+                versions
+                    .insert("schema_version", "99.0.0")
+                    .expect("write unsupported schema");
+            }
+            write_txn.commit().expect("commit unsupported schema");
+        }
+
+        let error =
+            migrate_store(&path, &backup_path).expect_err("unknown schema must fail closed");
+        assert!(matches!(
+            error,
+            StoreError::UnsupportedSchemaVersion { observed } if observed == "99.0.0"
+        ));
+        assert!(
+            !backup_path.exists(),
+            "unknown schemas must be refused before backup or mutation"
+        );
+
+        fs::remove_file(&path).ok();
+    }
+
+    fn initialize_legacy_store(path: &Path) {
+        let content = b"fn legacy() {}\n";
+        let sha256 = sha256_bytes(content);
+        let blob_ref = format!("sha256:{sha256}");
+        let db = Database::create(path).expect("create legacy redb fixture");
+        let write_txn = db.begin_write().expect("begin legacy fixture");
+        {
+            let mut versions = write_txn
+                .open_table(SCHEMA_VERSION_TABLE)
+                .expect("legacy schema table");
+            versions
+                .insert("schema_version", "0.9.0")
+                .expect("legacy schema version");
+        }
+        {
+            let mut metadata = write_txn
+                .open_table(STORE_METADATA_TABLE)
+                .expect("legacy metadata");
+            metadata
+                .insert("schema_version", "0.9.0")
+                .expect("legacy metadata version");
+            metadata
+                .insert("migration_state", "legacy_requires_migration")
+                .expect("legacy migration state");
+            metadata
+                .insert("checksum_algorithm", "sha256")
+                .expect("legacy checksum algorithm");
+            metadata
+                .insert("store_status", "initialized")
+                .expect("legacy store status");
+        }
+        write_txn
+            .open_table(TOOLCHAIN_METADATA_TABLE)
+            .expect("legacy toolchain table");
+        write_txn
+            .open_table(VALIDATION_ROWS_TABLE)
+            .expect("legacy validation table");
+        {
+            let mut blobs = write_txn
+                .open_table(SOURCE_BLOBS_TABLE)
+                .expect("legacy blobs");
+            blobs
+                .insert(sha256.as_str(), content.as_slice())
+                .expect("legacy blob");
+        }
+        {
+            let mut files = write_txn
+                .open_table(SOURCE_FILES_TABLE)
+                .expect("legacy files");
+            files
+                .insert("legacy/file.rs", blob_ref.as_str())
+                .expect("legacy file reference");
+        }
+        write_txn.commit().expect("commit legacy fixture");
+    }
+
+    fn read_source_blob_bytes(path: &Path, relative_path: &str) -> Vec<u8> {
+        let db = Database::open(path).expect("open store for byte proof");
+        read_source_blob_bytes_db(&db, relative_path)
+            .expect("read source blob")
+            .expect("source blob exists")
+    }
+
+    fn persist_after_init(path: &Path, relative_path: &str, bytes: &[u8]) -> SourceBlobRow {
+        initialize_store(path, &init_ctx()).expect("store init");
+        persist_source_blob(path, relative_path, bytes).expect("persist source blob")
     }
 }

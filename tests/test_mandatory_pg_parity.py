@@ -16,6 +16,11 @@ class MandatoryPostgresParityTest(unittest.TestCase):
         self.assertIn("CODEDB_PG_CONN", workflow)
         self.assertIn("--features pg-integration", workflow)
         self.assertIn("pg-integration", manifest)
+        self.assertIn("sslmode=verify-full", workflow)
+        self.assertIn("sslrootcert=", workflow)
+        self.assertIn("job.services.postgres.id", workflow)
+        self.assertIn("openssl x509 -req", workflow)
+        self.assertIn("ssl = on", workflow)
 
         self.assertNotIn("#[ignore", parity)
         self.assertNotIn("CODEDB_PG_TEST", parity)

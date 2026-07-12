@@ -39,7 +39,7 @@ def read_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def audit_package(root: Path) -> list[str]:
+def audit_package(root: Path, *, direct_evidence: bool = False) -> list[str]:
     root = root.resolve()
     failures: list[str] = []
     for path in REQUIRED_DOCS:
@@ -106,7 +106,11 @@ def audit_package(root: Path) -> list[str]:
         if gap not in gap_text:
             failures.append(f"gap closure plan missing coverage: {gap}")
 
-    ledger_violations = audit_ledger(root, require_all_verified=True)
+    ledger_violations = audit_ledger(
+        root,
+        require_all_verified=True,
+        direct_evidence=direct_evidence,
+    )
     failures.extend(
         f"requirement proof ledger: {violation}" for violation in ledger_violations
     )
@@ -116,17 +120,26 @@ def audit_package(root: Path) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--direct-evidence",
+        action="store_true",
+        help=(
+            "Validate complete package and ledger evidence without requiring "
+            "the detached receipt currently being created"
+        ),
+    )
     args = parser.parse_args()
 
-    failures = audit_package(args.root)
+    failures = audit_package(args.root, direct_evidence=args.direct_evidence)
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
 
+    mode = "direct-evidence" if args.direct_evidence else "release"
     print(
         "bidirectional package ok: 21 task rows and "
-        "140 current-head requirement proofs"
+        f"140 current-head requirement proofs; mode={mode}"
     )
     return 0
 

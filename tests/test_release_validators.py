@@ -27,6 +27,20 @@ class ReleaseValidatorIntegrationTest(unittest.TestCase):
             "\n" + "\n".join(violations),
         )
 
+    def test_bidirectional_direct_evidence_mode_skips_only_receipt_recursion(
+        self,
+    ) -> None:
+        violations = audit_package(ROOT, direct_evidence=True)
+        self.assertTrue(violations)
+        self.assertTrue(
+            any("release-blocking evidence status" in item for item in violations),
+            "\n" + "\n".join(violations),
+        )
+        self.assertFalse(
+            any("missing external proof receipt" in item for item in violations),
+            "\n" + "\n".join(violations),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

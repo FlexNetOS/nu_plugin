@@ -16,23 +16,36 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use codedb_core::store::{
-    BlobStore, MaterializedFile, SourceFileRow, StoreError, StoreMetadataRow,
+    BlobStore, CURRENT_STORE_SCHEMA_VERSION, CURRENT_STORE_SCHEMA_VERSION_TEXT,
+    LEGACY_STORE_SCHEMA_VERSION, MaterializedFile, SourceFileRow, StoreBackupKind, StoreError,
+    StoreMetadataRow, StoreMigrationBackup, StoreMigrationReport, StoreMigrationStep,
+    atomic_materialize_file, parse_schema_version, plan_store_migration,
 };
-use postgres::{Client, GenericClient, NoTls};
+use codedb_core::store_spec::StoreBackend;
+use postgres::config::{Host, SslMode};
+use postgres::{Client, Config, GenericClient, NoTls};
+use postgres_rustls::{MakeTlsConnector, set_postgresql_alpn};
 use sha2::{Digest, Sha256};
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use url::Url;
 
 pub const DEFAULT_TABLE: &str = "codebase_codedb";
-pub const STORE_SCHEMA_VERSION: &str = "1.0.0";
+pub const STORE_SCHEMA_VERSION: &str = CURRENT_STORE_SCHEMA_VERSION_TEXT;
 
 const ORIGIN: &str = "codedb";
 const CURRENT_MIGRATION_STATE: &str = "current";
 const SCHEMA_LAYOUT: &str = "content_addressed_blobs_plus_path_refs";
 const MAX_IDENTIFIER_BYTES: usize = 63;
-const LONGEST_COMPONENT_SUFFIX: &str = "_schema_metadata";
+const LONGEST_COMPONENT_SUFFIX: &str = "_migration_backup";
+const POSTGRESQL_MIGRATIONS: [StoreMigrationStep; 1] = [StoreMigrationStep::new(
+    "postgresql_legacy_content_rows_to_v1",
+    LEGACY_STORE_SCHEMA_VERSION,
+    CURRENT_STORE_SCHEMA_VERSION,
+)];
 const BATCH_METADATA_JSON: &str =
     "{\"artifact_kind\":\"raw_blob\",\"permission_capture\":\"gap_not_available_for_raw_blob\"}";
 
@@ -42,6 +55,7 @@ struct StoreTables {
     schema_metadata: String,
     blobs: String,
     path_refs: String,
+    migration_backup: String,
 }
 
 impl StoreTables {
@@ -51,6 +65,7 @@ impl StoreTables {
             schema_metadata: format!("{base}_schema_metadata"),
             blobs: format!("{base}_blobs"),
             path_refs: format!("{base}_path_refs"),
+            migration_backup: format!("{base}_migration_backup"),
             base,
         })
     }
@@ -121,13 +136,21 @@ impl PgStore {
     /// deduplicated blobs plus path references. It refuses an unknown/future
     /// current-layout version rather than guessing a migration.
     pub fn migrate(conn: &str, table: &str) -> Result<Self, StoreError> {
+        Self::migrate_with_report(conn, table).map(|(store, _)| store)
+    }
+
+    /// Migrate and return the backend-neutral plan/backup report.
+    pub fn migrate_with_report(
+        conn: &str,
+        table: &str,
+    ) -> Result<(Self, StoreMigrationReport), StoreError> {
         let tables = StoreTables::new(table)?;
         let mut client = connect_client(conn)?;
         let mut tx = client
             .transaction()
             .map_err(|_| database_error("begin schema migration transaction"))?;
         acquire_store_mutation_lock(&mut tx, &tables)?;
-        match inspect_layout(&mut tx, &tables)? {
+        let observed = match inspect_layout(&mut tx, &tables)? {
             StoreLayout::Fresh => {
                 return Err(StoreError::new(format!(
                     "PostgreSQL CodeDB store {} is not initialized; run PgStore::initialize first",
@@ -136,20 +159,126 @@ impl PgStore {
             }
             StoreLayout::Current => {
                 validate_current_schema(&mut tx, &tables)?;
+                CURRENT_STORE_SCHEMA_VERSION
             }
-            StoreLayout::LegacyContentRows => {
-                migrate_legacy_content_rows(&mut tx, &tables)?;
-                validate_current_schema(&mut tx, &tables)?;
-            }
+            StoreLayout::LegacyContentRows => LEGACY_STORE_SCHEMA_VERSION,
             StoreLayout::Incomplete => {
                 return Err(incomplete_layout_error(&tables));
+            }
+        };
+        let plan = plan_store_migration(
+            StoreBackend::PostgreSql,
+            observed,
+            CURRENT_STORE_SCHEMA_VERSION,
+            &POSTGRESQL_MIGRATIONS,
+        )?;
+        let mut backup = None;
+        for step in &plan.steps {
+            match step.id {
+                "postgresql_legacy_content_rows_to_v1" => {
+                    create_legacy_migration_backup(&mut tx, &tables)?;
+                    migrate_legacy_content_rows(
+                        &mut tx,
+                        &tables,
+                        &tables.migration_backup,
+                        step.id,
+                    )?;
+                    validate_current_schema(&mut tx, &tables)?;
+                    backup = Some(StoreMigrationBackup {
+                        kind: StoreBackupKind::TransactionalTableSnapshot,
+                        reference: tables.migration_backup.clone(),
+                        sha256: None,
+                    });
+                }
+                other => {
+                    return Err(StoreError::new(format!(
+                        "PostgreSQL migration implementation is missing for step {other:?}"
+                    )));
+                }
             }
         }
         tx.commit()
             .map_err(|_| database_error("commit schema migration transaction"))?;
-        Ok(Self {
-            client: RefCell::new(client),
-            tables,
+        let report = StoreMigrationReport {
+            applied_steps: plan.steps.iter().map(|step| step.id).collect(),
+            plan,
+            backup,
+            rolled_back: false,
+        };
+        Ok((
+            Self {
+                client: RefCell::new(client),
+                tables,
+            },
+            report,
+        ))
+    }
+
+    /// Restore the exact legacy relation retained by the last successful
+    /// migration. DDL and restore run in one transaction under the same
+    /// store-scoped advisory lock as migration.
+    pub fn rollback_last_migration(
+        conn: &str,
+        table: &str,
+    ) -> Result<StoreMigrationReport, StoreError> {
+        let tables = StoreTables::new(table)?;
+        let mut client = connect_client(conn)?;
+        let mut tx = client
+            .transaction()
+            .map_err(|_| database_error("begin schema rollback transaction"))?;
+        acquire_store_mutation_lock(&mut tx, &tables)?;
+        if !relation_exists(&mut tx, &tables.migration_backup)? {
+            return Err(StoreError::new(format!(
+                "PostgreSQL CodeDB store {} has no migration backup to roll back",
+                tables.base
+            )));
+        }
+        match inspect_layout(&mut tx, &tables)? {
+            StoreLayout::Current => validate_current_schema(&mut tx, &tables)?,
+            StoreLayout::Fresh | StoreLayout::LegacyContentRows | StoreLayout::Incomplete => {
+                return Err(incomplete_layout_error(&tables));
+            }
+        }
+        let metadata = read_schema_metadata(&mut tx, &tables)?;
+        let expected_step = POSTGRESQL_MIGRATIONS[0].id;
+        if metadata.get("last_migration").map(String::as_str) != Some(expected_step) {
+            return Err(StoreError::new(format!(
+                "PostgreSQL CodeDB store {} last migration is not rollback-compatible",
+                tables.base
+            )));
+        }
+        let plan = plan_store_migration(
+            StoreBackend::PostgreSql,
+            LEGACY_STORE_SCHEMA_VERSION,
+            CURRENT_STORE_SCHEMA_VERSION,
+            &POSTGRESQL_MIGRATIONS,
+        )?;
+        tx.batch_execute(
+            format!(
+                "DROP TABLE {path_refs};\
+                 DROP TABLE {blobs};\
+                 DROP TABLE {schema_metadata};\
+                 ALTER TABLE {backup} RENAME TO {base};",
+                path_refs = tables.path_refs,
+                blobs = tables.blobs,
+                schema_metadata = tables.schema_metadata,
+                backup = tables.migration_backup,
+                base = tables.base,
+            )
+            .as_str(),
+        )
+        .map_err(|_| database_error("restore PostgreSQL migration backup"))?;
+        tx.commit()
+            .map_err(|_| database_error("commit schema rollback transaction"))?;
+        Ok(StoreMigrationReport {
+            applied_steps: plan.steps.iter().map(|step| step.id).collect(),
+            plan,
+            backup: Some(StoreMigrationBackup {
+                kind: StoreBackupKind::TransactionalTableSnapshot,
+                reference: tables.migration_backup,
+                sha256: None,
+            }),
+            rolled_back: true,
         })
     }
 
@@ -321,31 +450,14 @@ impl BlobStore for PgStore {
         let content: Option<Vec<u8>> = row.get(1);
         let content =
             content.ok_or_else(|| corrupt_path_reference_error(relative_path, &sha256))?;
-        let metadata_text: String = row.get(2);
-
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent).map_err(|_| {
-                StoreError::new("failed to create materialization output directory")
-            })?;
-        }
-        fs::write(output_path, &content)
-            .map_err(|_| StoreError::new("failed to write materialized source file"))?;
-
         #[cfg(unix)]
-        if let Some(mode) = parse_unix_mode(&metadata_text) {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(output_path, fs::Permissions::from_mode(mode)).map_err(|_| {
-                StoreError::new("failed to restore materialized source permissions")
-            })?;
-        }
-
-        let materialized_sha256 = sha256_file(output_path)?;
-        Ok(MaterializedFile {
-            path: output_path.to_path_buf(),
-            blob_ref: format!("sha256:{sha256}"),
-            sha256: materialized_sha256,
-            bytes: content.len() as u64,
-        })
+        let unix_mode = {
+            let metadata_text: String = row.get(2);
+            parse_unix_mode(&metadata_text)
+        };
+        #[cfg(not(unix))]
+        let unix_mode = None;
+        atomic_materialize_file(output_path, &content, &sha256, unix_mode)
     }
 
     fn store_metadata_rows(&self) -> Result<Vec<StoreMetadataRow>, StoreError> {
@@ -387,11 +499,268 @@ fn connect_client(conn: &str) -> Result<Client, StoreError> {
     if conn.trim().is_empty() {
         return Err(StoreError::new("PostgreSQL DSN is required"));
     }
-    Client::connect(conn, NoTls).map_err(|_| connection_error(conn))
+    let secured = parse_connection_security(conn)?;
+    match secured.transport {
+        ConnectionTransport::UnixSocket => secured
+            .config
+            .connect(NoTls)
+            .map_err(|_| connection_error(conn)),
+        ConnectionTransport::VerifiedTls { ca_path } => {
+            let roots = load_ca_roots(&ca_path)?;
+            let mut tls = ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            set_postgresql_alpn(&mut tls);
+            secured
+                .config
+                .connect(MakeTlsConnector::new(tokio_rustls::TlsConnector::from(
+                    Arc::new(tls),
+                )))
+                .map_err(|_| connection_error(conn))
+        }
+    }
+}
+
+/// Open an administrative integration-test connection through the exact same
+/// transport policy as [`PgStore`].
+#[cfg(feature = "pg-integration")]
+#[doc(hidden)]
+pub fn connect_for_integration_tests(conn: &str) -> Result<Client, StoreError> {
+    connect_client(conn)
 }
 
 fn connection_error(_conn: &str) -> StoreError {
     StoreError::new("PostgreSQL connection failed; connection details redacted")
+}
+
+struct SecureConnectionConfig {
+    config: Config,
+    transport: ConnectionTransport,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum ConnectionTransport {
+    UnixSocket,
+    VerifiedTls { ca_path: PathBuf },
+}
+
+fn parse_connection_security(conn: &str) -> Result<SecureConnectionConfig, StoreError> {
+    let (mut config, ssl_mode, ca_path) =
+        if conn.starts_with("postgres://") || conn.starts_with("postgresql://") {
+            parse_url_connection_security(conn)?
+        } else {
+            parse_keyword_connection_security(conn)?
+        };
+    let hosts = config.get_hosts();
+    let has_tcp = hosts.iter().any(|host| matches!(host, Host::Tcp(_)));
+    let has_unix = hosts.iter().any(|host| matches!(host, Host::Unix(_)));
+    if hosts.is_empty() || has_tcp == has_unix {
+        return Err(security_policy_error(
+            "PostgreSQL connections must select either verified TLS over TCP or one explicit Unix socket path",
+        ));
+    }
+    if has_unix {
+        if !config.get_hostaddrs().is_empty() {
+            return Err(security_policy_error(
+                "PostgreSQL Unix socket connections cannot include TCP host addresses",
+            ));
+        }
+        config.ssl_mode(SslMode::Disable);
+        return Ok(SecureConnectionConfig {
+            config,
+            transport: ConnectionTransport::UnixSocket,
+        });
+    }
+    if ssl_mode.as_deref() != Some("verify-full") {
+        return Err(security_policy_error(
+            "remote PostgreSQL TCP requires verified TLS with sslmode=verify-full",
+        ));
+    }
+    let ca_path = ca_path.ok_or_else(|| {
+        security_policy_error(
+            "remote PostgreSQL TCP requires an explicit CA certificate path in sslrootcert",
+        )
+    })?;
+    let ca_path = PathBuf::from(ca_path);
+    if !ca_path.is_absolute() {
+        return Err(security_policy_error(
+            "remote PostgreSQL TCP requires an absolute CA certificate path",
+        ));
+    }
+    config.ssl_mode(SslMode::Require);
+    Ok(SecureConnectionConfig {
+        config,
+        transport: ConnectionTransport::VerifiedTls { ca_path },
+    })
+}
+
+fn parse_url_connection_security(
+    conn: &str,
+) -> Result<(Config, Option<String>, Option<String>), StoreError> {
+    let mut url = Url::parse(conn).map_err(|_| dsn_parse_error())?;
+    let mut ssl_mode = None;
+    let mut ca_path = None;
+    let mut retained = Vec::new();
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "sslmode" => set_unique_policy_value(&mut ssl_mode, value.into_owned())?,
+            "sslrootcert" => set_unique_policy_value(&mut ca_path, value.into_owned())?,
+            _ => retained.push((key.into_owned(), value.into_owned())),
+        }
+    }
+    {
+        let mut query = url.query_pairs_mut();
+        query.clear();
+        for (key, value) in retained {
+            query.append_pair(&key, &value);
+        }
+        if ssl_mode.as_deref() == Some("verify-full") {
+            query.append_pair("sslmode", "require");
+        } else if let Some(mode) = ssl_mode.as_deref() {
+            query.append_pair("sslmode", mode);
+        }
+    }
+    let config = url
+        .as_str()
+        .parse::<Config>()
+        .map_err(|_| dsn_parse_error())?;
+    Ok((config, ssl_mode, ca_path))
+}
+
+fn parse_keyword_connection_security(
+    conn: &str,
+) -> Result<(Config, Option<String>, Option<String>), StoreError> {
+    let mut ssl_mode = None;
+    let mut ca_path = None;
+    let mut retained = Vec::new();
+    for (key, value) in parse_keyword_pairs(conn)? {
+        match key.as_str() {
+            "sslmode" => set_unique_policy_value(&mut ssl_mode, value)?,
+            "sslrootcert" => set_unique_policy_value(&mut ca_path, value)?,
+            _ => retained.push((key, value)),
+        }
+    }
+    retained.push((
+        "sslmode".to_string(),
+        if ssl_mode.as_deref() == Some("verify-full") {
+            "require".to_string()
+        } else {
+            ssl_mode.clone().unwrap_or_else(|| "prefer".to_string())
+        },
+    ));
+    let normalized = retained
+        .into_iter()
+        .map(|(key, value)| format!("{key}='{}'", escape_keyword_value(&value)))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let config = normalized
+        .parse::<Config>()
+        .map_err(|_| dsn_parse_error())?;
+    Ok((config, ssl_mode, ca_path))
+}
+
+fn parse_keyword_pairs(conn: &str) -> Result<Vec<(String, String)>, StoreError> {
+    let bytes = conn.as_bytes();
+    let mut cursor = 0;
+    let mut pairs = Vec::new();
+    while cursor < bytes.len() {
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if cursor == bytes.len() {
+            break;
+        }
+        let key_start = cursor;
+        while cursor < bytes.len() && bytes[cursor] != b'=' && !bytes[cursor].is_ascii_whitespace()
+        {
+            cursor += 1;
+        }
+        if cursor == key_start || cursor == bytes.len() || bytes[cursor] != b'=' {
+            return Err(dsn_parse_error());
+        }
+        let key = std::str::from_utf8(&bytes[key_start..cursor])
+            .map_err(|_| dsn_parse_error())?
+            .to_string();
+        cursor += 1;
+        let mut value = Vec::new();
+        let quoted = cursor < bytes.len() && bytes[cursor] == b'\'';
+        if quoted {
+            cursor += 1;
+        }
+        let mut closed = !quoted;
+        while cursor < bytes.len() {
+            let byte = bytes[cursor];
+            if byte == b'\\' {
+                cursor += 1;
+                if cursor == bytes.len() {
+                    return Err(dsn_parse_error());
+                }
+                value.push(bytes[cursor]);
+                cursor += 1;
+            } else if quoted && byte == b'\'' {
+                cursor += 1;
+                closed = true;
+                break;
+            } else if !quoted && byte.is_ascii_whitespace() {
+                break;
+            } else {
+                value.push(byte);
+                cursor += 1;
+            }
+        }
+        if !closed || (cursor < bytes.len() && !bytes[cursor].is_ascii_whitespace()) {
+            return Err(dsn_parse_error());
+        }
+        pairs.push((
+            key,
+            String::from_utf8(value).map_err(|_| dsn_parse_error())?,
+        ));
+    }
+    Ok(pairs)
+}
+
+fn set_unique_policy_value(slot: &mut Option<String>, value: String) -> Result<(), StoreError> {
+    if slot.replace(value).is_some() {
+        return Err(security_policy_error(
+            "duplicate PostgreSQL TLS policy parameters are forbidden",
+        ));
+    }
+    Ok(())
+}
+
+fn escape_keyword_value(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+fn load_ca_roots(path: &Path) -> Result<RootCertStore, StoreError> {
+    let bytes = std::fs::read(path).map_err(|_| {
+        security_policy_error("PostgreSQL CA certificate file is unavailable or unreadable")
+    })?;
+    let mut roots = RootCertStore::empty();
+    let mut count = 0usize;
+    for cert in rustls_pemfile::certs(&mut bytes.as_slice()) {
+        let cert = cert.map_err(|_| {
+            security_policy_error("PostgreSQL CA certificate file contains invalid PEM")
+        })?;
+        roots.add(cert).map_err(|_| {
+            security_policy_error("PostgreSQL CA certificate file contains an invalid certificate")
+        })?;
+        count += 1;
+    }
+    if count == 0 {
+        return Err(security_policy_error(
+            "PostgreSQL CA certificate file contains no trusted certificates",
+        ));
+    }
+    Ok(roots)
+}
+
+fn dsn_parse_error() -> StoreError {
+    StoreError::new("invalid PostgreSQL DSN; connection details redacted")
+}
+
+fn security_policy_error(reason: &str) -> StoreError {
+    StoreError::new(format!("{reason}; PostgreSQL connection details redacted"))
 }
 
 fn database_error(operation: &str) -> StoreError {
@@ -443,14 +812,15 @@ fn inspect_layout<C: GenericClient>(
     let schema_metadata = relation_exists(client, &tables.schema_metadata)?;
     let blobs = relation_exists(client, &tables.blobs)?;
     let path_refs = relation_exists(client, &tables.path_refs)?;
+    let migration_backup = relation_exists(client, &tables.migration_backup)?;
     let component_count = [schema_metadata, blobs, path_refs]
         .into_iter()
         .filter(|exists| *exists)
         .count();
-    match (base, component_count) {
-        (false, 0) => Ok(StoreLayout::Fresh),
-        (true, 0) => Ok(StoreLayout::LegacyContentRows),
-        (false, 3) => Ok(StoreLayout::Current),
+    match (base, component_count, migration_backup) {
+        (false, 0, false) => Ok(StoreLayout::Fresh),
+        (true, 0, false) => Ok(StoreLayout::LegacyContentRows),
+        (false, 3, _) => Ok(StoreLayout::Current),
         _ => Ok(StoreLayout::Incomplete),
     }
 }
@@ -475,6 +845,7 @@ fn create_current_schema<C: GenericClient>(
     tables: &StoreTables,
     last_migration: &str,
 ) -> Result<(), StoreError> {
+    let schema_version = STORE_SCHEMA_VERSION.to_string();
     let ddl = format!(
         "CREATE TABLE {schema_metadata} (\
              key text PRIMARY KEY,\
@@ -506,7 +877,7 @@ fn create_current_schema<C: GenericClient>(
     for (key, value) in [
         ("store_backend", "postgresql"),
         ("store_status", "initialized"),
-        ("schema_version", STORE_SCHEMA_VERSION),
+        ("schema_version", schema_version.as_str()),
         ("migration_state", CURRENT_MIGRATION_STATE),
         ("last_migration", last_migration),
         ("checksum_algorithm", "sha256"),
@@ -588,18 +959,13 @@ fn validate_current_schema<C: GenericClient>(
         ],
     )?;
 
-    let metadata_sql = format!("SELECT key, value FROM {}", tables.schema_metadata);
-    let metadata = client
-        .query(metadata_sql.as_str(), &[])
-        .map_err(|_| database_error("validate schema metadata"))?
-        .into_iter()
-        .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
-        .collect::<BTreeMap<_, _>>();
+    let metadata = read_schema_metadata(client, tables)?;
 
     let schema_version = metadata.get("schema_version").ok_or_else(|| {
         StoreError::new("PostgreSQL CodeDB schema is missing schema_version metadata")
     })?;
-    if schema_version != STORE_SCHEMA_VERSION {
+    let observed = parse_schema_version(schema_version)?;
+    if observed != CURRENT_STORE_SCHEMA_VERSION {
         return Err(StoreError::new(format!(
             "unsupported PostgreSQL CodeDB schema version {schema_version:?}; this client supports {STORE_SCHEMA_VERSION:?} and refuses unknown or future schemas"
         )));
@@ -625,6 +991,19 @@ fn validate_current_schema<C: GenericClient>(
         }
     }
     Ok(())
+}
+
+fn read_schema_metadata<C: GenericClient>(
+    client: &mut C,
+    tables: &StoreTables,
+) -> Result<BTreeMap<String, String>, StoreError> {
+    let metadata_sql = format!("SELECT key, value FROM {}", tables.schema_metadata);
+    Ok(client
+        .query(metadata_sql.as_str(), &[])
+        .map_err(|_| database_error("validate schema metadata"))?
+        .into_iter()
+        .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+        .collect())
 }
 
 fn validate_relation_shape<C: GenericClient>(
@@ -674,16 +1053,40 @@ fn validate_relation_shape<C: GenericClient>(
     Ok(())
 }
 
-fn migrate_legacy_content_rows<C: GenericClient>(
+fn create_legacy_migration_backup<C: GenericClient>(
     client: &mut C,
     tables: &StoreTables,
 ) -> Result<(), StoreError> {
-    validate_legacy_relation(client, &tables.base)?;
-    create_current_schema(client, tables, "legacy_content_rows_to_v1")?;
+    if relation_exists(client, &tables.migration_backup)? {
+        return Err(StoreError::new(format!(
+            "PostgreSQL CodeDB store {} already has a migration backup; refusing overwrite",
+            tables.base
+        )));
+    }
+    client
+        .batch_execute(
+            format!(
+                "ALTER TABLE {} RENAME TO {}",
+                tables.base, tables.migration_backup
+            )
+            .as_str(),
+        )
+        .map_err(|_| database_error("create PostgreSQL migration backup"))?;
+    Ok(())
+}
+
+fn migrate_legacy_content_rows<C: GenericClient>(
+    client: &mut C,
+    tables: &StoreTables,
+    legacy_relation: &str,
+    migration_id: &str,
+) -> Result<(), StoreError> {
+    validate_legacy_relation(client, legacy_relation)?;
+    create_current_schema(client, tables, migration_id)?;
     let legacy_sql = format!(
         "SELECT module_path, content, sha256, COALESCE(metadata, '{{}}'::jsonb)::text \
          FROM {} ORDER BY module_path COLLATE \"C\"",
-        tables.base
+        legacy_relation
     );
     let legacy_rows = client
         .query(legacy_sql.as_str(), &[])
@@ -716,9 +1119,6 @@ fn migrate_legacy_content_rows<C: GenericClient>(
             .execute(path_sql.as_str(), &[&relative_path, &sha256, &metadata])
             .map_err(|_| database_error("migrate legacy path reference"))?;
     }
-    client
-        .batch_execute(format!("DROP TABLE {}", tables.base).as_str())
-        .map_err(|_| database_error("remove migrated legacy table"))?;
     Ok(())
 }
 
@@ -759,12 +1159,6 @@ fn parse_unix_mode(metadata_text: &str) -> Option<u32> {
     }
 }
 
-fn sha256_file(path: &Path) -> Result<String, StoreError> {
-    let bytes = fs::read(path)
-        .map_err(|_| StoreError::new("failed to checksum materialized source file"))?;
-    Ok(sha256_hex(&bytes))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -795,6 +1189,86 @@ mod tests {
         assert!(!error.message().contains(secret));
         assert!(!error.message().contains("postgres://"));
         assert!(error.message().contains("redacted"));
+    }
+
+    #[test]
+    fn tls_policy_parses_verified_tcp_url_and_keyword_dsn() {
+        for dsn in [
+            "postgresql://codedb:secret@db.example.invalid/codedb?sslmode=verify-full&sslrootcert=%2Fetc%2Fcodedb%2Froot.crt",
+            "host=db.example.invalid user=codedb password='secret value' dbname=codedb sslmode=verify-full sslrootcert=/etc/codedb/root.crt",
+        ] {
+            let secured = parse_connection_security(dsn).expect("parse verified TLS policy");
+            assert_eq!(secured.config.get_ssl_mode(), SslMode::Require);
+            assert_eq!(
+                secured.transport,
+                ConnectionTransport::VerifiedTls {
+                    ca_path: PathBuf::from("/etc/codedb/root.crt")
+                }
+            );
+            assert!(secured.config.get_hosts().iter().all(
+                |host| matches!(host, Host::Tcp(hostname) if hostname == "db.example.invalid")
+            ));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tls_policy_parses_only_explicit_unix_socket_as_plaintext() {
+        let secured = parse_connection_security(
+            "host='/run/postgresql' user=codedb password='secret value' sslmode=disable",
+        )
+        .expect("parse explicit Unix socket policy");
+        assert_eq!(secured.transport, ConnectionTransport::UnixSocket);
+        assert_eq!(secured.config.get_ssl_mode(), SslMode::Disable);
+        assert!(
+            secured.config.get_hosts().iter().all(
+                |host| matches!(host, Host::Unix(path) if path == Path::new("/run/postgresql"))
+            )
+        );
+    }
+
+    #[test]
+    fn tls_policy_rejects_weaker_mixed_duplicate_and_relative_ca_configuration() {
+        for dsn in [
+            "host=db.example.invalid sslmode=require sslrootcert=/etc/codedb/root.crt",
+            "host=db.example.invalid,/run/postgresql sslmode=verify-full sslrootcert=/etc/codedb/root.crt",
+            "hostaddr=203.0.113.7 sslmode=verify-full sslrootcert=/etc/codedb/root.crt",
+            "host=db.example.invalid sslmode=verify-full sslmode=verify-full sslrootcert=/etc/codedb/root.crt",
+            "host=db.example.invalid sslmode=verify-full sslrootcert=relative/root.crt",
+        ] {
+            let error = parse_connection_security(dsn)
+                .err()
+                .expect("unsafe policy must fail closed");
+            assert!(error.message().contains("redacted"));
+            assert!(!error.message().contains("db.example.invalid"));
+            assert!(!error.message().contains("root.crt"));
+        }
+    }
+
+    #[test]
+    fn malformed_dsn_diagnostics_never_echo_credentials_or_hosts() {
+        let secret = "diagnostic-secret";
+        let dsn = format!(
+            "host=db.example.invalid user=codedb password='{secret}' sslmode='unterminated"
+        );
+        let error = parse_connection_security(&dsn)
+            .err()
+            .expect("malformed DSN must fail");
+        assert_eq!(
+            error.message(),
+            "invalid PostgreSQL DSN; connection details redacted"
+        );
+        assert!(!error.message().contains(secret));
+        assert!(!error.message().contains("db.example.invalid"));
+    }
+
+    #[test]
+    fn empty_ca_bundle_fails_closed_without_disclosing_its_path() {
+        let ca = tempfile::NamedTempFile::new().expect("empty CA fixture");
+        let error = load_ca_roots(ca.path()).expect_err("empty CA bundle must fail closed");
+        assert!(error.message().contains("no trusted certificates"));
+        assert!(error.message().contains("redacted"));
+        assert!(!error.message().contains(&ca.path().display().to_string()));
     }
 
     #[cfg(unix)]

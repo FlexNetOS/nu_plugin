@@ -2,10 +2,15 @@ name: CI
 
 on:
   pull_request:
+  merge_group:
+    types:
+      - checks_requested
   push:
     branches:
-      - master
-      - main
+      - "**"
+
+permissions:
+  contents: read
 
 jobs:
   mandatory_capabilities:
@@ -18,6 +23,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
+      - name: Validate executable task graph, maps, receipts, and manifests
+        run: >-
+          python3 -m unittest tests/test_task_graph_validator.py &&
+          python3 scripts/validate_task_graph.py --structure-only
       - name: Prove locked context, path safety, and PostgreSQL policy
         run: python3 -m unittest tests/test_locked_context_integration.py tests/test_materialization_safety.py tests/test_postgres_open_policy.py tests/test_mandatory_pg_parity.py
       - name: Test affected crates and frontdoors
@@ -42,13 +51,77 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
-    env:
-      CODEDB_PG_CONN: host=localhost port=5432 user=codedb password=codedb dbname=codedb
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - name: Require a verified-TLS PostgreSQL service
+        shell: bash
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          cert_root="$RUNNER_TEMP/codedb-postgres-tls"
+          mkdir -m 700 "$cert_root"
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$cert_root/ca.key" \
+            -out "$cert_root/ca.crt" \
+            -subj "/CN=CodeDB CI Test CA" \
+            -days 1
+          openssl req -newkey rsa:2048 -nodes \
+            -keyout "$cert_root/server.key" \
+            -out "$cert_root/server.csr" \
+            -subj "/CN=localhost"
+          printf '%s\n' \
+            'subjectAltName=DNS:localhost' \
+            'extendedKeyUsage=serverAuth' \
+            > "$cert_root/server.ext"
+          openssl x509 -req \
+            -in "$cert_root/server.csr" \
+            -CA "$cert_root/ca.crt" \
+            -CAkey "$cert_root/ca.key" \
+            -CAcreateserial \
+            -out "$cert_root/server.crt" \
+            -days 1 \
+            -extfile "$cert_root/server.ext"
+
+          docker cp "$cert_root/server.crt" \
+            "$POSTGRES_CONTAINER:/var/lib/postgresql/data/server.crt"
+          docker cp "$cert_root/server.key" \
+            "$POSTGRES_CONTAINER:/var/lib/postgresql/data/server.key"
+          docker exec "$POSTGRES_CONTAINER" \
+            chown postgres:postgres \
+            /var/lib/postgresql/data/server.crt \
+            /var/lib/postgresql/data/server.key
+          docker exec "$POSTGRES_CONTAINER" \
+            chmod 600 /var/lib/postgresql/data/server.key
+          docker exec --user postgres "$POSTGRES_CONTAINER" sh -ceu \
+            'printf "%s\n" "ssl = on" \
+              "ssl_cert_file = '\''server.crt'\''" \
+              "ssl_key_file = '\''server.key'\''" \
+              >> "$PGDATA/postgresql.conf"'
+          docker restart "$POSTGRES_CONTAINER" >/dev/null
+          for _ in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER" \
+              pg_isready -U codedb -d codedb >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec "$POSTGRES_CONTAINER" \
+            pg_isready -U codedb -d codedb
+          encoded_ca="$(
+            python3 -c \
+              'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' \
+              "$cert_root/ca.crt"
+          )"
+          printf '%s\n' \
+            "CODEDB_PG_CONN=postgresql://codedb:codedb@localhost:5432/codedb?sslmode=verify-full&sslrootcert=$encoded_ca" \
+            >> "$GITHUB_ENV"
       - name: Run non-skipping differential backend contract
         run: cargo test -p codedb-store-pg --features pg-integration --test blobstore_parity -- --nocapture
+      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+      - name: Prove the dynamic redb/PostgreSQL Nu frontdoor over verified TLS
+        run: nix develop .#ci -c nu tests/test_dynamic_store_plugin.nu
 
   # Operator directive 2026-07-09: LOCAL-FIRST CI IS MANDATORY for compilation/tests —
   # trusted refs (pushes + same-repo PRs) run on the FlexNetOS self-hosted fleet; GitHub-hosted
@@ -111,3 +184,161 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
       - name: Flake checks
         run: nix flake check --no-write-lock-file
+
+  requirement_proof_verification:
+    name: Requirement proof verification
+    needs:
+      - mandatory_capabilities
+      - postgres_parity
+      - truth_surface
+      - rust
+      - nu
+      - nix
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CODEDB_REVIEWED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      CODEDB_PROOF_RECEIPT: ${{ runner.temp }}/codedb-requirement-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}.json
+    steps:
+      - name: Check out the exact submitted commit without push credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.CODEDB_REVIEWED_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove exact source identity and clean checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CODEDB_REVIEWED_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          case "$CODEDB_PROOF_RECEIPT" in
+            "$GITHUB_WORKSPACE"/*)
+              echo "receipt path must remain outside the source checkout" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Test schema-3 receipt and detached-verification policy
+        run: >-
+          python3 -m unittest
+          tests/test_requirement_proof_attestation.py
+          tests/test_requirement_proof_ledger.py
+          tests/test_ci_detached_attestation.py
+
+      - name: Generate the external current-head receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/generate_requirement_proof_receipt.py \
+            --output "$CODEDB_PROOF_RECEIPT" \
+            --provider github-actions \
+            --run-id "$GITHUB_RUN_ID" \
+            --all-requirements
+          test -s "$CODEDB_PROOF_RECEIPT"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Validate receipt identity before signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import csv
+          from pathlib import Path
+
+          receipt = json.loads(Path(os.environ["CODEDB_PROOF_RECEIPT"]).read_text())
+          with Path("execution/REQUIREMENT_PROOF_LEDGER.csv").open(
+              newline="", encoding="utf-8"
+          ) as handle:
+              expected_requirements = {
+                  row["requirement_id"] for row in csv.DictReader(handle)
+              }
+          assert len(expected_requirements) == 140
+          assert receipt["schema_version"] == 3
+          assert receipt["attestation_type"] == "requirement-proof"
+          assert receipt["repository"] == os.environ["GITHUB_REPOSITORY"]
+          assert receipt["commit_sha"] == os.environ["CODEDB_REVIEWED_SHA"]
+          assert receipt["generator"]["provider"] == "github-actions"
+          assert receipt["generator"]["run_id"] == os.environ["GITHUB_RUN_ID"]
+          assert len(receipt["rows"]) == 140
+          assert {row["requirement_id"] for row in receipt["rows"]} == expected_requirements
+          assert receipt["worktree"]["clean_before"] is True
+          assert receipt["worktree"]["clean_after"] is True
+          PY
+
+      - name: Retain unsigned receipt for the protected signer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codedb-requirement-proof-unsigned-${{ env.CODEDB_REVIEWED_SHA }}
+          path: ${{ env.CODEDB_PROOF_RECEIPT }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Prove CI left the submitted source unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CODEDB_REVIEWED_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+  requirement_proof_signer:
+    name: Protected requirement proof signer
+    needs: requirement_proof_verification
+    if: >-
+      github.repository == 'FlexNetOS/nu_plugin' &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false))
+    runs-on: ubuntu-latest
+    environment: requirement-proof-signer
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      CODEDB_REVIEWED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      CODEDB_PROOF_RECEIPT: ${{ runner.temp }}/codedb-requirement-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}.json
+    steps:
+      - name: Download only the receipt produced by the successful verifier
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: codedb-requirement-proof-unsigned-${{ env.CODEDB_REVIEWED_SHA }}
+          path: ${{ runner.temp }}
+
+      - name: Bind the signer subject to the exact reviewed head SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$CODEDB_PROOF_RECEIPT"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          receipt = json.loads(Path(os.environ["CODEDB_PROOF_RECEIPT"]).read_text())
+          assert receipt["schema_version"] == 3
+          assert receipt["repository"] == os.environ["GITHUB_REPOSITORY"]
+          assert receipt["commit_sha"] == os.environ["CODEDB_REVIEWED_SHA"]
+          assert len(receipt["rows"]) == 140
+          PY
+
+      - name: Create the real detached GitHub artifact attestation
+        id: attest
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: ${{ env.CODEDB_PROOF_RECEIPT }}
+
+      - name: Retain receipt and detached bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codedb-requirement-proof-${{ env.CODEDB_REVIEWED_SHA }}
+          path: |
+            ${{ env.CODEDB_PROOF_RECEIPT }}
+            ${{ steps.attest.outputs.bundle-path }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

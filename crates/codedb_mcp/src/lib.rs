@@ -4,18 +4,19 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fmt::{Display, Formatter};
 use std::fs;
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use codedb_cargo::capture_cargo_metadata_json;
 use codedb_context::{CargoContextRequest, capture_context, detect_host_triple};
+use codedb_core::store::{BlobStore, ContainedDirectory};
 use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
     TableRow, capture_gaps, prove_no_mutation, schema_rows, table_inventory, validation_errors,
 };
 use codedb_rust_static::{capture_build_script_static, capture_rust_items, capture_rust_macros};
+use codedb_store_pg::PgStore;
+use codedb_store_redb::ReadOnlyStore;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -36,8 +37,9 @@ pub const DEFAULT_MAX_REQUESTS: usize = 128;
 pub const MAX_REQUESTS: usize = 128;
 pub const MAX_JSON_RPC_LINE_BYTES: usize = 1_048_576;
 pub const MAX_CURSOR: usize = 1_000_000;
-pub const MAX_STORE_REPORT_BYTES: usize = 4 * 1_048_576;
-pub const MAX_REDB_SNAPSHOT_BYTES: u64 = 512 * 1_048_576;
+pub const MAX_REDB_STORE_BYTES: u64 = 512 * 1_048_576;
+pub const MAX_STORE_METADATA_ROWS: usize = 4_096;
+pub const MAX_STORE_METADATA_BYTES: usize = 1_048_576;
 pub const DEFAULT_PG_TABLE: &str = "codebase_codedb";
 
 pub const ALLOWED_TOOLS: &[&str] = &[
@@ -140,7 +142,6 @@ pub struct McpServerConfig {
 pub struct PersistedStoreConfig {
     pub selector: String,
     pub pg_table: String,
-    pub codedb_command: PathBuf,
 }
 
 impl std::fmt::Debug for PersistedStoreConfig {
@@ -149,7 +150,6 @@ impl std::fmt::Debug for PersistedStoreConfig {
             .debug_struct("PersistedStoreConfig")
             .field("selector", &"<redacted store selector>")
             .field("pg_table", &self.pg_table)
-            .field("codedb_command", &self.codedb_command)
             .finish()
     }
 }
@@ -349,14 +349,7 @@ pub fn server_config_from_environment() -> Result<McpServerConfig, McpError> {
             .map_err(|_| McpError::InvalidConfiguration)?;
         let pg_table =
             env::var("CODEDB_MCP_PG_TABLE").unwrap_or_else(|_| DEFAULT_PG_TABLE.to_string());
-        let codedb_command = env::var_os("CODEDB_MCP_CODEDB_BIN")
-            .map(PathBuf::from)
-            .unwrap_or_else(default_codedb_command);
-        config.persisted_store = Some(PersistedStoreConfig {
-            selector,
-            pg_table,
-            codedb_command,
-        });
+        config.persisted_store = Some(PersistedStoreConfig { selector, pg_table });
     }
     config.validate()?;
     Ok(config)
@@ -510,72 +503,64 @@ impl ReadOnlyBackend for ConfiguredReadOnlyBackend {
 
 struct PersistedSnapshotBackend {
     store: ValidatedPersistedStore,
+    backend: Box<dyn BlobStore>,
 }
 
 impl PersistedSnapshotBackend {
-    fn new(store: ValidatedPersistedStore) -> Self {
-        Self { store }
-    }
-
-    fn store_summary_rows(&self) -> Result<Vec<Row>, McpError> {
-        let mut command = Command::new(&self.store.codedb_command);
-        command
-            .arg("store-report")
-            .arg("--store")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        let mut redb_snapshot = None;
-        match self.store.spec.backend() {
+    fn new(store: ValidatedPersistedStore) -> Result<Self, McpError> {
+        let backend: Box<dyn BlobStore> = match store.spec.backend() {
             StoreBackend::Redb => {
-                let snapshot = RedbSnapshotCopy::create(
-                    self.store
-                        .spec
-                        .redb_path()
-                        .expect("validated redb store has a path"),
-                )?;
-                command.arg(&snapshot.path);
-                redb_snapshot = Some(snapshot);
+                let handle = store
+                    .redb_handle
+                    .as_ref()
+                    .ok_or(McpError::InvalidConfiguration)?;
+                #[cfg(target_os = "linux")]
+                let path = handle.proc_fd_path();
+                #[cfg(not(target_os = "linux"))]
+                return Err(McpError::InvalidConfiguration);
+                Box::new(ReadOnlyStore::open(path).map_err(|_| McpError::BackendFailure)?)
             }
             StoreBackend::PostgreSql => {
-                command
-                    .arg("pg")
-                    .arg("--pg-table")
-                    .arg(&self.store.pg_table)
-                    .env(
-                        "CODEDB_PG_CONN",
-                        self.store
-                            .spec
-                            .connection_string()
-                            .expect("validated PostgreSQL store has a connection string"),
-                    );
+                let conn = store
+                    .spec
+                    .connection_string()
+                    .ok_or(McpError::InvalidConfiguration)?;
+                Box::new(
+                    PgStore::open_existing(conn, &store.pg_table)
+                        .map_err(|_| McpError::BackendFailure)?,
+                )
             }
-        }
-        command.args(["--format", "json"]);
+        };
+        Ok(Self { store, backend })
+    }
 
-        let mut child = command.spawn().map_err(|_| McpError::BackendFailure)?;
-        let mut output = Vec::new();
-        child
-            .stdout
-            .take()
-            .ok_or(McpError::BackendFailure)?
-            .take((MAX_STORE_REPORT_BYTES + 1) as u64)
-            .read_to_end(&mut output)
+    fn store_summary_rows(&self, limits: WorkLimits) -> Result<Vec<Row>, McpError> {
+        let rows = self
+            .backend
+            .store_metadata_rows()
             .map_err(|_| McpError::BackendFailure)?;
-        if output.len() > MAX_STORE_REPORT_BYTES {
-            let _ = child.kill();
-            let _ = child.wait();
+        if rows.len() > limits.max_scan_entries.min(MAX_STORE_METADATA_ROWS) {
             return Err(McpError::WorkLimitExceeded);
         }
-        let status = child.wait().map_err(|_| McpError::BackendFailure)?;
-        if !status.success() {
-            return Err(McpError::BackendFailure);
+        let mut metadata_bytes = 0usize;
+        let rows = rows
+            .into_iter()
+            .map(|metadata| {
+                metadata_bytes = metadata_bytes
+                    .saturating_add(metadata.table.len())
+                    .saturating_add(metadata.key.len())
+                    .saturating_add(metadata.value.len());
+                row([
+                    ("table", metadata.table),
+                    ("key", metadata.key),
+                    ("value", metadata.value),
+                ])
+            })
+            .collect::<Vec<_>>();
+        if metadata_bytes > MAX_STORE_METADATA_BYTES {
+            return Err(McpError::WorkLimitExceeded);
         }
-        let rows =
-            serde_json::from_slice::<Vec<Row>>(&output).map_err(|_| McpError::BackendFailure)?;
-        let summary = normalize_store_summary(&rows, &self.store);
-        drop(redb_snapshot);
-        summary
+        normalize_store_summary(&rows, &self.store)
     }
 }
 
@@ -585,10 +570,10 @@ impl ReadOnlyBackend for PersistedSnapshotBackend {
         tool: &str,
         table: Option<&str>,
         _repo_path: Option<&Path>,
-        _limits: WorkLimits,
+        limits: WorkLimits,
     ) -> Result<Vec<Row>, McpError> {
         if tool_requires_persisted_store(tool, table) {
-            self.store_summary_rows()
+            self.store_summary_rows(limits)
         } else {
             Err(McpError::UnknownTool)
         }
@@ -602,7 +587,10 @@ pub fn handle_request(
     let policy = config.policy()?;
     let backend = ConfiguredReadOnlyBackend {
         static_backend: StaticAnalysisBackend,
-        persisted_backend: policy.persisted_store.map(PersistedSnapshotBackend::new),
+        persisted_backend: policy
+            .persisted_store
+            .map(PersistedSnapshotBackend::new)
+            .transpose()?,
     };
     handle_request_with_backend(config, &backend, request)
 }
@@ -639,14 +627,15 @@ pub fn handle_request_with_backend<B: ReadOnlyBackend + ?Sized>(
         );
     }
 
-    let repo_path = request
+    let repository = request
         .repo_path
         .as_deref()
-        .map(|path| canonical_request_path(path, &policy.canonical_allowed_root))
+        .map(|path| open_contained_repository(path, &policy.canonical_allowed_root))
         .transpose()?;
-    if tool_requires_repo_path(&request.tool) && repo_path.is_none() {
+    if tool_requires_repo_path(&request.tool) && repository.is_none() {
         return Err(McpError::MissingRepoPath);
     }
+    let repo_path = repository.as_ref().map(OpenedRepository::descriptor_path);
 
     let rows = if request.tool == "codedb_get_table_page"
         && request
@@ -685,7 +674,10 @@ pub fn serve_json_rpc<R: BufRead, W: Write>(
     let policy = config.policy()?;
     let backend = ConfiguredReadOnlyBackend {
         static_backend: StaticAnalysisBackend,
-        persisted_backend: policy.persisted_store.map(PersistedSnapshotBackend::new),
+        persisted_backend: policy
+            .persisted_store
+            .map(PersistedSnapshotBackend::new)
+            .transpose()?,
     };
     serve_json_rpc_with_backend(config, &backend, reader, writer)
 }
@@ -1331,10 +1323,7 @@ fn validate_persisted_store(
     config: &PersistedStoreConfig,
     allowed_root: &Path,
 ) -> Result<ValidatedPersistedStore, McpError> {
-    if config.selector.is_empty()
-        || config.codedb_command.as_os_str().is_empty()
-        || !valid_pg_table(&config.pg_table)
-    {
+    if config.selector.is_empty() || !valid_pg_table(&config.pg_table) {
         return Err(McpError::InvalidConfiguration);
     }
     let explicit_pg_conn = env::var("CODEDB_PG_CONN")
@@ -1342,6 +1331,7 @@ fn validate_persisted_store(
         .filter(|value| !value.trim().is_empty());
     let parsed = StoreSpec::parse(&config.selector, explicit_pg_conn.as_deref())
         .map_err(|_| McpError::InvalidConfiguration)?;
+    let mut redb_handle = None;
     let spec = match parsed.backend() {
         StoreBackend::PostgreSql => parsed,
         StoreBackend::Redb => {
@@ -1351,20 +1341,46 @@ fn validate_persisted_store(
             } else {
                 allowed_root.join(configured_path)
             };
-            reject_symlink_components(&absolute, McpError::InvalidConfiguration)?;
-            let canonical =
-                fs::canonicalize(&absolute).map_err(|_| McpError::InvalidConfiguration)?;
-            if !canonical.is_file() || !canonical.starts_with(allowed_root) {
+            if !normal_absolute_path(&absolute) || !absolute.starts_with(allowed_root) {
                 return Err(McpError::InvalidConfiguration);
             }
-            StoreSpec::parse(canonical.to_string_lossy(), None)
+            let relative = absolute
+                .strip_prefix(allowed_root)
+                .map_err(|_| McpError::InvalidConfiguration)?;
+            let relative = relative
+                .to_str()
+                .ok_or(McpError::InvalidConfiguration)?
+                .replace('\\', "/");
+            let root = ContainedDirectory::open_existing(allowed_root)
+                .map_err(|_| McpError::InvalidConfiguration)?;
+            redb_handle = Some(
+                root.open_regular_file_handle(&relative)
+                    .map_err(|_| McpError::InvalidConfiguration)?,
+            );
+            #[cfg(target_os = "linux")]
+            {
+                let metadata = fs::metadata(
+                    redb_handle
+                        .as_ref()
+                        .expect("redb handle was assigned")
+                        .proc_fd_path(),
+                )
+                .map_err(|_| McpError::InvalidConfiguration)?;
+                if metadata.len() > MAX_REDB_STORE_BYTES {
+                    return Err(McpError::WorkLimitExceeded);
+                }
+            }
+            // The lexical path is retained only as backend identity. All redb
+            // reads use the already-open descriptor above, so a pathname swap
+            // cannot redirect the in-process adapter after validation.
+            StoreSpec::parse(absolute.to_string_lossy(), None)
                 .map_err(|_| McpError::InvalidConfiguration)?
         }
     };
     Ok(ValidatedPersistedStore {
         spec,
         pg_table: config.pg_table.clone(),
-        codedb_command: config.codedb_command.clone(),
+        redb_handle,
     })
 }
 
@@ -1380,28 +1396,26 @@ fn valid_pg_table(table: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
-fn default_codedb_command() -> PathBuf {
-    env::current_exe()
-        .ok()
-        .map(|path| path.with_file_name(format!("codedb{}", env::consts::EXE_SUFFIX)))
-        .filter(|path| path.is_file())
-        .unwrap_or_else(|| PathBuf::from("codedb"))
-}
-
-fn canonical_request_path(path: &Path, allowed_root: &Path) -> Result<PathBuf, McpError> {
-    if !path.is_absolute() || path == Path::new("/") {
-        return Err(McpError::InvalidRepositoryPath);
-    }
-    reject_symlink_components(path, McpError::InvalidRepositoryPath)?;
-    let canonical = fs::canonicalize(path).map_err(|_| McpError::InvalidRepositoryPath)?;
-    if canonical == Path::new("/")
-        || !canonical.is_dir()
-        || canonical != path
-        || !canonical.starts_with(allowed_root)
+fn open_contained_repository(
+    path: &Path,
+    allowed_root: &Path,
+) -> Result<OpenedRepository, McpError> {
+    if !path.is_absolute()
+        || path == Path::new("/")
+        || !normal_absolute_path(path)
+        || !path.starts_with(allowed_root)
     {
         return Err(McpError::InvalidRepositoryPath);
     }
-    Ok(canonical)
+    OpenedRepository::open(path, allowed_root)
+}
+
+fn normal_absolute_path(path: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    path.components()
+        .all(|component| matches!(component, Component::RootDir | Component::Normal(_)))
 }
 
 fn reject_symlink_components(path: &Path, error: McpError) -> Result<(), McpError> {
@@ -1579,49 +1593,93 @@ struct ValidatedPolicy {
     persisted_store: Option<ValidatedPersistedStore>,
 }
 
-#[derive(Clone)]
 struct ValidatedPersistedStore {
     spec: StoreSpec,
     pg_table: String,
-    codedb_command: PathBuf,
+    redb_handle: Option<codedb_core::store::ContainedRegularFileHandle>,
 }
 
-struct RedbSnapshotCopy {
-    directory: PathBuf,
-    path: PathBuf,
+#[cfg(target_os = "linux")]
+struct OpenedRepository {
+    descriptor: rustix::fd::OwnedFd,
 }
 
-impl RedbSnapshotCopy {
-    fn create(source: &Path) -> Result<Self, McpError> {
-        let metadata = fs::metadata(source).map_err(|_| McpError::BackendFailure)?;
-        if !metadata.is_file() || metadata.len() > MAX_REDB_SNAPSHOT_BYTES {
-            return Err(McpError::WorkLimitExceeded);
+#[cfg(target_os = "linux")]
+impl OpenedRepository {
+    fn open(path: &Path, allowed_root: &Path) -> Result<Self, McpError> {
+        use rustix::fs::{Mode, OFlags, ResolveFlags};
+
+        let allowed_descriptor = open_absolute_directory_chain(allowed_root)?;
+        let relative = path
+            .strip_prefix(allowed_root)
+            .map_err(|_| McpError::InvalidRepositoryPath)?;
+        if relative.as_os_str().is_empty() {
+            return Ok(Self {
+                descriptor: allowed_descriptor,
+            });
         }
-        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let directory = env::temp_dir().join(format!(
-            "codedb-mcp-redb-snapshot-{}-{sequence}",
-            std::process::id()
-        ));
-        fs::create_dir(&directory).map_err(|_| McpError::BackendFailure)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
-                .map_err(|_| McpError::BackendFailure)?;
-        }
-        let path = directory.join("store.redb");
-        if fs::copy(source, &path).is_err() {
-            let _ = fs::remove_dir_all(&directory);
-            return Err(McpError::BackendFailure);
-        }
-        Ok(Self { directory, path })
+        let descriptor = rustix::fs::openat2(
+            &allowed_descriptor,
+            relative,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
+        )
+        .map_err(|_| McpError::InvalidRepositoryPath)?;
+        // Keep the allowed-root descriptor alive until the contained open has
+        // completed; the repository descriptor is independently bound after it.
+        drop(allowed_descriptor);
+        Ok(Self { descriptor })
+    }
+
+    fn descriptor_path(&self) -> PathBuf {
+        use std::os::fd::AsRawFd;
+
+        PathBuf::from(format!("/proc/self/fd/{}", self.descriptor.as_raw_fd()))
     }
 }
 
-impl Drop for RedbSnapshotCopy {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.directory);
+#[cfg(target_os = "linux")]
+fn open_absolute_directory_chain(path: &Path) -> Result<rustix::fd::OwnedFd, McpError> {
+    use rustix::fs::{Mode, OFlags, ResolveFlags};
+
+    // The final repository descriptor must remain visible to the fixed Cargo
+    // and git subprocesses used by bounded summary tools. Those children receive
+    // only `/proc/self/fd/<repo>` paths; arbitrary executable selection is not
+    // exposed. Intermediate descriptors are dropped while walking this chain.
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW;
+    let mut current =
+        rustix::fs::open("/", flags, Mode::empty()).map_err(|_| McpError::InvalidRepositoryPath)?;
+    for component in path.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(segment) => {
+                current = rustix::fs::openat2(
+                    &current,
+                    segment,
+                    flags,
+                    Mode::empty(),
+                    ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
+                )
+                .map_err(|_| McpError::InvalidRepositoryPath)?;
+            }
+            _ => return Err(McpError::InvalidRepositoryPath),
+        }
+    }
+    Ok(current)
+}
+
+#[cfg(not(target_os = "linux"))]
+struct OpenedRepository;
+
+#[cfg(not(target_os = "linux"))]
+impl OpenedRepository {
+    fn open(_path: &Path, _allowed_root: &Path) -> Result<Self, McpError> {
+        Err(McpError::InvalidRepositoryPath)
+    }
+
+    fn descriptor_path(&self) -> PathBuf {
+        PathBuf::new()
     }
 }
 

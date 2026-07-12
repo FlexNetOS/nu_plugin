@@ -9,6 +9,7 @@ use std::process::Command;
 
 use sha2::{Digest, Sha256};
 
+pub mod capture_policy;
 pub mod merge;
 pub mod store;
 pub mod store_spec;
@@ -1173,10 +1174,25 @@ pub fn capture_source_metadata(
         source,
     })?;
     let relative_path = source_relative_path(root, path)?;
-    let secret_classification = classify_source_secret(&relative_path, &bytes);
-    let sha256 = format!("{:x}", Sha256::digest(&bytes));
-    let encoding_status = detect_encoding_status(&bytes);
-    let newline_style = detect_newline_style(&bytes);
+    let mut captured = capture_source_metadata_from_bytes(relative_path, &bytes);
+    // Metadata and bytes came from separate pathname operations in this
+    // compatibility API. New capture frontdoors must use
+    // `ContainedDirectory::read_regular_file` and this byte-based constructor.
+    captured.byte_len = metadata.len();
+    Ok(captured)
+}
+
+/// Derive source policy metadata from bytes already read through a contained
+/// file descriptor. This function never reopens a pathname.
+pub fn capture_source_metadata_from_bytes(
+    relative_path: impl Into<String>,
+    bytes: &[u8],
+) -> SourceBlobMetadata {
+    let relative_path = relative_path.into();
+    let secret_classification = classify_source_secret(&relative_path, bytes);
+    let sha256 = format!("{:x}", Sha256::digest(bytes));
+    let encoding_status = detect_encoding_status(bytes);
+    let newline_style = detect_newline_style(bytes);
     let has_utf8_bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
     let has_secret_like_material = secret_classification.has_secret();
     let default_mode = if has_secret_like_material {
@@ -1197,9 +1213,9 @@ pub fn capture_source_metadata(
         }
     };
 
-    Ok(SourceBlobMetadata {
+    SourceBlobMetadata {
         relative_path,
-        byte_len: metadata.len(),
+        byte_len: bytes.len() as u64,
         sha256,
         encoding_status,
         newline_style,
@@ -1208,7 +1224,7 @@ pub fn capture_source_metadata(
         default_mode,
         export_raw_by_default: false,
         policy_reason,
-    })
+    }
 }
 
 pub fn source_policy_row(metadata: &SourceBlobMetadata) -> SourcePolicyRow {

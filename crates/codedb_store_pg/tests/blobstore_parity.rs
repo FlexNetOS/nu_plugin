@@ -13,10 +13,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
-use codedb_core::store::{BlobStore, StoreError, StoreMetadataRow};
-use codedb_store_pg::{PgStore, STORE_SCHEMA_VERSION};
-use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
-use postgres::{Client, NoTls};
+use codedb_core::store::{
+    BlobStore, CURRENT_STORE_SCHEMA_VERSION, LEGACY_STORE_SCHEMA_VERSION, StoreBackend,
+    StoreBackupKind, StoreError, StoreMetadataRow,
+};
+use codedb_store_pg::{PgStore, STORE_SCHEMA_VERSION, connect_for_integration_tests};
+use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store, persist_source_file};
+use postgres::Client;
 use sha2::{Digest, Sha256};
 
 fn fixture_batch() -> Vec<(String, Vec<u8>)> {
@@ -317,8 +320,13 @@ impl TestTables {
         format!("{}_path_refs", self.base)
     }
 
+    fn migration_backup(&self) -> String {
+        format!("{}_migration_backup", self.base)
+    }
+
     fn connection(&self) -> Client {
-        Client::connect(&self.conn, NoTls).expect("connect to disposable PostgreSQL test service")
+        connect_for_integration_tests(&self.conn)
+            .expect("connect securely to disposable PostgreSQL test service")
     }
 
     fn relation_exists(&self, relation: &str) -> bool {
@@ -336,10 +344,12 @@ impl TestTables {
             "DROP TABLE IF EXISTS {} CASCADE;\
              DROP TABLE IF EXISTS {} CASCADE;\
              DROP TABLE IF EXISTS {} CASCADE;\
+             DROP TABLE IF EXISTS {} CASCADE;\
              DROP TABLE IF EXISTS {} CASCADE;",
             self.path_refs(),
             self.blobs(),
             self.schema_metadata(),
+            self.migration_backup(),
             self.base
         );
         client
@@ -836,10 +846,336 @@ fn explicit_migration_converts_legacy_content_rows_to_blobs_and_path_refs() {
         .collect::<BTreeMap<_, _>>();
     assert_eq!(
         metadata.get("last_migration").map(String::as_str),
-        Some("legacy_content_rows_to_v1")
+        Some("postgresql_legacy_content_rows_to_v1")
     );
     assert_eq!(
         metadata.get("migration_state").map(String::as_str),
         Some("current")
     );
+}
+
+#[test]
+fn migration_backup_and_explicit_rollback_restore_the_legacy_postgresql_store() {
+    let tables = TestTables::new();
+    let mut admin = tables.connection();
+    admin
+        .batch_execute(
+            format!(
+                "CREATE TABLE {} (\
+                    block_id bigserial PRIMARY KEY,\
+                    module_path text NOT NULL UNIQUE,\
+                    block_type text NOT NULL DEFAULT 'file',\
+                    origin text NOT NULL DEFAULT 'codedb',\
+                    content bytea NOT NULL,\
+                    sha256 text NOT NULL,\
+                    metadata jsonb\
+                )",
+                tables.base
+            )
+            .as_str(),
+        )
+        .expect("create legacy table");
+    let content = b"rollback exact bytes\n".as_slice();
+    let digest = sha256_hex(content);
+    admin
+        .execute(
+            format!(
+                "INSERT INTO {} (module_path, content, sha256, metadata) \
+                 VALUES ($1, $2, $3, '{{\"artifact_kind\":\"raw_blob\"}}'::jsonb)",
+                tables.base
+            )
+            .as_str(),
+            &[&"legacy/rollback.txt", &content, &digest],
+        )
+        .expect("seed rollback fixture");
+    drop(admin);
+
+    let (migrated, report) = PgStore::migrate_with_report(&tables.conn, &tables.base)
+        .expect("migrate with backup report");
+    assert_eq!(report.plan.backend, StoreBackend::PostgreSql);
+    assert_eq!(report.plan.observed_version, LEGACY_STORE_SCHEMA_VERSION);
+    assert_eq!(report.plan.target_version, CURRENT_STORE_SCHEMA_VERSION);
+    assert_eq!(
+        report.applied_steps,
+        vec!["postgresql_legacy_content_rows_to_v1"]
+    );
+    let backup = report.backup.expect("transactional table backup");
+    assert_eq!(backup.kind, StoreBackupKind::TransactionalTableSnapshot);
+    assert_eq!(backup.reference, tables.migration_backup());
+    assert!(backup.sha256.is_none());
+    assert!(tables.relation_exists(&tables.migration_backup()));
+    assert_eq!(
+        migrated
+            .read_source_file_blob("legacy/rollback.txt")
+            .expect("read migrated bytes"),
+        Some(content.to_vec())
+    );
+    drop(migrated);
+
+    let rollback = PgStore::rollback_last_migration(&tables.conn, &tables.base)
+        .expect("rollback PostgreSQL migration");
+    assert!(rollback.rolled_back);
+    assert!(tables.relation_exists(&tables.base));
+    assert!(!tables.relation_exists(&tables.schema_metadata()));
+    assert!(!tables.relation_exists(&tables.blobs()));
+    assert!(!tables.relation_exists(&tables.path_refs()));
+    assert!(!tables.relation_exists(&tables.migration_backup()));
+
+    let mut admin = tables.connection();
+    let restored: Vec<u8> = admin
+        .query_one(
+            format!(
+                "SELECT content FROM {} WHERE module_path = 'legacy/rollback.txt'",
+                tables.base
+            )
+            .as_str(),
+            &[],
+        )
+        .expect("read rolled-back legacy row")
+        .get(0);
+    assert_eq!(restored, content);
+}
+
+#[test]
+fn failed_postgresql_migration_rolls_back_schema_and_backup_creation() {
+    let tables = TestTables::new();
+    let mut admin = tables.connection();
+    admin
+        .batch_execute(
+            format!(
+                "CREATE TABLE {} (\
+                    module_path text NOT NULL UNIQUE,\
+                    content bytea NOT NULL,\
+                    sha256 text NOT NULL,\
+                    metadata jsonb\
+                )",
+                tables.base
+            )
+            .as_str(),
+        )
+        .expect("create legacy table");
+    admin
+        .execute(
+            format!(
+                "INSERT INTO {} (module_path, content, sha256, metadata) \
+                 VALUES ('legacy/corrupt.txt', 'corrupt bytes', 'wrong-digest', '{{}}'::jsonb)",
+                tables.base
+            )
+            .as_str(),
+            &[],
+        )
+        .expect("seed corrupt legacy row");
+    drop(admin);
+
+    let error = require_error(
+        PgStore::migrate(&tables.conn, &tables.base),
+        "checksum mismatch must fail migration",
+    );
+    assert!(error.message().contains("checksum mismatch"));
+    assert!(tables.relation_exists(&tables.base));
+    assert!(!tables.relation_exists(&tables.migration_backup()));
+    assert!(!tables.relation_exists(&tables.schema_metadata()));
+    assert!(!tables.relation_exists(&tables.blobs()));
+    assert!(!tables.relation_exists(&tables.path_refs()));
+}
+
+#[cfg(unix)]
+#[test]
+fn redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observations() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tables = TestTables::new();
+    let source = tempfile::NamedTempFile::new().expect("executable source fixture");
+    std::fs::write(source.path(), b"#!/bin/sh\nexit 0\n").expect("write executable fixture");
+    std::fs::set_permissions(source.path(), std::fs::Permissions::from_mode(0o755))
+        .expect("set executable fixture mode");
+
+    let redb_dir = tempfile::tempdir().expect("redb directory");
+    let redb_path = redb_dir.path().join("atomic-parity.redb");
+    initialize_store(
+        &redb_path,
+        &StoreInitContext {
+            codedb_version: "atomic-parity",
+            toolchain: "test",
+            rustc_version: "rustc test",
+            cargo_version: "cargo test",
+        },
+    )
+    .expect("initialize redb store");
+    persist_source_file(&redb_path, "bin/tool", source.path())
+        .expect("capture executable redb source");
+    let redb = CaptureBatcher::open(&redb_path).expect("open redb store");
+
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+    pg.persist_batch(&[(
+        "bin/tool".to_string(),
+        std::fs::read(source.path()).expect("read executable fixture"),
+    )])
+    .expect("capture executable pg source");
+    let mut admin = tables.connection();
+    admin
+        .execute(
+            format!(
+                "UPDATE {} SET metadata = jsonb_set(metadata, '{{unix_mode}}', '\"755\"'::jsonb) \
+                 WHERE module_path = 'bin/tool'",
+                tables.path_refs()
+            )
+            .as_str(),
+            &[],
+        )
+        .expect("attach PostgreSQL executable mode metadata");
+
+    let redb_output = tempfile::tempdir().expect("redb output directory");
+    let pg_output = tempfile::tempdir().expect("pg output directory");
+    let redb_path = redb_output.path().join("nested/bin/tool");
+    let pg_path = pg_output.path().join("nested/bin/tool");
+
+    let redb_report = redb
+        .materialize_source_file("bin/tool", &redb_path)
+        .expect("materialize redb executable");
+    let pg_report = pg
+        .materialize_source_file("bin/tool", &pg_path)
+        .expect("materialize pg executable");
+    let observe = |report: codedb_core::store::MaterializedFile, path: &Path| {
+        (
+            report.blob_ref,
+            report.sha256,
+            report.bytes,
+            std::fs::read(path).expect("read materialized executable"),
+            std::fs::metadata(path)
+                .expect("read executable metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+        )
+    };
+    assert_eq!(
+        observe(pg_report, &pg_path),
+        observe(redb_report, &redb_path),
+        "redb and PostgreSQL atomic executable observations drifted"
+    );
+
+    let redb_error = redb
+        .materialize_source_file("bin/tool", &redb_path)
+        .expect_err("redb must refuse replacement");
+    let pg_error = pg
+        .materialize_source_file("bin/tool", &pg_path)
+        .expect_err("PostgreSQL must refuse replacement");
+    for error in [redb_error.message(), pg_error.message()] {
+        assert!(
+            error.contains("exists") && error.contains("no-replace"),
+            "unexpected no-replace error: {error}"
+        );
+    }
+    assert_eq!(
+        directory_entry_names(redb_path.parent().expect("redb output parent")),
+        vec!["tool"]
+    );
+    assert_eq!(
+        directory_entry_names(pg_path.parent().expect("pg output parent")),
+        vec!["tool"]
+    );
+}
+
+#[test]
+fn postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file() {
+    let tables = TestTables::new();
+    let captured = b"checksum-bound PostgreSQL bytes";
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+    let row = pg
+        .persist_batch(&[("artifact.bin".to_string(), captured.to_vec())])
+        .expect("persist captured blob")
+        .pop()
+        .expect("captured row");
+    let mut admin = tables.connection();
+    admin
+        .execute(
+            format!(
+                "UPDATE {} SET content = $1 WHERE sha256 = $2",
+                tables.blobs()
+            )
+            .as_str(),
+            &[&b"corrupt stored bytes".as_slice(), &row.sha256],
+        )
+        .expect("inject corrupt PostgreSQL blob");
+
+    let output = tempfile::tempdir().expect("output root");
+    let output_path = output.path().join("nested/artifact.bin");
+    let error = pg
+        .materialize_source_file("artifact.bin", &output_path)
+        .expect_err("checksum mismatch must fail before publication");
+    assert!(
+        error.message().contains("checksum"),
+        "unexpected corrupt-blob error: {error}"
+    );
+    assert!(!output_path.exists(), "corrupt bytes were published");
+    let parent = output_path.parent().expect("output parent");
+    if parent.exists() {
+        assert!(
+            directory_entry_names(parent).is_empty(),
+            "corrupt-blob failure leaked a destination-local temporary file"
+        );
+    }
+}
+
+#[test]
+fn postgresql_concurrent_materializations_have_exactly_one_complete_winner() {
+    const WRITERS: usize = 16;
+
+    let tables = TestTables::new();
+    let captured = b"one complete PostgreSQL atomic publication".to_vec();
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+    pg.persist_batch(&[("artifact.bin".to_string(), captured.clone())])
+        .expect("persist captured blob");
+    drop(pg);
+
+    let output = tempfile::tempdir().expect("output root");
+    let output_path = output.path().join("nested/artifact.bin");
+    let barrier = Arc::new(Barrier::new(WRITERS));
+    let writers = (0..WRITERS)
+        .map(|_| {
+            let conn = tables.conn.clone();
+            let table = tables.base.clone();
+            let output_path = output_path.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                let store = PgStore::open_existing(&conn, &table)?;
+                barrier.wait();
+                store.materialize_source_file("artifact.bin", &output_path)
+            })
+        })
+        .collect::<Vec<_>>();
+    let results = writers
+        .into_iter()
+        .map(|writer| writer.join().expect("writer thread must not panic"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        results.iter().filter(|result| result.is_ok()).count(),
+        1,
+        "exactly one concurrent no-replace publication must win: {results:?}"
+    );
+    assert_eq!(
+        std::fs::read(&output_path).expect("read winning publication"),
+        captured
+    );
+    assert_eq!(
+        directory_entry_names(output_path.parent().expect("output parent")),
+        vec!["artifact.bin"]
+    );
+}
+
+fn directory_entry_names(path: &Path) -> Vec<String> {
+    let mut entries = std::fs::read_dir(path)
+        .expect("read directory")
+        .map(|entry| {
+            entry
+                .expect("read directory entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<Vec<_>>();
+    entries.sort();
+    entries
 }

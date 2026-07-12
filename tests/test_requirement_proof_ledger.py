@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import csv
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import validate_requirement_proof_ledger as ledger_validator  # noqa: E402
 from validate_requirement_proof_ledger import (  # noqa: E402
     EXPECTED_REQUIREMENT_IDS,
     audit_ledger,
@@ -96,6 +99,49 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
                 receipt_rows={"CDB013": receipt_row("CDB013")},
             )
             self.assertEqual([], violations, "\n" + "\n".join(map(str, violations)))
+
+    def test_direct_evidence_validates_complete_row_without_recursive_receipt(
+        self,
+    ) -> None:
+        head = "a" * 40
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for path in [
+                "execution/source.md",
+                "src/implementation.rs",
+                "tests/proof_test.py",
+            ]:
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("proof\n", encoding="utf-8")
+
+            violations = validate_rows(
+                root,
+                [complete_row("CDB013")],
+                expected_ids={"CDB013"},
+                current_head=head,
+                require_all_verified=True,
+                require_receipts=False,
+                graph_statuses={"CDB013": "complete"},
+            )
+            self.assertEqual([], violations, "\n" + "\n".join(map(str, violations)))
+
+    def test_direct_evidence_rejects_incomplete_task_and_graph_status(self) -> None:
+        row = complete_row("CDB013")
+        row["task_status"] = "active"
+        violations = validate_rows(
+            Path("."),
+            [row],
+            expected_ids={"CDB013"},
+            current_head="a" * 40,
+            require_all_verified=True,
+            require_receipts=False,
+            graph_statuses={"CDB013": "active"},
+        )
+        self.assertTrue(
+            any(v.rule == "release-blocking task status" for v in violations),
+            "\n" + "\n".join(map(str, violations)),
+        )
 
     def test_missing_expected_requirement_fails_closed(self) -> None:
         violations = validate_rows(
@@ -215,6 +261,118 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
             any(v.rule == "release-blocking evidence status" for v in violations),
             "the current ledger must block release until every row has current-head proof",
         )
+
+    def test_full_mode_always_requires_detached_cryptographic_verification(
+        self,
+    ) -> None:
+        row = complete_row("CDB013")
+        row["authoritative_source"] = "execution/TASK_GRAPH.csv"
+        row["implementation_paths"] = "scripts/validate_requirement_proof_ledger.py"
+        row["test_paths"] = "tests/test_requirement_proof_ledger.py"
+        receipt = Path("/outside/requirement-proof.json")
+        bundle = Path("/outside/requirement-proof.bundle.jsonl")
+        crypto = Mock(return_value=[])
+
+        with (
+            patch.object(ledger_validator, "EXPECTED_REQUIREMENT_IDS", {"CDB013"}),
+            patch.object(ledger_validator, "read_ledger", return_value=[row]),
+            patch.object(ledger_validator, "_current_head", return_value="a" * 40),
+            patch.object(ledger_validator, "_current_tree", return_value="b" * 40),
+            patch.object(
+                ledger_validator,
+                "_current_repository",
+                return_value="FlexNetOS/nu_plugin",
+            ),
+            patch.object(ledger_validator, "_worktree_clean", return_value=True),
+            patch.object(ledger_validator, "_sha256_file", return_value="1" * 64),
+            patch.object(ledger_validator, "_graph_statuses", return_value={}),
+            patch.object(ledger_validator, "_external_path", side_effect=lambda _, p, **__: p),
+            patch.object(ledger_validator, "load_receipt", return_value={}),
+            patch.object(
+                ledger_validator,
+                "validate_receipt",
+                return_value=({"CDB013": receipt_row("CDB013")}, []),
+            ),
+            patch.object(
+                ledger_validator,
+                "verify_github_attestation",
+                crypto,
+            ),
+        ):
+            missing_bundle = audit_ledger(
+                ROOT,
+                require_all_verified=True,
+                receipt_path=receipt,
+                signer_workflow="FlexNetOS/nu_plugin/.github/workflows/ci.yml",
+            )
+            self.assertTrue(
+                any(v.rule == "missing detached attestation bundle" for v in missing_bundle)
+            )
+            crypto.assert_not_called()
+
+            verified = audit_ledger(
+                ROOT,
+                require_all_verified=True,
+                receipt_path=receipt,
+                attestation_bundle_path=bundle,
+                signer_workflow="FlexNetOS/nu_plugin/.github/workflows/ci.yml",
+            )
+            self.assertEqual([], verified, "\n" + "\n".join(map(str, verified)))
+            crypto.assert_called_once()
+
+    def test_cli_has_direct_evidence_mode_but_no_local_release_bypass(self) -> None:
+        script = ROOT / "scripts/validate_requirement_proof_ledger.py"
+        direct = subprocess.run(
+            [sys.executable, str(script), "--root", str(ROOT), "--direct-evidence"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotIn("unrecognized arguments", direct.stderr)
+        self.assertNotEqual(0, direct.returncode)
+        self.assertIn("release-blocking evidence status", direct.stdout)
+        self.assertNotIn("missing external proof receipt", direct.stdout)
+
+        bypass = subprocess.run(
+            [sys.executable, str(script), "--allow-local-receipt"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(0, bypass.returncode)
+        self.assertIn("unrecognized arguments: --allow-local-receipt", bypass.stderr)
+
+    def test_every_full_validator_row_uses_nonrecursive_evidence_mode(self) -> None:
+        rows = {
+            row["requirement_id"]: row
+            for row in read_ledger(ROOT / "execution/REQUIREMENT_PROOF_LEDGER.csv")
+        }
+        expected = {
+            "CDB040": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
+            "CDB047": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
+            "CDB090": "python3 scripts/validate_bidirectional_package.py --direct-evidence",
+            "CDB106-AC10": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
+            "REQ-061-ARCH18": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
+        }
+        for requirement_id, command in expected.items():
+            with self.subTest(requirement_id=requirement_id):
+                self.assertEqual(command, rows[requirement_id]["verification_command"])
+
+        self.assertFalse(
+            any(
+                row["verification_command"]
+                == "python3 scripts/validate_requirement_proof_ledger.py"
+                for row in rows.values()
+            ),
+            "an all-row receipt cannot execute a full release validator recursively",
+        )
+
+        self.assertEqual("missing", rows["CDB047"]["evidence_status"])
+        self.assertEqual("planned", rows["CDB047"]["task_status"])
+        self.assertEqual("missing", rows["CDB090"]["evidence_status"])
+        self.assertEqual("active", rows["CDB090"]["task_status"])
+        self.assertEqual("partial", rows["CDB106-AC10"]["evidence_status"])
+        self.assertEqual("active", rows["CDB106-AC10"]["task_status"])
 
     def test_csv_header_is_stable(self) -> None:
         with (ROOT / "execution/REQUIREMENT_PROOF_LEDGER.csv").open(

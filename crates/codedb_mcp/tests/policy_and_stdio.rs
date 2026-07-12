@@ -7,10 +7,10 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use codedb_mcp::{
-    ALLOWED_TOOLS, BLOCKED_TOOLS, DEFAULT_MAX_BYTES, MAX_RESPONSE_BYTES, MAX_ROW_LIMIT, McpError,
-    McpRequest, McpServerConfig, PersistedStoreConfig, ReadOnlyBackend, Row, WorkLimits,
-    ensure_tool_allowed, handle_request, handle_request_with_backend, serve_json_rpc,
-    serve_json_rpc_with_backend,
+    ALLOWED_TOOLS, BLOCKED_TOOLS, DEFAULT_MAX_BYTES, MAX_REDB_STORE_BYTES, MAX_RESPONSE_BYTES,
+    MAX_ROW_LIMIT, McpError, McpRequest, McpServerConfig, PersistedStoreConfig, ReadOnlyBackend,
+    Row, StaticAnalysisBackend, WorkLimits, ensure_tool_allowed, handle_request,
+    handle_request_with_backend, serve_json_rpc, serve_json_rpc_with_backend,
 };
 
 #[test]
@@ -105,6 +105,80 @@ fn repository_paths_are_canonical_absolute_contained_and_nonsymlinked() {
     remove_dir(root);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn repository_traversal_stays_bound_when_the_repository_root_is_swapped() {
+    let root = temp_dir("repo-root-swap");
+    let allowed = root.join("allowed");
+    let repo = allowed.join("repo");
+    let held = root.join("held-repo");
+    let outside = root.join("outside");
+    fs::create_dir_all(&repo).expect("create selected repository");
+    fs::create_dir_all(&outside).expect("create outside replacement");
+    fs::write(repo.join("README.md"), "inside metadata only\n").expect("write inside file");
+    fs::write(
+        outside.join("secret.rs"),
+        "pub const OUTSIDE_SECRET: &str = \"must-not-be-traversed\";\n",
+    )
+    .expect("write outside source");
+
+    let config = McpServerConfig::new(allowed);
+    let backend = SwapThenStaticBackend {
+        swap_path: repo.clone(),
+        held_path: held,
+        replacement_target: outside,
+    };
+    let response = handle_request_with_backend(
+        &config,
+        &backend,
+        McpRequest {
+            limit: Some(2),
+            ..request("codedb_get_repo_summary", Some(repo), None)
+        },
+    )
+    .expect("descriptor-bound repository summary");
+
+    assert_eq!(summary_count(&response.rows, "rust_sources"), 0);
+    remove_dir(root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn repository_traversal_stays_bound_when_an_allowed_root_ancestor_is_swapped() {
+    let root = temp_dir("repo-ancestor-swap");
+    let allowed = root.join("allowed");
+    let repo = allowed.join("nested/repo");
+    let held = root.join("held-allowed");
+    let outside = root.join("outside-allowed");
+    fs::create_dir_all(&repo).expect("create selected repository");
+    fs::create_dir_all(outside.join("nested/repo")).expect("create outside replacement");
+    fs::write(repo.join("README.md"), "inside metadata only\n").expect("write inside file");
+    fs::write(
+        outside.join("nested/repo/secret.rs"),
+        "pub const OUTSIDE_SECRET: &str = \"must-not-be-traversed\";\n",
+    )
+    .expect("write outside source");
+
+    let config = McpServerConfig::new(allowed.clone());
+    let backend = SwapThenStaticBackend {
+        swap_path: allowed,
+        held_path: held,
+        replacement_target: outside,
+    };
+    let response = handle_request_with_backend(
+        &config,
+        &backend,
+        McpRequest {
+            limit: Some(2),
+            ..request("codedb_get_repo_summary", Some(repo), None)
+        },
+    )
+    .expect("descriptor-bound repository summary");
+
+    assert_eq!(summary_count(&response.rows, "rust_sources"), 0);
+    remove_dir(root);
+}
+
 #[test]
 fn requests_cannot_exceed_configured_or_compiled_row_and_byte_budgets() {
     let root = temp_dir("request-bounds");
@@ -134,6 +208,50 @@ fn requests_cannot_exceed_configured_or_compiled_row_and_byte_budgets() {
 }
 
 #[test]
+fn oversized_redb_store_is_refused_before_the_in_process_adapter_opens_it() {
+    let root = temp_dir("oversized-redb");
+    let store = root.join("oversized.redb");
+    let file = fs::File::create(&store).expect("create sparse redb fixture");
+    file.set_len(MAX_REDB_STORE_BYTES + 1)
+        .expect("size sparse redb fixture");
+    drop(file);
+
+    let mut config = McpServerConfig::new(root.clone());
+    config.persisted_store = Some(PersistedStoreConfig {
+        selector: store.display().to_string(),
+        pg_table: "unused_for_redb".to_string(),
+    });
+    assert!(matches!(
+        handle_request(&config, request("codedb_get_store_summary", None, None)),
+        Err(McpError::WorkLimitExceeded)
+    ));
+
+    remove_dir(root);
+}
+
+#[test]
+fn redb_store_selector_rejects_non_normal_parent_components() {
+    let root = temp_dir("redb-parent-components");
+    let nested = root.join("nested");
+    fs::create_dir_all(&nested).expect("create nested directory");
+    let store = root.join("store.redb");
+    fs::write(&store, b"not opened because the selector is invalid")
+        .expect("write rejected store fixture");
+
+    let mut config = McpServerConfig::new(root.clone());
+    config.persisted_store = Some(PersistedStoreConfig {
+        selector: nested.join("../store.redb").display().to_string(),
+        pg_table: "unused_for_redb".to_string(),
+    });
+    assert!(matches!(
+        handle_request(&config, request("codedb_get_store_summary", None, None)),
+        Err(McpError::InvalidConfiguration)
+    ));
+
+    remove_dir(root);
+}
+
+#[test]
 fn bounded_traversal_stops_before_unbounded_repository_work() {
     let root = temp_dir("work-bounds");
     let repo = root.join("repo");
@@ -152,6 +270,38 @@ fn bounded_traversal_stops_before_unbounded_repository_work() {
         Err(McpError::WorkLimitExceeded)
     ));
 
+    remove_dir(root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn cargo_summary_can_use_the_descriptor_bound_repository_in_its_child_process() {
+    let root = temp_dir("descriptor-cargo-summary");
+    let repo = root.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("create Cargo fixture");
+    fs::write(
+        repo.join("Cargo.toml"),
+        "[package]\nname = \"descriptor-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write Cargo manifest");
+    fs::write(
+        repo.join("Cargo.lock"),
+        "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"descriptor-fixture\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write Cargo lockfile");
+    fs::write(repo.join("src/lib.rs"), "pub fn bounded() {}\n").expect("write Rust source");
+
+    let response = handle_request(
+        &McpServerConfig::new(root.clone()),
+        McpRequest {
+            limit: Some(3),
+            max_bytes: Some(4_096),
+            ..request("codedb_get_cargo_summary", Some(repo), None)
+        },
+    )
+    .expect("descriptor-bound Cargo summary");
+
+    assert_eq!(summary_count(&response.rows, "cargo_packages"), 1);
     remove_dir(root);
 }
 
@@ -273,7 +423,6 @@ fn redb_snapshot_is_queried_after_live_source_is_removed_without_store_mutation(
     config.persisted_store = Some(PersistedStoreConfig {
         selector: store.display().to_string(),
         pg_table: "unused_for_redb".to_string(),
-        codedb_command: codedb_binary().clone(),
     });
     let response = handle_request(
         &config,
@@ -354,7 +503,6 @@ fn postgresql_snapshot_and_materialize_summary_are_secret_safe_when_explicitly_e
     config.persisted_store = Some(PersistedStoreConfig {
         selector: "pg".to_string(),
         pg_table: table.clone(),
-        codedb_command: codedb_binary().clone(),
     });
     let response = handle_request(
         &config,
@@ -384,7 +532,7 @@ fn postgresql_snapshot_and_materialize_summary_are_secret_safe_when_explicitly_e
         .args([
             "materialize",
             "--store",
-            &selector,
+            "pg",
             "--pg-table",
             &table,
             "--out-dir",
@@ -392,7 +540,7 @@ fn postgresql_snapshot_and_materialize_summary_are_secret_safe_when_explicitly_e
             "--format",
             "json",
         ])
-        .env("CODEDB_PG_CONN", &conn)
+        .env("CODEDB_PG_CONN", &selector)
         .output()
         .expect("run PostgreSQL materialize");
     assert!(
@@ -769,6 +917,64 @@ fn packaged_binary_rejects_non_stdio_transport_without_writing_stdout() {
     remove_dir(root);
 }
 
+#[cfg(unix)]
+#[test]
+fn packaged_binary_ignores_inherited_executable_override_for_store_access() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_dir("no-executable-override");
+    let repo = root.join("repo");
+    fs::create_dir_all(&repo).expect("create repository");
+    fs::write(repo.join("README.md"), "in-process store adapter\n").expect("write source");
+    let store = repo.join(".codedb/store.redb");
+    capture_store(&repo, store.to_str().expect("utf-8 store"), None);
+
+    let marker = root.join("override-was-executed");
+    let fake = root.join("fake-codedb");
+    fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\nprintf executed > '{}'\nexit 99\n",
+            marker.display()
+        ),
+    )
+    .expect("write fake executable");
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).expect("make fake executable");
+
+    let input = concat!(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"codedb_get_store_summary\",\"arguments\":{\"limit\":1,\"max_bytes\":4096}}}\n"
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_codedb-mcp"))
+        .env("CODEDB_MCP_ALLOWED_ROOT", &root)
+        .env("CODEDB_MCP_STORE", &store)
+        .env("CODEDB_MCP_CODEDB_BIN", &fake)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn packaged server");
+    child
+        .stdin
+        .take()
+        .expect("server stdin")
+        .write_all(input.as_bytes())
+        .expect("write request stream");
+    let output = child.wait_with_output().expect("wait for server");
+
+    assert!(
+        output.status.success(),
+        "server stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!marker.exists(), "inherited executable override was run");
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 MCP output");
+    assert!(stdout.contains("\"backend\":\"redb\""));
+    assert!(!stdout.contains("in-process store adapter"));
+
+    remove_dir(root);
+}
+
 #[test]
 fn exact_checked_in_codex_sample_launches_codedb_mcp_serve_frontdoor() {
     let root = temp_dir("exact-sample-frontdoor");
@@ -922,6 +1128,29 @@ impl ReadOnlyBackend for EscapingBackend {
     }
 }
 
+#[cfg(target_os = "linux")]
+struct SwapThenStaticBackend {
+    swap_path: PathBuf,
+    held_path: PathBuf,
+    replacement_target: PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+impl ReadOnlyBackend for SwapThenStaticBackend {
+    fn read(
+        &self,
+        tool: &str,
+        table: Option<&str>,
+        repo_path: Option<&Path>,
+        limits: WorkLimits,
+    ) -> Result<Vec<Row>, McpError> {
+        fs::rename(&self.swap_path, &self.held_path).expect("hold selected path");
+        std::os::unix::fs::symlink(&self.replacement_target, &self.swap_path)
+            .expect("install outside replacement");
+        StaticAnalysisBackend.read(tool, table, repo_path, limits)
+    }
+}
+
 #[derive(Default)]
 struct FlushCountingWriter {
     bytes: Vec<u8>,
@@ -949,6 +1178,14 @@ fn request(tool: &str, repo_path: Option<PathBuf>, table: Option<String>) -> Mcp
         limit: Some(1),
         max_bytes: Some(DEFAULT_MAX_BYTES),
     }
+}
+
+fn summary_count(rows: &[Row], table: &str) -> usize {
+    rows.iter()
+        .find(|row| row.get("table").map(String::as_str) == Some(table))
+        .and_then(|row| row.get("rows"))
+        .and_then(|value| value.parse().ok())
+        .expect("summary row count")
 }
 
 fn temp_dir(label: &str) -> PathBuf {
@@ -1010,6 +1247,8 @@ fn capture_store(repo: &Path, store: &str, pg_table: Option<&str>) -> String {
         repo.to_str().expect("utf-8 repo"),
         "--store",
         store,
+        "--raw-persistence",
+        "safe-source",
         "--batch-files",
         "16",
         "--format",

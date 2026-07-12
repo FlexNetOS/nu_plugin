@@ -26,7 +26,7 @@ def run_backend [
     let command = (
         "let capture = (codedb capture "
         + ($repo | to nuon)
-        + " "
+        + " --raw-persistence safe-source "
         + $store_args
         + "); let report = (codedb store-report "
         + $store_args
@@ -70,7 +70,7 @@ def main [] {
     let plugin_config = ([$root plugins.msgpackz] | path join)
     mkdir $home
     mkdir ([$repo sub] | path join)
-    "exact plugin bytes\n" | save --raw ([$repo sub file.txt] | path join)
+    "pub fn exact_plugin_bytes() {}\n" | save --raw ([$repo sub file.rs] | path join)
 
     let redb = (
         with-env {
@@ -86,8 +86,8 @@ def main [] {
     if $redb.capture_rows == 0 or $redb.report_rows == 0 or $redb.materialize_rows == 0 {
         fail $"redb plugin round trip returned empty rows: ($redb | to json --raw)"
     }
-    let expected = (open --raw ([$repo sub file.txt] | path join))
-    let redb_actual = (open --raw ([$redb_out sub file.txt] | path join))
+    let expected = (open --raw ([$repo sub file.rs] | path join))
+    let redb_actual = (open --raw ([$redb_out sub file.rs] | path join))
     if $expected != $redb_actual {
         fail "redb plugin materialization was not byte-exact"
     }
@@ -116,7 +116,7 @@ def main [] {
         if $result.capture_rows == 0 or $result.report_rows == 0 or $result.materialize_rows == 0 {
             fail $"PostgreSQL plugin round trip returned empty rows: ($result | to json --raw)"
         }
-        let pg_actual = (open --raw ([$pg_out sub file.txt] | path join))
+        let pg_actual = (open --raw ([$pg_out sub file.rs] | path join))
         if $expected != $pg_actual {
             fail "PostgreSQL plugin materialization was not byte-exact"
         }

@@ -22,8 +22,10 @@ from typing import Iterable
 
 from requirement_proof_attestation import (
     CheckoutIdentity,
+    canonical_repository,
     load_receipt,
     validate_receipt,
+    verify_github_attestation,
 )
 
 
@@ -122,6 +124,12 @@ def _current_tree(root: Path) -> str:
     return _git_output(root, "rev-parse", "HEAD^{tree}")
 
 
+def _current_repository(root: Path) -> str:
+    return canonical_repository(
+        _git_output(root, "config", "--get", "remote.origin.url")
+    )
+
+
 def _worktree_clean(root: Path) -> bool:
     return not _git_output(
         root,
@@ -133,6 +141,15 @@ def _worktree_clean(root: Path) -> bool:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _external_path(root: Path, path: Path, *, label: str) -> Path:
+    resolved = path.expanduser().resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        return resolved
+    raise ValueError(f"{label} must be outside the attested repository: {resolved}")
 
 
 def _graph_statuses(root: Path) -> dict[str, str]:
@@ -159,6 +176,7 @@ def validate_rows(
     expected_ids: set[str],
     current_head: str,
     require_all_verified: bool,
+    require_receipts: bool = True,
     graph_statuses: dict[str, str] | None = None,
     receipt_rows: dict[str, dict] | None = None,
 ) -> list[Violation]:
@@ -251,6 +269,14 @@ def validate_rows(
                     evidence_status or "<empty>",
                 )
             )
+        if require_all_verified and task_status != "complete":
+            violations.append(
+                Violation(
+                    requirement_id,
+                    "release-blocking task status",
+                    task_status or "<empty>",
+                )
+            )
 
         if evidence_status != "verified":
             continue
@@ -304,7 +330,7 @@ def validate_rows(
                 )
             )
         receipt_row = (receipt_rows or {}).get(requirement_id)
-        if receipt_row is None:
+        if require_receipts and receipt_row is None:
             violations.append(
                 Violation(
                     requirement_id,
@@ -312,7 +338,7 @@ def validate_rows(
                     current_head,
                 )
             )
-        else:
+        elif receipt_row is not None:
             receipt_evidence = {
                 item.get("logical_name", "")
                 for item in receipt_row.get("evidence", [])
@@ -339,13 +365,21 @@ def audit_ledger(
     *,
     require_all_verified: bool,
     receipt_path: Path | None = None,
-    require_trusted_ci: bool = True,
+    attestation_bundle_path: Path | None = None,
+    signer_workflow: str | None = None,
+    direct_evidence: bool = False,
 ) -> list[Violation]:
     root = root.resolve()
     if receipt_path is None:
         configured_receipt = os.environ.get("CODEDB_REQUIREMENT_PROOF_RECEIPT")
         if configured_receipt:
             receipt_path = Path(configured_receipt)
+    if attestation_bundle_path is None:
+        configured_bundle = os.environ.get("CODEDB_REQUIREMENT_PROOF_BUNDLE")
+        if configured_bundle:
+            attestation_bundle_path = Path(configured_bundle)
+    if signer_workflow is None:
+        signer_workflow = os.environ.get("CODEDB_REQUIREMENT_PROOF_SIGNER_WORKFLOW")
     path = root / LEDGER_PATH
     if not path.is_file():
         return [Violation("*", "missing ledger", str(LEDGER_PATH))]
@@ -358,7 +392,8 @@ def audit_ledger(
     receipt_rows: dict[str, dict] = {}
     receipt_violations: list[Violation] = []
     verified_rows = [row for row in rows if row.get("evidence_status") == "verified"]
-    if require_all_verified and verified_rows:
+    require_receipts = require_all_verified and not direct_evidence
+    if require_receipts and verified_rows:
         if receipt_path is None:
             receipt_violations.append(
                 Violation(
@@ -368,16 +403,19 @@ def audit_ledger(
                 )
             )
         else:
-            resolved_receipt = (
-                receipt_path
-                if receipt_path.is_absolute()
-                else (Path.cwd() / receipt_path).resolve()
-            )
             try:
+                resolved_receipt = _external_path(
+                    root,
+                    receipt_path
+                    if receipt_path.is_absolute()
+                    else Path.cwd() / receipt_path,
+                    label="proof receipt",
+                )
                 receipt = load_receipt(resolved_receipt)
                 receipt_rows, failures = validate_receipt(
                     receipt,
                     identity=CheckoutIdentity(
+                        repository=_current_repository(root),
                         commit_sha=current_head,
                         tree_sha=_current_tree(root),
                         ledger_sha256=_sha256_file(path),
@@ -385,13 +423,49 @@ def audit_ledger(
                         clean=_worktree_clean(root),
                     ),
                     ledger_rows=rows,
-                    require_trusted_ci=require_trusted_ci,
                 )
                 receipt_violations.extend(
                     Violation("*", failure.rule, failure.detail)
                     for failure in failures
                 )
-            except (OSError, ValueError) as error:
+                if not failures:
+                    if attestation_bundle_path is None:
+                        receipt_violations.append(
+                            Violation(
+                                "*",
+                                "missing detached attestation bundle",
+                                "pass --attestation-bundle or "
+                                "CODEDB_REQUIREMENT_PROOF_BUNDLE",
+                            )
+                        )
+                    elif not signer_workflow:
+                        receipt_violations.append(
+                            Violation(
+                                "*",
+                                "missing signer workflow policy",
+                                "pass --signer-workflow or "
+                                "CODEDB_REQUIREMENT_PROOF_SIGNER_WORKFLOW",
+                            )
+                        )
+                    else:
+                        resolved_bundle = _external_path(
+                            root,
+                            attestation_bundle_path
+                            if attestation_bundle_path.is_absolute()
+                            else Path.cwd() / attestation_bundle_path,
+                            label="attestation bundle",
+                        )
+                        receipt_violations.extend(
+                            Violation("*", failure.rule, failure.detail)
+                            for failure in verify_github_attestation(
+                                resolved_receipt,
+                                bundle_path=resolved_bundle,
+                                repository=_current_repository(root),
+                                signer_workflow=signer_workflow,
+                                source_digest=current_head,
+                            )
+                        )
+            except (OSError, ValueError, subprocess.CalledProcessError) as error:
                 receipt_violations.append(
                     Violation("*", "invalid external proof receipt", str(error))
                 )
@@ -399,13 +473,14 @@ def audit_ledger(
     return [
         *receipt_violations,
         *validate_rows(
-        root,
-        rows,
-        expected_ids=EXPECTED_REQUIREMENT_IDS,
-        current_head=current_head,
-        require_all_verified=require_all_verified,
-        graph_statuses=_graph_statuses(root),
-        receipt_rows=receipt_rows,
+            root,
+            rows,
+            expected_ids=EXPECTED_REQUIREMENT_IDS,
+            current_head=current_head,
+            require_all_verified=require_all_verified,
+            require_receipts=require_receipts,
+            graph_statuses=_graph_statuses(root),
+            receipt_rows=receipt_rows,
         ),
     ]
 
@@ -418,10 +493,19 @@ def _print_violations(violations: Iterable[Violation]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--structure-only",
         action="store_true",
         help="Validate inventory/schema/contradictions without asserting release readiness",
+    )
+    mode.add_argument(
+        "--direct-evidence",
+        action="store_true",
+        help=(
+            "Validate complete graph/status/path/test/command evidence without "
+            "requiring the detached receipt currently being created"
+        ),
     )
     parser.add_argument(
         "--receipt",
@@ -434,9 +518,19 @@ def main() -> int:
         help="External receipt generated after checkout; never committed into the attested tree",
     )
     parser.add_argument(
-        "--allow-local-receipt",
-        action="store_true",
-        help="Development only: do not require GitHub Actions generator/attestation fields",
+        "--attestation-bundle",
+        type=Path,
+        default=(
+            Path(value)
+            if (value := os.environ.get("CODEDB_REQUIREMENT_PROOF_BUNDLE"))
+            else None
+        ),
+        help="Detached GitHub attestation bundle for the external receipt",
+    )
+    parser.add_argument(
+        "--signer-workflow",
+        default=os.environ.get("CODEDB_REQUIREMENT_PROOF_SIGNER_WORKFLOW"),
+        help="Exact GitHub Actions signer workflow identity required in release mode",
     )
     args = parser.parse_args()
 
@@ -444,15 +538,25 @@ def main() -> int:
         args.root,
         require_all_verified=not args.structure_only,
         receipt_path=args.receipt,
-        require_trusted_ci=not args.allow_local_receipt,
+        attestation_bundle_path=args.attestation_bundle,
+        signer_workflow=args.signer_workflow,
+        direct_evidence=args.direct_evidence,
     )
     if violations:
         print("requirement proof ledger: FAILED")
         _print_violations(violations)
         return 1
+    validation_mode = (
+        "structure-only"
+        if args.structure_only
+        else "direct-evidence"
+        if args.direct_evidence
+        else "release"
+    )
     print(
         "requirement proof ledger: PASSED "
-        f"({len(EXPECTED_REQUIREMENT_IDS)} mandatory requirement rows)"
+        f"({len(EXPECTED_REQUIREMENT_IDS)} mandatory requirement rows; "
+        f"mode={validation_mode})"
     )
     return 0
 

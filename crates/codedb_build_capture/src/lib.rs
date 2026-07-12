@@ -2,18 +2,43 @@
 
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
+use std::ffi::{OsStr, OsString};
 use std::fmt::{Debug, Display, Formatter};
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io;
+use std::io::{Read, Write};
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const STATUS: &str = "unsafe_build_capture_gate_available";
 pub const UNSAFE_FLAG: &str = "--unsafe-execute-build";
 
 pub type Row = BTreeMap<String, String>;
+
+/// A caller-opened OUT_DIR reproduction root. All later traversal and
+/// publication stays bound to this descriptor.
+pub struct ReproductionRoot {
+    directory: File,
+    display: PathBuf,
+}
+
+/// Unforgeable entry token held only by this crate's trusted frontdoor.
+///
+/// The private field is the seal: external library callers cannot construct
+/// this value and therefore cannot ask the library to self-issue authority.
+pub struct TrustedExecutionFrontdoor(());
+
+impl ReproductionRoot {
+    pub fn open_existing(path: &Path) -> io::Result<Self> {
+        Ok(Self {
+            directory: open_directory_nofollow(path)?,
+            display: path.to_path_buf(),
+        })
+    }
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct BuildCaptureRequest {
@@ -47,6 +72,24 @@ pub struct BuildCaptureOutcome {
     pub raw_log_paths: Vec<Row>,
 }
 
+/// Host-held authority for minting request-bound execution capabilities.
+///
+/// The authority must stay in the trusted frontdoor. Approval-shaped request
+/// fields are deliberately insufficient to invoke the dynamic runner.
+struct ExecutionApprovalAuthority {
+    secret: [u8; 32],
+    authority_id: String,
+}
+
+/// Opaque, single-use proof that a trusted authority approved one exact
+/// [`BuildCaptureRequest`].
+struct ExecutionApprovalCapability {
+    authority_id: String,
+    request_digest: String,
+    nonce: [u8; 32],
+    authenticator: [u8; 32],
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildCaptureStatus {
     Refused,
@@ -71,6 +114,10 @@ pub enum BuildCaptureError {
     WriteLog { path: PathBuf, source: io::Error },
     SpawnCargo { path: PathBuf, source: io::Error },
     DisallowedEnvironment { key: String },
+    AmbiguousEnvironment { reason: &'static str },
+    ApprovalCapability { reason: &'static str },
+    SandboxUnavailable { reason: String },
+    PrepareSandbox { path: PathBuf, source: io::Error },
 }
 
 impl Debug for BuildCaptureRequest {
@@ -189,6 +236,27 @@ impl Display for BuildCaptureError {
                     redact_text(key)
                 )
             }
+            Self::AmbiguousEnvironment { reason } => {
+                write!(f, "approved build capture environment rejected: {reason}")
+            }
+            Self::ApprovalCapability { reason } => {
+                write!(f, "execution approval capability rejected: {reason}")
+            }
+            Self::SandboxUnavailable { reason } => {
+                write!(
+                    f,
+                    "mandatory Linux sandbox unavailable: {}",
+                    redact_text(reason)
+                )
+            }
+            Self::PrepareSandbox { path, source } => {
+                write!(
+                    f,
+                    "failed to prepare mandatory sandbox at {}: {}",
+                    redact_text(&path.display().to_string()),
+                    io_error_summary(source)
+                )
+            }
         }
     }
 }
@@ -226,6 +294,95 @@ struct ProcMacroEvidence {
     log_summary: Vec<String>,
 }
 
+struct SandboxPlan {
+    executable: PathBuf,
+    cargo: PathBuf,
+    rustc: PathBuf,
+    rustdoc: PathBuf,
+    linker: PathBuf,
+    scratch_root: PathBuf,
+    guest_source: PathBuf,
+    guest_target: PathBuf,
+    host_proc_macro_log: PathBuf,
+    command_args: Vec<OsString>,
+    environment_keys: Vec<String>,
+    cleanup_armed: bool,
+}
+
+struct SandboxScratchGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl Drop for SandboxPlan {
+    fn drop(&mut self) {
+        if self.cleanup_armed {
+            let _ = fs::remove_dir_all(&self.scratch_root);
+        }
+    }
+}
+
+impl SandboxScratchGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for SandboxScratchGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
+impl ExecutionApprovalAuthority {
+    /// Create a new in-memory authority from kernel randomness.
+    ///
+    /// Callers must create and retain this object in the trusted approval
+    /// frontdoor rather than constructing it from request/CLI data.
+    fn new() -> Result<Self, BuildCaptureError> {
+        let secret = kernel_random_32()?;
+        Ok(Self {
+            authority_id: sha256_hex(&secret),
+            secret,
+        })
+    }
+
+    /// Mint an opaque capability bound to every execution-relevant request
+    /// field. Moving the capability into the runner makes it single-use.
+    fn approve(
+        &self,
+        request: &BuildCaptureRequest,
+        environment: &[(String, String)],
+        sandbox: &SandboxPlan,
+    ) -> Result<ExecutionApprovalCapability, BuildCaptureError> {
+        if !request.unsafe_execute_build {
+            return Err(BuildCaptureError::ApprovalCapability {
+                reason: "unsafe execution was not explicitly selected",
+            });
+        }
+        if !has_named_approver(request) || !has_complete_approval_provenance(request) {
+            return Err(BuildCaptureError::ApprovalCapability {
+                reason: "operator approval provenance is incomplete",
+            });
+        }
+        let request_digest = execution_approval_digest(request, environment, sandbox);
+        let nonce = kernel_random_32()?;
+        let authenticator = capability_authenticator(&self.secret, &request_digest, &nonce);
+        Ok(ExecutionApprovalCapability {
+            authority_id: self.authority_id.clone(),
+            request_digest,
+            nonce,
+            authenticator,
+        })
+    }
+}
+
 pub fn capture_build(request: BuildCaptureRequest) -> BuildCaptureOutcome {
     if !request.unsafe_execute_build {
         return refused_capture(request);
@@ -237,7 +394,7 @@ pub fn capture_build(request: BuildCaptureRequest) -> BuildCaptureOutcome {
         return incomplete_approval_capture(request);
     }
 
-    approved_scaffold(request)
+    capability_required_capture(request)
 }
 
 pub fn capture_approved_fixture_build(
@@ -248,7 +405,27 @@ pub fn capture_approved_fixture_build(
 
 pub fn capture_approved_fixture_build_with_env(
     request: BuildCaptureRequest,
+    _environment: &[(&str, &str)],
+) -> Result<BuildCaptureOutcome, BuildCaptureError> {
+    Ok(capability_required_capture(request))
+}
+
+/// Sealed trusted-frontdoor implementation.
+///
+/// Library callers can submit approval-shaped data to the refusal-only public
+/// API, but they cannot construct an execution authority or mint a capability:
+///
+/// ```compile_fail
+/// use codedb_build_capture::ExecutionApprovalAuthority;
+///
+/// let authority = ExecutionApprovalAuthority::new().unwrap();
+/// ```
+fn capture_approved_fixture_build_with_capability(
+    authority: &ExecutionApprovalAuthority,
+    capability: ExecutionApprovalCapability,
+    request: BuildCaptureRequest,
     environment: &[(&str, &str)],
+    mut sandbox: SandboxPlan,
 ) -> Result<BuildCaptureOutcome, BuildCaptureError> {
     if !request.unsafe_execute_build {
         return Ok(refused_capture(request));
@@ -259,21 +436,22 @@ pub fn capture_approved_fixture_build_with_env(
     if !has_complete_approval_provenance(&request) {
         return Ok(incomplete_approval_capture(request));
     }
-    validate_approved_environment(environment)?;
-
-    let target_dir = isolated_target_dir(&request);
-    let mut command = Command::new("cargo");
-    command
-        .args(["check", "--message-format=json"])
-        .current_dir(&request.repo_path)
-        .env_clear();
-    copy_allowlisted_host_environment(&mut command);
-    for (key, value) in environment {
-        command.env(key, value);
-    }
-    command
-        .env("CARGO_TARGET_DIR", &target_dir)
-        .env("CARGO_INCREMENTAL", "0");
+    let normalized_environment = normalize_approved_environment(environment)?;
+    validate_execution_capability(
+        authority,
+        &capability,
+        &request,
+        &normalized_environment,
+        &sandbox,
+    )?;
+    let log_root = ReproductionRoot::open_existing(&request.repo_path).map_err(|source| {
+        BuildCaptureError::CreateLogDir {
+            path: request.repo_path.clone(),
+            source,
+        }
+    })?;
+    let target_dir = sandbox.scratch_root.join("target");
+    let mut command = sandbox_command(&sandbox, environment);
     let output = command
         .output()
         .map_err(|source| BuildCaptureError::SpawnCargo {
@@ -288,7 +466,17 @@ pub fn capture_approved_fixture_build_with_env(
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let observations = build_script_observations_from_cargo_json(&stdout);
+    let mut observations = build_script_observations_from_cargo_json(&stdout);
+    for observation in &mut observations {
+        let Some(out_dir) = observation.out_dir.as_ref() else {
+            continue;
+        };
+        let Ok(relative) = out_dir.strip_prefix(&sandbox.guest_target) else {
+            observation.out_dir = None;
+            continue;
+        };
+        observation.out_dir = Some(target_dir.join(relative));
+    }
     let streams = capture_build_script_streams(&observations);
     let mut build_script_env = build_script_env_rows(&observations, &request);
     build_script_env.extend(approved_environment_rows(environment, &request));
@@ -319,8 +507,27 @@ pub fn capture_approved_fixture_build_with_env(
             }
         }
     }
-    let proc_macro_evidence = capture_proc_macro_evidence(environment, &request);
+    let sandbox_proc_macro_environment = environment
+        .iter()
+        .map(|(key, value)| {
+            if *key == "CODEDB_PROC_MACRO_LOG_PATH" {
+                (
+                    *key,
+                    sandbox.host_proc_macro_log.to_string_lossy().into_owned(),
+                )
+            } else {
+                (*key, (*value).to_string())
+            }
+        })
+        .collect::<Vec<_>>();
+    let sandbox_proc_macro_environment = sandbox_proc_macro_environment
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect::<Vec<_>>();
+    let proc_macro_evidence =
+        capture_proc_macro_evidence(&sandbox_proc_macro_environment, &request);
     write_redacted_raw_log(
+        &log_root,
         &request.raw_log_path,
         &request,
         &output,
@@ -353,7 +560,7 @@ pub fn capture_approved_fixture_build_with_env(
         || stdout.contains("build-script-")
         || stderr.contains("build-script-");
 
-    Ok(BuildCaptureOutcome {
+    let mut outcome = BuildCaptureOutcome {
         status,
         unsafe_execution_approval: vec![approval_row(
             &request,
@@ -377,7 +584,7 @@ pub fn capture_approved_fixture_build_with_env(
         proc_macro_output_token_streams: proc_macro_evidence.outputs,
         native_link_facts,
         out_dir_artifacts,
-        toolchain_provenance: vec![toolchain_provenance(&target_dir, &request)],
+        toolchain_provenance: vec![toolchain_provenance(&target_dir, &request, Some(&sandbox))],
         validation_errors: {
             if !output.status.success() {
                 validation_errors.push(row([
@@ -396,7 +603,66 @@ pub fn capture_approved_fixture_build_with_env(
         },
         capture_gaps,
         raw_log_paths: vec![raw_log_row(&request, "written")],
-    })
+    };
+    match fs::remove_dir_all(&sandbox.scratch_root) {
+        Ok(()) => {
+            sandbox.cleanup_armed = false;
+            outcome.toolchain_provenance[0]
+                .insert("sandbox_cleanup".to_string(), "removed".to_string());
+        }
+        Err(source) => {
+            outcome.status = BuildCaptureStatus::Failed;
+            outcome.toolchain_provenance[0]
+                .insert("sandbox_cleanup".to_string(), "failed".to_string());
+            outcome.validation_errors.push(row([
+                ("table", "validation_errors".to_string()),
+                ("code", "sandbox_cleanup_failed".to_string()),
+                (
+                    "message",
+                    format!(
+                        "failed to remove isolated sandbox scratch: {}",
+                        io_error_summary(&source)
+                    ),
+                ),
+                (
+                    "sandbox_scratch_root",
+                    sandbox.scratch_root.display().to_string(),
+                ),
+            ]));
+        }
+    }
+    Ok(outcome)
+}
+
+/// Execute only after crossing the crate-sealed trusted-frontdoor boundary.
+///
+/// ```compile_fail
+/// use codedb_build_capture::TrustedExecutionFrontdoor;
+///
+/// let forged = TrustedExecutionFrontdoor(());
+/// ```
+pub fn capture_from_trusted_frontdoor(
+    _frontdoor: TrustedExecutionFrontdoor,
+    request: BuildCaptureRequest,
+    environment: &[(&str, &str)],
+) -> Result<BuildCaptureOutcome, BuildCaptureError> {
+    if !request.unsafe_execute_build
+        || !has_named_approver(&request)
+        || !has_complete_approval_provenance(&request)
+    {
+        return capture_approved_fixture_build_with_env(request, environment);
+    }
+    let normalized_environment = normalize_approved_environment(environment)?;
+    let sandbox = prepare_mandatory_sandbox(&request, environment)?;
+    let authority = ExecutionApprovalAuthority::new()?;
+    let capability = authority.approve(&request, &normalized_environment, &sandbox)?;
+    capture_approved_fixture_build_with_capability(
+        &authority,
+        capability,
+        request,
+        environment,
+        sandbox,
+    )
 }
 
 fn refused_capture(request: BuildCaptureRequest) -> BuildCaptureOutcome {
@@ -552,38 +818,43 @@ fn incomplete_approval_capture(request: BuildCaptureRequest) -> BuildCaptureOutc
     outcome
 }
 
-fn approved_scaffold(request: BuildCaptureRequest) -> BuildCaptureOutcome {
-    BuildCaptureOutcome {
-        status: BuildCaptureStatus::ApprovedScaffold,
-        unsafe_execution_approval: vec![approval_row(
-            &request,
-            "approved",
-            "unsafe approval was supplied; this approval-only API does not execute Cargo",
-        )],
-        build_script_runs: Vec::new(),
-        build_script_env: Vec::new(),
-        build_script_stdout: Vec::new(),
-        build_script_stderr: Vec::new(),
-        build_script_cargo_instructions: Vec::new(),
-        proc_macro_invocations: Vec::new(),
-        proc_macro_input_token_streams: Vec::new(),
-        proc_macro_output_token_streams: Vec::new(),
-        native_link_facts: Vec::new(),
-        out_dir_artifacts: Vec::new(),
-        toolchain_provenance: Vec::new(),
-        validation_errors: Vec::new(),
-        capture_gaps: vec![row([
-            ("table", "capture_gaps".to_string()),
-            ("missing_truth", "dynamic_capture_runner".to_string()),
-            (
-                "reason",
-                "call capture_approved_fixture_build to run the approved compiler/build capture"
-                    .to_string(),
-            ),
-            ("required_task", "CDB034".to_string()),
-        ])],
-        raw_log_paths: vec![raw_log_row(&request, "reserved")],
+fn capability_required_capture(request: BuildCaptureRequest) -> BuildCaptureOutcome {
+    if !request.unsafe_execute_build {
+        return refused_capture(request);
     }
+    if !has_named_approver(&request) {
+        return missing_approval_capture(request);
+    }
+    if !has_complete_approval_provenance(&request) {
+        return incomplete_approval_capture(request);
+    }
+    let mut outcome = refused_capture(request.clone());
+    outcome.unsafe_execution_approval = vec![approval_row(
+        &request,
+        "capability_required",
+        "approval-shaped request data cannot authorize dynamic execution",
+    )];
+    outcome.validation_errors = vec![row([
+        ("table", "validation_errors".to_string()),
+        ("code", "approval_capability_required".to_string()),
+        (
+            "message",
+            "dynamic capture requires an opaque request-bound capability from the trusted approval authority"
+                .to_string(),
+        ),
+        ("repo_path", request.repo_path.display().to_string()),
+    ])];
+    for gap in &mut outcome.capture_gaps {
+        gap.insert(
+            "reason".to_string(),
+            "dynamic evidence requires a request-bound execution approval capability".to_string(),
+        );
+        gap.insert(
+            "required_approval".to_string(),
+            "opaque authority-minted capability".to_string(),
+        );
+    }
+    outcome
 }
 
 fn approval_row(request: &BuildCaptureRequest, status: &str, note: &str) -> Row {
@@ -641,18 +912,140 @@ fn raw_log_row(request: &BuildCaptureRequest, status: &str) -> Row {
 }
 
 fn approval_id(request: &BuildCaptureRequest) -> String {
+    approval_request_digest(request)
+}
+
+fn approval_request_digest(request: &BuildCaptureRequest) -> String {
     sha256_hex(
         format!(
-            "{}\0{}\0{}\0{}\0{}\0{}",
+            "{}\0{}\0{}\0{}\0{}\0{}\0{}\0{}",
+            request.unsafe_execute_build,
             request.task_id.as_deref().unwrap_or_default(),
             request.approver.as_deref().unwrap_or_default(),
             request.before_state.as_deref().unwrap_or_default(),
             request.repo_path.display(),
+            request
+                .store_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
             request.raw_log_path.display(),
             request.cleanup_plan.as_deref().unwrap_or_default(),
         )
         .as_bytes(),
     )
+}
+
+fn kernel_random_32() -> Result<[u8; 32], BuildCaptureError> {
+    let mut source =
+        fs::File::open("/dev/urandom").map_err(|source| BuildCaptureError::ApprovalCapability {
+            reason: match source.kind() {
+                io::ErrorKind::NotFound => "kernel random source is unavailable",
+                _ => "kernel random source could not be opened",
+            },
+        })?;
+    let mut random = [0_u8; 32];
+    source
+        .read_exact(&mut random)
+        .map_err(|_| BuildCaptureError::ApprovalCapability {
+            reason: "kernel random source could not provide 32 bytes",
+        })?;
+    Ok(random)
+}
+
+fn capability_authenticator(secret: &[u8; 32], request_digest: &str, nonce: &[u8; 32]) -> [u8; 32] {
+    hmac_sha256(
+        secret,
+        &[request_digest.as_bytes(), nonce.as_slice()].concat(),
+    )
+}
+
+fn validate_execution_capability(
+    authority: &ExecutionApprovalAuthority,
+    capability: &ExecutionApprovalCapability,
+    request: &BuildCaptureRequest,
+    environment: &[(String, String)],
+    sandbox: &SandboxPlan,
+) -> Result<(), BuildCaptureError> {
+    if capability.authority_id != authority.authority_id {
+        return Err(BuildCaptureError::ApprovalCapability {
+            reason: "capability was minted by a different authority",
+        });
+    }
+    let request_digest = execution_approval_digest(request, environment, sandbox);
+    if capability.request_digest != request_digest {
+        return Err(BuildCaptureError::ApprovalCapability {
+            reason: "capability does not match the exact build request",
+        });
+    }
+    let expected = capability_authenticator(&authority.secret, &request_digest, &capability.nonce);
+    if !constant_time_eq(&expected, &capability.authenticator) {
+        return Err(BuildCaptureError::ApprovalCapability {
+            reason: "capability authenticator is invalid",
+        });
+    }
+    Ok(())
+}
+
+fn execution_approval_digest(
+    request: &BuildCaptureRequest,
+    environment: &[(String, String)],
+    sandbox: &SandboxPlan,
+) -> String {
+    let mut encoded = Vec::new();
+    push_digest_field(&mut encoded, approval_request_digest(request).as_bytes());
+    for (key, value) in environment {
+        push_digest_field(&mut encoded, key.as_bytes());
+        push_digest_field(&mut encoded, value.as_bytes());
+    }
+    push_digest_field(
+        &mut encoded,
+        sandbox.executable.as_os_str().as_encoded_bytes(),
+    );
+    push_digest_field(&mut encoded, sandbox.cargo.as_os_str().as_encoded_bytes());
+    push_digest_field(&mut encoded, sandbox.rustc.as_os_str().as_encoded_bytes());
+    push_digest_field(&mut encoded, sandbox.rustdoc.as_os_str().as_encoded_bytes());
+    push_digest_field(&mut encoded, sandbox.linker.as_os_str().as_encoded_bytes());
+    push_digest_field(
+        &mut encoded,
+        sandbox.scratch_root.as_os_str().as_encoded_bytes(),
+    );
+    for argument in &sandbox.command_args {
+        push_digest_field(&mut encoded, argument.as_os_str().as_encoded_bytes());
+    }
+    sha256_hex(&encoded)
+}
+
+fn push_digest_field(encoded: &mut Vec<u8>, field: &[u8]) {
+    encoded.extend_from_slice(&(field.len() as u64).to_be_bytes());
+    encoded.extend_from_slice(field);
+}
+
+fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
+    const BLOCK_BYTES: usize = 64;
+    let mut normalized = [0_u8; BLOCK_BYTES];
+    if key.len() > BLOCK_BYTES {
+        normalized[..32].copy_from_slice(&sha256_bytes(key));
+    } else {
+        normalized[..key.len()].copy_from_slice(key);
+    }
+    let mut inner_pad = [0x36_u8; BLOCK_BYTES];
+    let mut outer_pad = [0x5c_u8; BLOCK_BYTES];
+    for index in 0..BLOCK_BYTES {
+        inner_pad[index] ^= normalized[index];
+        outer_pad[index] ^= normalized[index];
+    }
+    let inner = sha256_bytes(&[inner_pad.as_slice(), message].concat());
+    sha256_bytes(&[outer_pad.as_slice(), inner.as_slice()].concat())
+}
+
+fn constant_time_eq(left: &[u8; 32], right: &[u8; 32]) -> bool {
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
 }
 
 fn out_dir_artifact_gap(request: &BuildCaptureRequest) -> Row {
@@ -710,15 +1103,26 @@ const SAFE_OBSERVED_ENVIRONMENT_VALUES: &[&str] = &[
     "CODEDB_FIXTURE_EMIT_NATIVE_LINK",
 ];
 
-fn validate_approved_environment(environment: &[(&str, &str)]) -> Result<(), BuildCaptureError> {
-    for (key, _) in environment {
+fn normalize_approved_environment(
+    environment: &[(&str, &str)],
+) -> Result<Vec<(String, String)>, BuildCaptureError> {
+    let mut normalized = Vec::with_capacity(environment.len());
+    let mut previous = None;
+    for (key, value) in environment {
         if !APPROVED_CAPTURE_ENVIRONMENT.contains(key) {
             return Err(BuildCaptureError::DisallowedEnvironment {
                 key: (*key).to_string(),
             });
         }
+        if previous.is_some_and(|previous: &str| previous >= *key) {
+            return Err(BuildCaptureError::AmbiguousEnvironment {
+                reason: "keys must be unique and supplied in strict bytewise order",
+            });
+        }
+        previous = Some(*key);
+        normalized.push(((*key).to_string(), (*value).to_string()));
     }
-    Ok(())
+    Ok(normalized)
 }
 
 fn observed_environment_value(key: &str, value: &str) -> String {
@@ -741,29 +1145,544 @@ fn approved_environment_value(key: &str, value: &str) -> String {
     metadata_summary("approved-environment-value", value.as_bytes())
 }
 
-fn copy_allowlisted_host_environment(command: &mut Command) {
-    const HOST_ENVIRONMENT: &[&str] = &[
-        "CARGO",
-        "CARGO_HOME",
-        "HOME",
-        "NIX_CC",
-        "NIX_CFLAGS_COMPILE",
-        "NIX_LDFLAGS",
-        "PATH",
-        "RUSTC",
-        "RUSTC_WRAPPER",
-        "RUSTC_WORKSPACE_WRAPPER",
-        "RUSTDOC",
-        "RUSTUP_HOME",
-        "RUSTUP_TOOLCHAIN",
-        "TMPDIR",
+#[cfg(target_os = "linux")]
+fn prepare_mandatory_sandbox(
+    request: &BuildCaptureRequest,
+    environment: &[(&str, &str)],
+) -> Result<SandboxPlan, BuildCaptureError> {
+    let executable = trusted_executable("bwrap")?;
+    let cargo = trusted_executable("cargo")?;
+    let rustc = trusted_executable("rustc")?;
+    let rustdoc = trusted_executable("rustdoc")?;
+    let linker = trusted_executable("cc")?;
+    let source =
+        request
+            .repo_path
+            .canonicalize()
+            .map_err(|source| BuildCaptureError::PrepareSandbox {
+                path: request.repo_path.clone(),
+                source,
+            })?;
+    if !source.is_dir() {
+        return Err(BuildCaptureError::SandboxUnavailable {
+            reason: "capture source is not a directory".to_string(),
+        });
+    }
+
+    let random_suffix = sha256_hex(&kernel_random_32()?);
+    let scratch_root = std::env::temp_dir().join(format!(
+        "codedb-build-sandbox-{}-{}",
+        std::process::id(),
+        &random_suffix[..24]
+    ));
+    fs::create_dir(&scratch_root).map_err(|source| BuildCaptureError::PrepareSandbox {
+        path: scratch_root.clone(),
+        source,
+    })?;
+    let mut scratch_guard = SandboxScratchGuard::new(scratch_root.clone());
+    let host_source = scratch_root.join("source");
+    let host_target = scratch_root.join("target");
+    let host_cargo_home = scratch_root.join("cargo-home");
+    let host_evidence = scratch_root.join("evidence");
+    for directory in [&host_source, &host_target, &host_cargo_home, &host_evidence] {
+        fs::create_dir_all(directory).map_err(|source| BuildCaptureError::PrepareSandbox {
+            path: directory.to_path_buf(),
+            source,
+        })?;
+    }
+    copy_sandbox_source(
+        &source,
+        &host_source,
+        &[&scratch_root, &isolated_target_dir(request)],
+    )?;
+
+    let guest_source = PathBuf::from("/work/source");
+    let guest_target = PathBuf::from("/work/target");
+    let guest_proc_macro_log = PathBuf::from("/work/evidence/proc-macro.log");
+    let host_proc_macro_log = host_evidence.join("proc-macro.log");
+    let mut args = vec![
+        OsString::from("--die-with-parent"),
+        OsString::from("--new-session"),
+        OsString::from("--unshare-all"),
+        OsString::from("--cap-drop"),
+        OsString::from("ALL"),
+        OsString::from("--clearenv"),
     ];
-    for key in HOST_ENVIRONMENT {
-        if let Some(value) = std::env::var_os(key) {
-            command.env(key, value);
+    for path in ["/nix/store", "/usr", "/bin", "/lib", "/lib64"] {
+        if Path::new(path).exists() {
+            push_mount(&mut args, "--ro-bind", Path::new(path), Path::new(path));
         }
     }
-    command.env("LANG", "C").env("LC_ALL", "C");
+    args.extend([
+        OsString::from("--proc"),
+        OsString::from("/proc"),
+        OsString::from("--dev"),
+        OsString::from("/dev"),
+        OsString::from("--tmpfs"),
+        OsString::from("/tmp"),
+        OsString::from("--dir"),
+        OsString::from("/homeless"),
+    ]);
+    push_mount(&mut args, "--bind", &scratch_root, Path::new("/work"));
+    bind_tool_root_if_needed(&mut args, &cargo);
+    bind_tool_root_if_needed(&mut args, &rustc);
+    bind_tool_root_if_needed(&mut args, &rustdoc);
+    bind_tool_root_if_needed(&mut args, &linker);
+
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")));
+    if let Some(cargo_home) = cargo_home {
+        for name in ["registry", "git"] {
+            let source = cargo_home.join(name);
+            if source.exists() {
+                let destination = host_cargo_home.join(name);
+                fs::create_dir_all(&destination).map_err(|source| {
+                    BuildCaptureError::PrepareSandbox {
+                        path: destination.clone(),
+                        source,
+                    }
+                })?;
+                push_mount(
+                    &mut args,
+                    "--ro-bind",
+                    &source,
+                    &PathBuf::from("/work/cargo-home").join(name),
+                );
+            }
+        }
+    }
+
+    let path = trusted_tool_path(&[&cargo, &rustc, &rustdoc, &linker]);
+    let mut environment_keys = vec![
+        "CARGO_HOME".to_string(),
+        "CARGO_INCREMENTAL".to_string(),
+        "CARGO_NET_OFFLINE".to_string(),
+        "CARGO_TARGET_DIR".to_string(),
+        "CC".to_string(),
+        "HOME".to_string(),
+        "LANG".to_string(),
+        "LC_ALL".to_string(),
+        "PATH".to_string(),
+        "RUSTC".to_string(),
+        "RUSTDOC".to_string(),
+        "RUSTFLAGS".to_string(),
+        "TMPDIR".to_string(),
+    ];
+    for (key, value) in [
+        ("HOME", "/homeless".to_string()),
+        ("CARGO_HOME", "/work/cargo-home".to_string()),
+        ("CARGO_TARGET_DIR", guest_target.display().to_string()),
+        ("CARGO_INCREMENTAL", "0".to_string()),
+        ("CARGO_NET_OFFLINE", "true".to_string()),
+        ("CC", linker.display().to_string()),
+        ("RUSTC", rustc.display().to_string()),
+        ("RUSTDOC", rustdoc.display().to_string()),
+        ("RUSTFLAGS", format!("-C linker={}", linker.display())),
+        ("PATH", path),
+        ("TMPDIR", "/tmp".to_string()),
+        ("LANG", "C".to_string()),
+        ("LC_ALL", "C".to_string()),
+    ] {
+        push_setenv(&mut args, key, &value);
+    }
+    for key in ["NIX_CC", "NIX_CFLAGS_COMPILE", "NIX_LDFLAGS"] {
+        if let Some(value) = std::env::var_os(key) {
+            environment_keys.push(key.to_string());
+            args.push(OsString::from("--setenv"));
+            args.push(OsString::from(key));
+            args.push(value);
+        }
+    }
+    for (key, value) in environment {
+        environment_keys.push((*key).to_string());
+        let value = if *key == "CODEDB_PROC_MACRO_LOG_PATH" {
+            guest_proc_macro_log.display().to_string()
+        } else {
+            (*value).to_string()
+        };
+        push_setenv(&mut args, key, &value);
+    }
+    environment_keys.sort();
+    environment_keys.dedup();
+    args.extend([
+        OsString::from("--chdir"),
+        guest_source.as_os_str().to_os_string(),
+        OsString::from("--"),
+        cargo.as_os_str().to_os_string(),
+        OsString::from("check"),
+        OsString::from("--offline"),
+        OsString::from("--message-format=json"),
+    ]);
+
+    let plan = SandboxPlan {
+        executable,
+        cargo,
+        rustc,
+        rustdoc,
+        linker,
+        scratch_root,
+        guest_source,
+        guest_target,
+        host_proc_macro_log,
+        command_args: args,
+        environment_keys,
+        cleanup_armed: true,
+    };
+    scratch_guard.disarm();
+    Ok(plan)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn prepare_mandatory_sandbox(
+    _request: &BuildCaptureRequest,
+    _environment: &[(&str, &str)],
+) -> Result<SandboxPlan, BuildCaptureError> {
+    Err(BuildCaptureError::SandboxUnavailable {
+        reason: "dynamic build capture is supported only on Linux".to_string(),
+    })
+}
+
+fn sandbox_command(plan: &SandboxPlan, _environment: &[(&str, &str)]) -> Command {
+    let mut command = Command::new(&plan.executable);
+    command.args(&plan.command_args).env_clear();
+    command
+}
+
+#[cfg(target_os = "linux")]
+fn trusted_executable(name: &str) -> Result<PathBuf, BuildCaptureError> {
+    let mut candidates = vec![
+        PathBuf::from("/home/flexnetos/.nix-profile/bin").join(name),
+        PathBuf::from("/run/current-system/sw/bin").join(name),
+        PathBuf::from("/usr/bin").join(name),
+        PathBuf::from("/bin").join(name),
+    ];
+    if let Some(path) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&path).map(|directory| directory.join(name)));
+    }
+    candidates.sort();
+    candidates.dedup();
+    for candidate in candidates {
+        let Ok(canonical) = candidate.canonicalize() else {
+            continue;
+        };
+        if !trusted_executable_metadata(&canonical) {
+            continue;
+        }
+        return Ok(canonical);
+    }
+    Err(BuildCaptureError::SandboxUnavailable {
+        reason: format!("required trusted executable is missing: {name}"),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn trusted_executable_metadata(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    metadata.is_file()
+        && metadata.mode() & 0o111 != 0
+        && metadata.mode() & 0o022 == 0
+        && (path.starts_with("/nix/store") || (path.starts_with("/usr") && metadata.uid() == 0))
+}
+
+#[cfg(target_os = "linux")]
+fn copy_sandbox_source(
+    source: &Path,
+    destination: &Path,
+    excluded: &[&Path],
+) -> Result<(), BuildCaptureError> {
+    copy_sandbox_source_with_hook(source, destination, excluded, &mut |_, _| {})
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SandboxCopyEvent {
+    EntryScanned,
+    DirectoryOpened,
+    FileOpened,
+}
+
+#[cfg(target_os = "linux")]
+fn copy_sandbox_source_with_hook(
+    source: &Path,
+    destination: &Path,
+    excluded: &[&Path],
+    hook: &mut dyn FnMut(SandboxCopyEvent, &Path),
+) -> Result<(), BuildCaptureError> {
+    let source = absolute_source_path(source)?;
+    let source_directory = open_absolute_directory_handle(&source)?;
+    copy_held_sandbox_directory(&source_directory, &source, destination, excluded, hook)
+}
+
+#[cfg(target_os = "linux")]
+fn absolute_source_path(source: &Path) -> Result<PathBuf, BuildCaptureError> {
+    if source.is_absolute() {
+        return Ok(source.to_path_buf());
+    }
+    std::env::current_dir()
+        .map(|current| current.join(source))
+        .map_err(|source_error| BuildCaptureError::PrepareSandbox {
+            path: source.to_path_buf(),
+            source: source_error,
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn open_absolute_directory_handle(path: &Path) -> Result<fs::File, BuildCaptureError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    const O_DIRECTORY: i32 = 0o002_00000;
+    const O_NOFOLLOW: i32 = 0o004_00000;
+    const O_PATH: i32 = 0o100_00000;
+
+    let mut current = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_PATH | O_DIRECTORY)
+        .open("/")
+        .map_err(|source| BuildCaptureError::PrepareSandbox {
+            path: PathBuf::from("/"),
+            source,
+        })?;
+    let mut traversed = PathBuf::from("/");
+    for component in path.components() {
+        match component {
+            Component::RootDir | Component::CurDir => continue,
+            Component::Normal(name) => {
+                traversed.push(name);
+                let next = fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(O_PATH | O_NOFOLLOW)
+                    .open(descriptor_path(&current).join(name))
+                    .map_err(|source| BuildCaptureError::PrepareSandbox {
+                        path: traversed.clone(),
+                        source,
+                    })?;
+                let metadata =
+                    next.metadata()
+                        .map_err(|source| BuildCaptureError::PrepareSandbox {
+                            path: traversed.clone(),
+                            source,
+                        })?;
+                if !metadata.is_dir() {
+                    return Err(unsupported_sandbox_source_entry(&traversed));
+                }
+                current = next;
+            }
+            Component::ParentDir | Component::Prefix(_) => {
+                return Err(BuildCaptureError::SandboxUnavailable {
+                    reason: format!(
+                        "source tree path is not an absolute normalized directory: {}",
+                        path.display()
+                    ),
+                });
+            }
+        }
+    }
+    Ok(current)
+}
+
+#[cfg(target_os = "linux")]
+fn copy_held_sandbox_directory(
+    source_directory: &fs::File,
+    logical_source: &Path,
+    destination: &Path,
+    excluded: &[&Path],
+    hook: &mut dyn FnMut(SandboxCopyEvent, &Path),
+) -> Result<(), BuildCaptureError> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    const O_NOFOLLOW: i32 = 0o004_00000;
+    const O_PATH: i32 = 0o100_00000;
+
+    let entries = fs::read_dir(descriptor_path(source_directory)).map_err(|source_error| {
+        BuildCaptureError::PrepareSandbox {
+            path: logical_source.to_path_buf(),
+            source: source_error,
+        }
+    })?;
+    let mut names = entries
+        .map(|entry| {
+            entry
+                .map(|entry| entry.file_name())
+                .map_err(|source_error| BuildCaptureError::PrepareSandbox {
+                    path: logical_source.to_path_buf(),
+                    source: source_error,
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    names.sort();
+
+    for name in names {
+        let source_path = logical_source.join(&name);
+        if excluded.iter().any(|excluded| source_path == **excluded)
+            || name == ".git"
+            || name == "target"
+        {
+            continue;
+        }
+        hook(SandboxCopyEvent::EntryScanned, &source_path);
+
+        // O_PATH acquires an inert handle without reading or activating a
+        // device/FIFO. O_NOFOLLOW makes a replaced symlink the held object
+        // itself, which is then rejected by fstat below.
+        let source_object = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(O_PATH | O_NOFOLLOW)
+            .open(descriptor_path(source_directory).join(&name))
+            .map_err(|source| BuildCaptureError::PrepareSandbox {
+                path: source_path.clone(),
+                source,
+            })?;
+        let metadata =
+            source_object
+                .metadata()
+                .map_err(|source| BuildCaptureError::PrepareSandbox {
+                    path: source_path.clone(),
+                    source,
+                })?;
+        let destination_path = destination.join(&name);
+
+        if metadata.is_dir() {
+            fs::create_dir(&destination_path).map_err(|source| {
+                BuildCaptureError::PrepareSandbox {
+                    path: destination_path.clone(),
+                    source,
+                }
+            })?;
+            hook(SandboxCopyEvent::DirectoryOpened, &source_path);
+            copy_held_sandbox_directory(
+                &source_object,
+                &source_path,
+                &destination_path,
+                excluded,
+                hook,
+            )?;
+            fs::set_permissions(&destination_path, metadata.permissions()).map_err(|source| {
+                BuildCaptureError::PrepareSandbox {
+                    path: destination_path.clone(),
+                    source,
+                }
+            })?;
+        } else if metadata.is_file() {
+            hook(SandboxCopyEvent::FileOpened, &source_path);
+            let mut source_file =
+                fs::File::open(descriptor_path(&source_object)).map_err(|source| {
+                    BuildCaptureError::PrepareSandbox {
+                        path: source_path.clone(),
+                        source,
+                    }
+                })?;
+            let opened_metadata =
+                source_file
+                    .metadata()
+                    .map_err(|source| BuildCaptureError::PrepareSandbox {
+                        path: source_path.clone(),
+                        source,
+                    })?;
+            if !opened_metadata.is_file()
+                || opened_metadata.dev() != metadata.dev()
+                || opened_metadata.ino() != metadata.ino()
+            {
+                return Err(BuildCaptureError::SandboxUnavailable {
+                    reason: format!(
+                        "held source object changed while opening data: {}",
+                        source_path.display()
+                    ),
+                });
+            }
+            let mut destination_file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&destination_path)
+                .map_err(|source| BuildCaptureError::PrepareSandbox {
+                    path: destination_path.clone(),
+                    source,
+                })?;
+            io::copy(&mut source_file, &mut destination_file).map_err(|source| {
+                BuildCaptureError::PrepareSandbox {
+                    path: destination_path.clone(),
+                    source,
+                }
+            })?;
+            destination_file
+                .set_permissions(metadata.permissions())
+                .map_err(|source| BuildCaptureError::PrepareSandbox {
+                    path: destination_path.clone(),
+                    source,
+                })?;
+        } else {
+            return Err(unsupported_sandbox_source_entry(&source_path));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn descriptor_path(descriptor: &fs::File) -> PathBuf {
+    use std::os::fd::AsRawFd;
+
+    PathBuf::from(format!("/proc/self/fd/{}", descriptor.as_raw_fd()))
+}
+
+#[cfg(target_os = "linux")]
+fn unsupported_sandbox_source_entry(path: &Path) -> BuildCaptureError {
+    BuildCaptureError::SandboxUnavailable {
+        reason: format!(
+            "source tree contains unsupported symlink or non-regular entry: {}",
+            path.display()
+        ),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn push_mount(args: &mut Vec<OsString>, operation: &str, source: &Path, destination: &Path) {
+    args.push(OsString::from(operation));
+    args.push(source.as_os_str().to_os_string());
+    args.push(destination.as_os_str().to_os_string());
+}
+
+#[cfg(target_os = "linux")]
+fn push_setenv(args: &mut Vec<OsString>, key: &str, value: &str) {
+    args.push(OsString::from("--setenv"));
+    args.push(OsString::from(key));
+    args.push(OsString::from(value));
+}
+
+#[cfg(target_os = "linux")]
+fn bind_tool_root_if_needed(args: &mut Vec<OsString>, executable: &Path) {
+    if executable.starts_with("/nix/store")
+        || executable.starts_with("/usr")
+        || executable.starts_with("/bin")
+    {
+        return;
+    }
+    if let Some(root) = executable.ancestors().nth(3) {
+        push_mount(args, "--ro-bind", root, root);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn trusted_tool_path(executables: &[&PathBuf]) -> String {
+    let mut paths = executables
+        .iter()
+        .filter_map(|path| path.parent())
+        .map(Path::to_path_buf)
+        .collect::<Vec<_>>();
+    for path in ["/usr/bin", "/bin"] {
+        if Path::new(path).exists() {
+            paths.push(PathBuf::from(path));
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    std::env::join_paths(paths)
+        .unwrap_or_else(|_| OsString::from("/usr/bin:/bin"))
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn build_script_observations_from_cargo_json(stdout: &str) -> Vec<BuildScriptObservation> {
@@ -1258,7 +2177,10 @@ struct PreparedReproduction {
     payload: ReproductionPayload,
 }
 
-pub fn reproduce_out_dir_artifacts(artifacts: &[Row], destination: &Path) -> io::Result<Vec<Row>> {
+pub fn reproduce_out_dir_artifacts(
+    artifacts: &[Row],
+    destination: &ReproductionRoot,
+) -> io::Result<Vec<Row>> {
     let mut prepared = Vec::with_capacity(artifacts.len());
     for artifact in artifacts {
         let relative_value = artifact
@@ -1338,30 +2260,32 @@ pub fn reproduce_out_dir_artifacts(artifacts: &[Row], destination: &Path) -> io:
         });
     }
 
-    fs::create_dir_all(destination)?;
     let mut proof = Vec::with_capacity(prepared.len());
+    let mut published: Vec<PathBuf> = Vec::new();
     for artifact in prepared {
-        let output_path = destination.join(&artifact.relative_path);
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let file_kind = match artifact.payload {
+        let result = match artifact.payload {
             ReproductionPayload::File(bytes) => {
-                fs::write(&output_path, &bytes)?;
-                apply_reproduced_permissions(&output_path, artifact.readonly, artifact.unix_mode)?;
-                if sha256_hex(&fs::read(&output_path)?) != artifact.expected_sha256 {
-                    return Err(invalid_artifact(format!(
-                        "reproduced artifact checksum mismatch for {}",
-                        artifact.relative_path.display()
-                    )));
-                }
-                "file"
+                let mode = artifact
+                    .unix_mode
+                    .or_else(|| artifact.readonly.then_some(0o444));
+                atomic_publish_bytes(destination, &artifact.relative_path, &bytes, mode)
+                    .map(|()| "file")
             }
             ReproductionPayload::Symlink(target) => {
-                reproduce_symlink(&target, &output_path)?;
-                "symlink"
+                atomic_publish_symlink(destination, &artifact.relative_path, &target)
+                    .map(|()| "symlink")
             }
         };
+        let file_kind = match result {
+            Ok(file_kind) => file_kind,
+            Err(error) => {
+                for relative in published.iter().rev() {
+                    let _ = remove_published_artifact(destination, relative);
+                }
+                return Err(error);
+            }
+        };
+        published.push(artifact.relative_path.clone());
         proof.push(row([
             ("table", "out_dir_reproduction_proofs".to_string()),
             ("status", "verified".to_string()),
@@ -1373,52 +2297,77 @@ pub fn reproduce_out_dir_artifacts(artifacts: &[Row], destination: &Path) -> io:
             ("sha256", artifact.expected_sha256),
             ("reproduction_sha256", artifact.reproduction_sha256),
             ("proof", "reproduced-bytes-sha256-match".to_string()),
-            ("destination", destination.display().to_string()),
+            ("destination", destination.display.display().to_string()),
         ]));
     }
     Ok(proof)
 }
 
 #[cfg(unix)]
-fn apply_reproduced_permissions(
-    path: &Path,
-    _readonly: bool,
-    unix_mode: Option<u32>,
+fn atomic_publish_symlink(
+    root: &ReproductionRoot,
+    relative: &Path,
+    target: &Path,
 ) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    if let Some(mode) = unix_mode {
-        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let (parent, final_name) = descriptor_parent(root, relative)?;
+    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temp_name = OsString::from(format!(
+        ".codedb-link-{}-{sequence}.tmp",
+        std::process::id()
+    ));
+    let ready_name = OsString::from(format!(
+        ".codedb-link-{}-{sequence}.ready",
+        std::process::id()
+    ));
+    let temp_path = descriptor_child_path(&parent, &temp_name);
+    let ready_path = descriptor_child_path(&parent, &ready_name);
+    let final_path = descriptor_child_path(&parent, &final_name);
+    std::os::unix::fs::symlink(target, &temp_path)?;
+    let mut final_published = false;
+    let result = (|| {
+        fs::rename(&temp_path, &ready_path)?;
+        fs::hard_link(&ready_path, &final_path)?;
+        final_published = true;
+        parent.sync_all()?;
+        fs::remove_file(&ready_path)?;
+        parent.sync_all()
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+        let _ = fs::remove_file(&ready_path);
+        if final_published {
+            let _ = fs::remove_file(&final_path);
+            let _ = parent.sync_all();
+        }
     }
-    Ok(())
+    result
 }
 
 #[cfg(not(unix))]
-fn apply_reproduced_permissions(
-    path: &Path,
-    readonly: bool,
-    _unix_mode: Option<u32>,
+fn atomic_publish_symlink(
+    _root: &ReproductionRoot,
+    _relative: &Path,
+    _target: &Path,
 ) -> io::Result<()> {
-    let mut permissions = fs::metadata(path)?.permissions();
-    permissions.set_readonly(readonly);
-    fs::set_permissions(path, permissions)
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "descriptor-relative symlink reproduction is unsupported on this platform",
+    ))
 }
 
 #[cfg(unix)]
-fn reproduce_symlink(target: &Path, output_path: &Path) -> io::Result<()> {
-    std::os::unix::fs::symlink(target, output_path)
+fn remove_published_artifact(root: &ReproductionRoot, relative: &Path) -> io::Result<()> {
+    let (parent, final_name) = descriptor_parent(root, relative)?;
+    fs::remove_file(descriptor_child_path(&parent, &final_name))?;
+    parent.sync_all()
 }
 
-#[cfg(windows)]
-fn reproduce_symlink(target: &Path, output_path: &Path) -> io::Result<()> {
-    std::os::windows::fs::symlink_file(target, output_path)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn reproduce_symlink(_target: &Path, _output_path: &Path) -> io::Result<()> {
+#[cfg(not(unix))]
+fn remove_published_artifact(_root: &ReproductionRoot, _relative: &Path) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
-        "symlink reproduction is unsupported on this platform",
+        "descriptor-relative rollback is unsupported on this platform",
     ))
 }
 
@@ -1548,7 +2497,11 @@ fn push_proc_macro_evidence(
     ));
 }
 
-fn toolchain_provenance(target_dir: &Path, request: &BuildCaptureRequest) -> Row {
+fn toolchain_provenance(
+    target_dir: &Path,
+    request: &BuildCaptureRequest,
+    sandbox: Option<&SandboxPlan>,
+) -> Row {
     let mut row = Row::new();
     row.insert("table".to_string(), "toolchain_provenance".to_string());
     row.insert("approval_id".to_string(), approval_id(request));
@@ -1557,7 +2510,10 @@ fn toolchain_provenance(target_dir: &Path, request: &BuildCaptureRequest) -> Row
         "isolated_target_dir".to_string(),
         target_dir.display().to_string(),
     );
-    match Command::new("rustc").arg("-vV").output() {
+    let rustc = sandbox
+        .map(|plan| plan.rustc.as_path())
+        .unwrap_or_else(|| Path::new("rustc"));
+    match Command::new(rustc).arg("-vV").output() {
         Ok(output) if output.status.success() => {
             let body = redact_text(&String::from_utf8_lossy(&output.stdout));
             row.insert("status".to_string(), "observed".to_string());
@@ -1597,7 +2553,10 @@ fn toolchain_provenance(target_dir: &Path, request: &BuildCaptureRequest) -> Row
             row.insert("message".to_string(), redact_text(&error.to_string()));
         }
     }
-    match Command::new("cargo").arg("-V").output() {
+    let cargo = sandbox
+        .map(|plan| plan.cargo.as_path())
+        .unwrap_or_else(|| Path::new("cargo"));
+    match Command::new(cargo).arg("-V").output() {
         Ok(output) if output.status.success() => {
             row.insert(
                 "cargo_version".to_string(),
@@ -1618,29 +2577,231 @@ fn toolchain_provenance(target_dir: &Path, request: &BuildCaptureRequest) -> Row
             row.insert("cargo_version".to_string(), "unavailable".to_string());
         }
     }
-    row.insert(
-        "environment_policy".to_string(),
-        "cleared_then_allowlisted".to_string(),
-    );
+    if let Some(sandbox) = sandbox {
+        row.insert("sandbox_backend".to_string(), "bubblewrap".to_string());
+        row.insert(
+            "sandbox_executable".to_string(),
+            sandbox.executable.display().to_string(),
+        );
+        row.insert(
+            "sandbox_executable_sha256".to_string(),
+            fs::read(&sandbox.executable)
+                .map(|bytes| sha256_hex(&bytes))
+                .unwrap_or_else(|_| "unavailable".to_string()),
+        );
+        row.insert("network_policy".to_string(), "unshared".to_string());
+        row.insert(
+            "writable_root_policy".to_string(),
+            "isolated-scratch-and-ephemeral-tmp".to_string(),
+        );
+        row.insert(
+            "sandbox_provenance".to_string(),
+            "kernel-enforced".to_string(),
+        );
+        row.insert(
+            "sandbox_namespaces".to_string(),
+            "user,mount,pid,ipc,uts,network,cgroup".to_string(),
+        );
+        row.insert(
+            "sandbox_capabilities".to_string(),
+            "all-dropped".to_string(),
+        );
+        row.insert(
+            "sandbox_scratch_root".to_string(),
+            sandbox.scratch_root.display().to_string(),
+        );
+        row.insert(
+            "sandbox_guest_source".to_string(),
+            sandbox.guest_source.display().to_string(),
+        );
+        row.insert(
+            "sandbox_guest_target".to_string(),
+            sandbox.guest_target.display().to_string(),
+        );
+        row.insert(
+            "sandbox_command_sha256".to_string(),
+            sha256_hex(
+                &sandbox
+                    .command_args
+                    .iter()
+                    .flat_map(|argument| {
+                        let mut bytes = argument.to_string_lossy().as_bytes().to_vec();
+                        bytes.push(0);
+                        bytes
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        );
+        row.insert(
+            "sandbox_environment_keys".to_string(),
+            sandbox.environment_keys.join(","),
+        );
+        row.insert(
+            "sandbox_cargo".to_string(),
+            sandbox.cargo.display().to_string(),
+        );
+        row.insert(
+            "sandbox_rustc".to_string(),
+            sandbox.rustc.display().to_string(),
+        );
+        row.insert(
+            "sandbox_rustdoc".to_string(),
+            sandbox.rustdoc.display().to_string(),
+        );
+        row.insert(
+            "sandbox_linker".to_string(),
+            sandbox.linker.display().to_string(),
+        );
+        row.insert(
+            "environment_policy".to_string(),
+            "cleared_then_minimally_allowlisted".to_string(),
+        );
+    } else {
+        row.insert("environment_policy".to_string(), "not-executed".to_string());
+    }
     sanitize_row_values(&mut row);
     row
 }
 
+#[cfg(unix)]
+fn open_directory_nofollow(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    const O_DIRECTORY: i32 = 0o200000;
+    const O_NOFOLLOW: i32 = 0o400000;
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(O_DIRECTORY | O_NOFOLLOW)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn open_directory_nofollow(_path: &Path) -> io::Result<File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "descriptor-relative publication is unavailable on this platform",
+    ))
+}
+
+#[cfg(unix)]
+fn descriptor_child_path(parent: &File, child: &OsStr) -> PathBuf {
+    use std::os::fd::AsRawFd;
+
+    PathBuf::from(format!("/proc/self/fd/{}", parent.as_raw_fd())).join(child)
+}
+
+#[cfg(unix)]
+fn open_or_create_descriptor_directory(parent: &File, child: &OsStr) -> io::Result<File> {
+    let path = descriptor_child_path(parent, child);
+    match open_directory_nofollow(&path) {
+        Ok(directory) => Ok(directory),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir(&path)?;
+            open_directory_nofollow(&path)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(unix)]
+fn descriptor_parent(root: &ReproductionRoot, relative: &Path) -> io::Result<(File, OsString)> {
+    let mut current = root.directory.try_clone()?;
+    let mut components = relative.components().peekable();
+    while let Some(component) = components.next() {
+        let Component::Normal(name) = component else {
+            return Err(invalid_artifact("non-normal descriptor-relative path"));
+        };
+        if components.peek().is_none() {
+            return Ok((current, name.to_os_string()));
+        }
+        current = open_or_create_descriptor_directory(&current, name)?;
+    }
+    Err(invalid_artifact(
+        "descriptor-relative path has no final name",
+    ))
+}
+
+#[cfg(unix)]
+fn atomic_publish_bytes(
+    root: &ReproductionRoot,
+    relative: &Path,
+    bytes: &[u8],
+    unix_mode: Option<u32>,
+) -> io::Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    const O_NOFOLLOW: i32 = 0o400000;
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let (parent, final_name) = descriptor_parent(root, relative)?;
+    let parent_path = descriptor_child_path(&parent, OsStr::new("."));
+    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temp_name = OsString::from(format!(
+        ".codedb-write-{}-{sequence}.tmp",
+        std::process::id()
+    ));
+    let ready_name = OsString::from(format!(
+        ".codedb-write-{}-{sequence}.ready",
+        std::process::id()
+    ));
+    let temp_path = descriptor_child_path(&parent, &temp_name);
+    let ready_path = descriptor_child_path(&parent, &ready_name);
+    let final_path = descriptor_child_path(&parent, &final_name);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(&temp_path)?;
+    let mut final_published = false;
+    let result = (|| {
+        file.write_all(bytes)?;
+        if let Some(mode) = unix_mode {
+            file.set_permissions(fs::Permissions::from_mode(mode & 0o7777))?;
+        }
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp_path, &ready_path)?;
+        fs::hard_link(&ready_path, &final_path)?;
+        final_published = true;
+        File::open(&parent_path)?.sync_all()?;
+        fs::remove_file(&ready_path)?;
+        File::open(&parent_path)?.sync_all()
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+        let _ = fs::remove_file(&ready_path);
+        if final_published {
+            let _ = fs::remove_file(&final_path);
+            let _ = parent.sync_all();
+        }
+    }
+    result
+}
+
 fn write_redacted_raw_log(
+    root: &ReproductionRoot,
     path: &Path,
     request: &BuildCaptureRequest,
     output: &std::process::Output,
     streams: &[CapturedStream],
     proc_macro_log_summary: &[String],
 ) -> Result<(), BuildCaptureError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|source| BuildCaptureError::CreateLogDir {
-            path: parent.to_path_buf(),
-            source,
+    let relative = path
+        .strip_prefix(&root.display)
+        .map_err(|_| BuildCaptureError::WriteLog {
+            path: path.to_path_buf(),
+            source: io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "raw log must be below the pre-opened trusted log root",
+            ),
         })?;
-    }
+    checked_relative_artifact_path(&relative.to_string_lossy()).map_err(|source| {
+        BuildCaptureError::WriteLog {
+            path: path.to_path_buf(),
+            source,
+        }
+    })?;
     let mut body = format!(
-        "status={}\nexit_code={}\nredaction=applied\napproval_id={}\ntask_id={}\napprover={}\nbefore_state={}\ncleanup_plan={}\nenvironment_policy=cleared_then_allowlisted\n--- cargo stdout ---\n{}\n--- cargo stderr ---\n{}\n",
+        "status={}\nexit_code={}\nredaction=applied\napproval_id={}\ntask_id={}\napprover={}\nbefore_state={}\ncleanup_plan={}\nenvironment_policy=cleared_then_minimally_allowlisted\nsandbox_backend=bubblewrap\nnetwork_policy=unshared\nwritable_root_policy=isolated-scratch-and-ephemeral-tmp\n--- cargo stdout ---\n{}\n--- cargo stderr ---\n{}\n",
         output.status,
         output.status.code().unwrap_or(-1),
         approval_id(request),
@@ -1664,9 +2825,11 @@ fn write_redacted_raw_log(
         body.push_str(&proc_macro_log_summary.join("\n"));
         body.push('\n');
     }
-    fs::write(path, body).map_err(|source| BuildCaptureError::WriteLog {
-        path: path.to_path_buf(),
-        source,
+    atomic_publish_bytes(root, relative, body.as_bytes(), Some(0o600)).map_err(|source| {
+        BuildCaptureError::WriteLog {
+            path: path.to_path_buf(),
+            source,
+        }
     })
 }
 
@@ -1700,7 +2863,7 @@ fn build_script_gap(request: &BuildCaptureRequest) -> Row {
     ])
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
     const INITIAL: [u32; 8] = [
         0x6a09_e667,
         0xbb67_ae85,
@@ -1836,7 +2999,18 @@ fn sha256_hex(bytes: &[u8]) -> String {
             hash[7].wrapping_add(h),
         ];
     }
-    hash.iter().map(|word| format!("{word:08x}")).collect()
+    let mut digest = [0_u8; 32];
+    for (index, word) in hash.iter().enumerate() {
+        digest[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    digest
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    sha256_bytes(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn redact_value_for_key(key: &str, value: &str) -> String {
@@ -2464,6 +3638,19 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn capture_approved_fixture_build(
+        request: BuildCaptureRequest,
+    ) -> Result<BuildCaptureOutcome, BuildCaptureError> {
+        capture_approved_fixture_build_with_env(request, &[])
+    }
+
+    fn capture_approved_fixture_build_with_env(
+        request: BuildCaptureRequest,
+        environment: &[(&str, &str)],
+    ) -> Result<BuildCaptureOutcome, BuildCaptureError> {
+        capture_from_trusted_frontdoor(TrustedExecutionFrontdoor(()), request, environment)
+    }
+
     // Test lane: default
     // Defends: CDB033 must refuse build/proc-macro execution unless the unsafe flag is explicit.
     #[test]
@@ -2492,28 +3679,26 @@ mod tests {
     }
 
     // Test lane: default
-    // Defends: CDB033 approval scaffold records approval without claiming execution.
+    // Defends: CDB033 approval-shaped data is recorded without being promoted
+    // to an approved execution capability.
     #[test]
-    fn capture_build_records_approval_scaffold_with_unsafe_flag() {
+    fn capture_build_refuses_approval_shaped_data_without_capability() {
         let outcome = capture_build(request(true));
 
-        assert_eq!(outcome.status, BuildCaptureStatus::ApprovedScaffold);
-        assert!(outcome.validation_errors.is_empty());
+        assert_eq!(outcome.status, BuildCaptureStatus::Refused);
         assert_eq!(
             outcome.unsafe_execution_approval[0]
                 .get("status")
                 .map(String::as_str),
-            Some("approved")
+            Some("capability_required")
         );
         assert_eq!(
-            outcome.capture_gaps[0]
-                .get("required_task")
-                .map(String::as_str),
-            Some("CDB034")
+            outcome.validation_errors[0].get("code").map(String::as_str),
+            Some("approval_capability_required")
         );
         assert_eq!(
             outcome.raw_log_paths[0].get("status").map(String::as_str),
-            Some("reserved")
+            Some("not_written")
         );
     }
 
@@ -2900,15 +4085,18 @@ edition = "2024"
                 && provenance.get("target_triple").is_some()
                 && provenance.get("cargo_version").is_some()
                 && provenance.get("environment_policy").map(String::as_str)
-                    == Some("cleared_then_allowlisted")
+                    == Some("cleared_then_minimally_allowlisted")
         }));
         assert!(!outcome.capture_gaps.iter().any(|gap| {
             gap.get("missing_truth").map(String::as_str) == Some("out_dir_artifacts")
         }));
 
         let reproduced = fixture.join("reproduced-out-dir");
+        fs::create_dir(&reproduced).expect("create reproduction root");
+        let reproduction_root =
+            ReproductionRoot::open_existing(&reproduced).expect("open reproduction root");
         let reproduction_proof =
-            reproduce_out_dir_artifacts(&outcome.out_dir_artifacts, &reproduced)
+            reproduce_out_dir_artifacts(&outcome.out_dir_artifacts, &reproduction_root)
                 .expect("reproduce captured OUT_DIR");
         assert_eq!(
             fs::read(reproduced.join("generated.rs")).expect("read reproduced generated.rs"),
@@ -3152,6 +4340,403 @@ edition = "2024"
         }));
     }
 
+    // Test lane: mandatory execution approval
+    // Defends: caller-controlled booleans and operator/provenance strings are
+    // data, not an execution capability, and therefore cannot authorize Cargo.
+    #[test]
+    fn plain_boolean_and_operator_strings_cannot_forge_execution_approval() {
+        let scaffold = capture_build(request(true));
+        assert_eq!(scaffold.status, BuildCaptureStatus::Refused);
+        assert!(scaffold.validation_errors.iter().any(|row| {
+            row.get("code").map(String::as_str) == Some("approval_capability_required")
+        }));
+
+        let outcome = super::capture_approved_fixture_build(request(true))
+            .expect("untrusted approval-shaped data must fail closed");
+
+        assert_eq!(outcome.status, BuildCaptureStatus::Refused);
+        assert!(outcome.build_script_runs.is_empty());
+        assert!(outcome.validation_errors.iter().any(|row| {
+            row.get("code").map(String::as_str) == Some("approval_capability_required")
+        }));
+    }
+
+    // Test lane: request-bound capability
+    // Defends: a real capability cannot be replayed for a request whose paths
+    // or other execution-relevant fields changed after operator approval.
+    #[test]
+    fn execution_capability_is_bound_to_the_exact_request() {
+        let authority = ExecutionApprovalAuthority::new().expect("approval authority");
+        let fixture = temp_dir("codedb_capability_binding");
+        fs::create_dir_all(&fixture).expect("create fixture");
+        let mut approved = request(true);
+        approved.repo_path = fixture.clone();
+        approved.raw_log_path = fixture.join("capture.log");
+        let environment = normalize_approved_environment(&[]).expect("normalize environment");
+        let sandbox = prepare_mandatory_sandbox(&approved, &[]).expect("prepare sandbox");
+        let capability = authority
+            .approve(&approved, &environment, &sandbox)
+            .expect("mint capability");
+        let mut changed = approved;
+        changed.raw_log_path = PathBuf::from("/tmp/forged-after-approval.log");
+
+        let error = super::capture_approved_fixture_build_with_capability(
+            &authority,
+            capability,
+            changed,
+            &[],
+            sandbox,
+        )
+        .expect_err("changed request must invalidate the capability before sandbox launch");
+        assert!(matches!(
+            error,
+            BuildCaptureError::ApprovalCapability {
+                reason: "capability does not match the exact build request"
+            }
+        ));
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: fail-closed sandbox discovery
+    // Defends: missing repo/Nix-owned isolation tooling is a hard error, never
+    // a signal to fall back to direct Cargo execution.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn missing_sandbox_backend_fails_closed() {
+        let error = trusted_executable("codedb-deliberately-missing-sandbox-backend")
+            .expect_err("missing sandbox backend must be rejected");
+        assert!(matches!(
+            error,
+            BuildCaptureError::SandboxUnavailable { .. }
+        ));
+    }
+
+    // Test lane: source-copy containment
+    // Defends: replacing a scanned final file with a symlink cannot redirect
+    // the sandbox snapshot read outside the approved source tree.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sandbox_source_copy_rejects_final_component_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = temp_dir("codedb_sandbox_copy_final_replacement");
+        let source = fixture.join("source");
+        let destination = fixture.join("destination");
+        let outside = fixture.join("outside");
+        fs::create_dir_all(&source).expect("create source");
+        fs::create_dir_all(&destination).expect("create destination");
+        fs::create_dir_all(&outside).expect("create outside");
+        fs::write(source.join("victim.txt"), b"approved-source").expect("write source file");
+        fs::write(outside.join("secret.txt"), b"outside-secret").expect("write outside file");
+
+        let victim = source.join("victim.txt");
+        let outside_secret = outside.join("secret.txt");
+        let mut replaced = false;
+        let error =
+            copy_sandbox_source_with_hook(&source, &destination, &[], &mut |event, path| {
+                if !replaced && event == SandboxCopyEvent::EntryScanned && path == victim {
+                    fs::remove_file(&victim).expect("remove scanned source file");
+                    symlink(&outside_secret, &victim)
+                        .expect("replace final component with symlink");
+                    replaced = true;
+                }
+            })
+            .expect_err("symlink replacement must fail closed");
+
+        assert!(replaced, "adversarial replacement hook did not run");
+        assert!(matches!(
+            error,
+            BuildCaptureError::SandboxUnavailable { .. }
+        ));
+        assert!(
+            !destination.join("victim.txt").exists(),
+            "outside bytes must never be copied through a replacement symlink"
+        );
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: source-copy containment
+    // Defends: data is read from the held regular-file object rather than by
+    // reopening its pathname after validation.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sandbox_source_copy_holds_final_file_across_path_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = temp_dir("codedb_sandbox_copy_held_final");
+        let source = fixture.join("source");
+        let destination = fixture.join("destination");
+        let outside = fixture.join("outside");
+        let detached = fixture.join("detached-approved-file.txt");
+        fs::create_dir_all(&source).expect("create source");
+        fs::create_dir_all(&destination).expect("create destination");
+        fs::create_dir_all(&outside).expect("create outside");
+        fs::write(source.join("input.txt"), b"approved-source").expect("write approved source");
+        fs::write(outside.join("input.txt"), b"outside-secret").expect("write outside source");
+
+        let input = source.join("input.txt");
+        let outside_input = outside.join("input.txt");
+        let mut replaced = false;
+        copy_sandbox_source_with_hook(&source, &destination, &[], &mut |event, path| {
+            if !replaced && event == SandboxCopyEvent::FileOpened && path == input {
+                fs::rename(&input, &detached).expect("detach opened source file");
+                symlink(&outside_input, &input).expect("replace source path with symlink");
+                replaced = true;
+            }
+        })
+        .expect("held regular-file read must not follow replacement path");
+
+        assert!(replaced, "adversarial replacement hook did not run");
+        assert_eq!(
+            fs::read(destination.join("input.txt")).expect("read copied source"),
+            b"approved-source"
+        );
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: source-copy containment
+    // Defends: once an ancestor directory is opened, traversal and data reads
+    // remain bound to that held object even if its pathname is replaced.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sandbox_source_copy_holds_ancestor_across_path_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = temp_dir("codedb_sandbox_copy_ancestor_replacement");
+        let source = fixture.join("source");
+        let destination = fixture.join("destination");
+        let outside = fixture.join("outside");
+        let detached = fixture.join("detached-approved-ancestor");
+        fs::create_dir_all(source.join("ancestor")).expect("create source ancestor");
+        fs::create_dir_all(&destination).expect("create destination");
+        fs::create_dir_all(&outside).expect("create outside");
+        fs::write(source.join("ancestor/input.txt"), b"approved-source")
+            .expect("write approved source");
+        fs::write(outside.join("input.txt"), b"outside-secret").expect("write outside source");
+
+        let ancestor = source.join("ancestor");
+        let mut replaced = false;
+        copy_sandbox_source_with_hook(&source, &destination, &[], &mut |event, path| {
+            if !replaced && event == SandboxCopyEvent::DirectoryOpened && path == ancestor {
+                fs::rename(&ancestor, &detached).expect("detach opened ancestor");
+                symlink(&outside, &ancestor).expect("replace ancestor path with symlink");
+                replaced = true;
+            }
+        })
+        .expect("held ancestor traversal must not follow replacement path");
+
+        assert!(replaced, "adversarial replacement hook did not run");
+        assert_eq!(
+            fs::read(destination.join("ancestor/input.txt")).expect("read copied source"),
+            b"approved-source"
+        );
+        assert_ne!(
+            fs::read(destination.join("ancestor/input.txt")).expect("read copied source"),
+            b"outside-secret"
+        );
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: source-copy containment
+    // Defends: inert handle inspection rejects special files without opening
+    // them for device, socket, or FIFO I/O.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sandbox_source_copy_rejects_special_files() {
+        use std::os::unix::net::UnixListener;
+
+        let fixture = temp_dir("codedb_sandbox_copy_special");
+        let source = fixture.join("source");
+        let destination = fixture.join("destination");
+        fs::create_dir_all(&source).expect("create source");
+        fs::create_dir_all(&destination).expect("create destination");
+        let socket_path = source.join("build.sock");
+        let _listener = UnixListener::bind(&socket_path).expect("create source socket");
+
+        let error = copy_sandbox_source(&source, &destination, &[])
+            .expect_err("special source entries must fail closed");
+        assert!(matches!(
+            error,
+            BuildCaptureError::SandboxUnavailable { .. }
+        ));
+        assert!(!destination.join("build.sock").exists());
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: source-copy policy
+    // Defends: descriptor-relative traversal retains the established .git,
+    // target, and caller-supplied exact-path exclusions.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sandbox_source_copy_preserves_exclusions() {
+        let fixture = temp_dir("codedb_sandbox_copy_exclusions");
+        let source = fixture.join("source");
+        let destination = fixture.join("destination");
+        let excluded = source.join("generated");
+        for directory in [
+            source.join(".git"),
+            source.join("target"),
+            excluded.clone(),
+            source.join("src"),
+        ] {
+            fs::create_dir_all(directory).expect("create source directory");
+        }
+        fs::create_dir_all(&destination).expect("create destination");
+        fs::write(source.join(".git/config"), b"git").expect("write git metadata");
+        fs::write(source.join("target/artifact"), b"target").expect("write target artifact");
+        fs::write(excluded.join("artifact"), b"generated").expect("write excluded artifact");
+        fs::write(source.join("src/lib.rs"), b"pub fn copied() {}\n")
+            .expect("write included source");
+
+        copy_sandbox_source(&source, &destination, &[excluded.as_path()])
+            .expect("copy source with exclusions");
+
+        assert!(!destination.join(".git").exists());
+        assert!(!destination.join("target").exists());
+        assert!(!destination.join("generated").exists());
+        assert_eq!(
+            fs::read(destination.join("src/lib.rs")).expect("read included source"),
+            b"pub fn copied() {}\n"
+        );
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    // Test lane: mandatory execution isolation
+    // Defends: an approved build/proc-macro execution is not valid evidence
+    // unless the runner proves network isolation, bounded writable roots,
+    // ambient-sensitive-environment clearing, and the sandbox implementation.
+    #[test]
+    fn approved_execution_requires_recorded_mandatory_sandbox_provenance() {
+        let fixture = temp_dir("codedb_mandatory_sandbox_fixture");
+        fs::create_dir_all(fixture.join("src")).expect("create fixture src");
+        fs::write(
+            fixture.join("Cargo.toml"),
+            r#"[package]
+name = "codedb-mandatory-sandbox-fixture"
+version = "0.1.0"
+edition = "2024"
+"#,
+        )
+        .expect("write manifest");
+        fs::write(fixture.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write lib");
+        let host_sentinel = PathBuf::from("/tmp").join(format!(
+            "{}-host-write-sentinel",
+            fixture
+                .file_name()
+                .expect("fixture file name")
+                .to_string_lossy()
+        ));
+        fs::write(
+            fixture.join("build.rs"),
+            format!(
+                r#"fn main() {{
+    let routes = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
+    assert!(
+        !routes.lines().skip(1).any(|line| {{
+            line.split_whitespace().nth(1) == Some("00000000")
+        }}),
+        "sandbox exposed a default network route"
+    );
+    for key in [
+        "AWS_SECRET_ACCESS_KEY",
+        "GITHUB_TOKEN",
+        "OPENROUTER_API_KEY",
+        "SSH_AUTH_SOCK",
+    ] {{
+        assert!(std::env::var_os(key).is_none(), "sensitive ambient env survived: {{key}}");
+    }}
+    assert_eq!(std::env::var("HOME").as_deref(), Ok("/homeless"));
+    assert!(!std::path::Path::new("/home/flexnetos/.ssh").exists());
+    std::fs::write({:?}, b"sandbox-only").expect("write sandbox-local sentinel");
+    println!("cargo:warning=mandatory-sandbox-probe");
+}}
+"#,
+                host_sentinel
+            ),
+        )
+        .expect("write build script");
+
+        let outcome = capture_approved_fixture_build(BuildCaptureRequest {
+            repo_path: fixture.clone(),
+            store_path: None,
+            raw_log_path: fixture.join("logs/cargo.log"),
+            unsafe_execute_build: true,
+            approver: Some("sandbox-test".to_string()),
+            task_id: Some("CDB106".to_string()),
+            before_state: Some("fixture-source-copied-and-unchanged".to_string()),
+            cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
+        })
+        .expect("mandatory sandbox should either execute or fail closed");
+        let log = fs::read_to_string(fixture.join("logs/cargo.log")).unwrap_or_default();
+        assert_eq!(
+            outcome.status,
+            BuildCaptureStatus::Captured,
+            "sandbox log:\n{log}\nvalidation={:?}\nprovenance={:?}",
+            outcome.validation_errors,
+            outcome.toolchain_provenance
+        );
+
+        let provenance = outcome
+            .toolchain_provenance
+            .first()
+            .expect("successful execution must record sandbox provenance");
+        assert_eq!(
+            provenance.get("sandbox_backend").map(String::as_str),
+            Some("bubblewrap")
+        );
+        assert_eq!(
+            provenance.get("network_policy").map(String::as_str),
+            Some("unshared")
+        );
+        assert_eq!(
+            provenance.get("writable_root_policy").map(String::as_str),
+            Some("isolated-scratch-and-ephemeral-tmp")
+        );
+        assert_eq!(
+            provenance.get("environment_policy").map(String::as_str),
+            Some("cleared_then_minimally_allowlisted")
+        );
+        assert_eq!(
+            provenance.get("sandbox_provenance").map(String::as_str),
+            Some("kernel-enforced")
+        );
+        assert_eq!(
+            provenance.get("sandbox_cleanup").map(String::as_str),
+            Some("removed")
+        );
+        let scratch_root = provenance
+            .get("sandbox_scratch_root")
+            .expect("sandbox scratch root provenance");
+        assert!(
+            !Path::new(scratch_root).exists(),
+            "sandbox scratch root must be removed after evidence capture"
+        );
+        assert!(
+            !Path::new(scratch_root).starts_with(&fixture),
+            "sandbox scratch must never be created inside the source checkout"
+        );
+        for key in ["sandbox_cargo", "sandbox_rustc", "sandbox_rustdoc"] {
+            let executable = provenance
+                .get(key)
+                .unwrap_or_else(|| panic!("missing {key} provenance"));
+            assert!(
+                executable.starts_with("/nix/store/"),
+                "{key} must resolve to the profile-owned Nix toolchain: {executable}"
+            );
+        }
+        assert!(
+            !host_sentinel.exists(),
+            "sandboxed build wrote outside its host-visible writable roots"
+        );
+
+        let _ = fs::remove_dir_all(fixture);
+    }
+
     // Test lane: default refusal
     // Defends: unsafe approval is incomplete without the selected task,
     // before-state evidence, and a cleanup plan.
@@ -3303,7 +4888,11 @@ edition = "2024"
         );
 
         let destination = temp_dir("codedb_out_dir_manifest_destination");
-        let proof = reproduce_out_dir_artifacts(&first, &destination).expect("reproduce artifacts");
+        fs::create_dir(&destination).expect("create destination");
+        let destination_root =
+            ReproductionRoot::open_existing(&destination).expect("open destination");
+        let proof =
+            reproduce_out_dir_artifacts(&first, &destination_root).expect("reproduce artifacts");
         assert_eq!(proof.len(), 2);
         assert_eq!(
             fs::read(destination.join("nested/a.bin")).expect("read reproduced binary"),
@@ -3330,6 +4919,9 @@ edition = "2024"
     #[test]
     fn out_dir_reproduction_rejects_escaping_paths() {
         let destination = temp_dir("codedb_out_dir_escape_destination");
+        fs::create_dir(&destination).expect("create destination");
+        let destination_root =
+            ReproductionRoot::open_existing(&destination).expect("open destination");
         let forged = row([
             ("relative_path", "../escape.rs".to_string()),
             ("file_kind", "file".to_string()),
@@ -3337,7 +4929,7 @@ edition = "2024"
             ("sha256", sha256_hex(b"escape")),
         ]);
 
-        let error = reproduce_out_dir_artifacts(&[forged], &destination)
+        let error = reproduce_out_dir_artifacts(&[forged], &destination_root)
             .expect_err("escaping artifact path must be rejected");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(
@@ -3586,12 +5178,12 @@ edition = "2024"
         assert_no_sentinels(&outcome_debug);
         assert_no_sentinels(&outcome_rows);
         assert_no_sentinels(&error_rendered);
-        assert_eq!(outcome.status, BuildCaptureStatus::ApprovedScaffold);
+        assert_eq!(outcome.status, BuildCaptureStatus::Refused);
         assert_eq!(
             outcome.unsafe_execution_approval[0]
                 .get("status")
                 .map(String::as_str),
-            Some("approved")
+            Some("capability_required")
         );
     }
 
@@ -3601,6 +5193,7 @@ edition = "2024"
     #[test]
     fn raw_log_never_exposes_approval_or_stream_sentinels() {
         let directory = temp_dir("codedb_raw_log_redaction");
+        fs::create_dir_all(&directory).expect("create raw-log root");
         let raw_log_path = directory.join("capture.log");
         let mut request = request(true);
         request.raw_log_path = raw_log_path.clone();
@@ -3627,7 +5220,8 @@ edition = "2024"
             raw: stream_raw,
         }];
 
-        write_redacted_raw_log(&raw_log_path, &request, &output, &streams, &[])
+        let root = ReproductionRoot::open_existing(&directory).expect("open trusted log root");
+        write_redacted_raw_log(&root, &raw_log_path, &request, &output, &streams, &[])
             .expect("write redacted raw log");
         let log = fs::read_to_string(&raw_log_path).expect("read redacted raw log");
 
@@ -3636,6 +5230,144 @@ edition = "2024"
         assert!(log.contains("[REDACTED]"));
 
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn approval_binds_exact_environment_and_rejects_duplicate_or_ambiguous_order() {
+        assert!(matches!(
+            normalize_approved_environment(&[
+                ("CODEDB_FIXTURE_LOG_SECRET", "a"),
+                ("CODEDB_FIXTURE_LOG_SECRET", "b"),
+            ]),
+            Err(BuildCaptureError::AmbiguousEnvironment { .. })
+        ));
+        assert!(matches!(
+            normalize_approved_environment(&[
+                ("CODEDB_PROC_MACRO_LOG_PATH", "a"),
+                ("CODEDB_FIXTURE_LOG_SECRET", "b"),
+            ]),
+            Err(BuildCaptureError::AmbiguousEnvironment { .. })
+        ));
+
+        let fixture = temp_dir("codedb_environment_binding");
+        fs::create_dir_all(&fixture).expect("create fixture");
+        let mut approved = request(true);
+        approved.repo_path = fixture.clone();
+        approved.raw_log_path = fixture.join("capture.log");
+        let approved_env = [("CODEDB_FIXTURE_LOG_SECRET", "approved")];
+        let changed_env = [("CODEDB_FIXTURE_LOG_SECRET", "changed")];
+        let normalized =
+            normalize_approved_environment(&approved_env).expect("normalize approved env");
+        let sandbox = prepare_mandatory_sandbox(&approved, &approved_env).expect("prepare sandbox");
+        let authority = ExecutionApprovalAuthority::new().expect("authority");
+        let capability = authority
+            .approve(&approved, &normalized, &sandbox)
+            .expect("approve exact plan");
+        let error = super::capture_approved_fixture_build_with_capability(
+            &authority,
+            capability,
+            approved,
+            &changed_env,
+            sandbox,
+        )
+        .expect_err("changed environment must invalidate capability");
+        assert!(matches!(
+            error,
+            BuildCaptureError::ApprovalCapability {
+                reason: "capability does not match the exact build request"
+            }
+        ));
+        let _ = fs::remove_dir_all(fixture);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn raw_log_publication_is_descriptor_bound_no_replace_and_no_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root_path = temp_dir("codedb_raw_log_root");
+        let outside = temp_dir("codedb_raw_log_outside");
+        fs::create_dir_all(&root_path).expect("create root");
+        fs::create_dir_all(&outside).expect("create outside");
+        symlink(&outside, root_path.join("logs")).expect("create ancestor symlink");
+        let root = ReproductionRoot::open_existing(&root_path).expect("open root");
+        let output = Command::new("rustc")
+            .arg("--version")
+            .output()
+            .expect("rustc output");
+        let mut request = request(true);
+        request.repo_path = root_path.clone();
+        request.raw_log_path = root_path.join("logs/capture.log");
+        assert!(
+            write_redacted_raw_log(&root, &request.raw_log_path, &request, &output, &[], &[])
+                .is_err()
+        );
+        assert!(!outside.join("capture.log").exists());
+
+        fs::remove_file(root_path.join("logs")).expect("remove symlink");
+        fs::create_dir(root_path.join("logs")).expect("create logs");
+        fs::write(root_path.join("logs/capture.log"), b"trusted-existing")
+            .expect("write existing log");
+        assert!(
+            write_redacted_raw_log(&root, &request.raw_log_path, &request, &output, &[], &[])
+                .is_err()
+        );
+        assert_eq!(
+            fs::read(root_path.join("logs/capture.log")).expect("read existing"),
+            b"trusted-existing"
+        );
+        let _ = fs::remove_dir_all(root_path);
+        let _ = fs::remove_dir_all(outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn out_dir_batch_rolls_back_and_rejects_existing_or_symlinked_destinations() {
+        use std::os::unix::fs::symlink;
+
+        let destination = temp_dir("codedb_reproduction_security");
+        let outside = temp_dir("codedb_reproduction_outside");
+        fs::create_dir_all(&destination).expect("create destination");
+        fs::create_dir_all(&outside).expect("create outside");
+        fs::write(destination.join("collision"), b"existing").expect("write collision");
+        let root = ReproductionRoot::open_existing(&destination).expect("open root");
+        let artifact = |path: &str, bytes: &[u8]| {
+            row([
+                ("relative_path", path.to_string()),
+                ("file_kind", "file".to_string()),
+                ("content_hex", hex_encode(bytes)),
+                ("sha256", sha256_hex(bytes)),
+            ])
+        };
+        let error = reproduce_out_dir_artifacts(
+            &[artifact("first", b"first"), artifact("collision", b"new")],
+            &root,
+        )
+        .expect_err("collision must roll back the whole batch");
+        assert!(matches!(
+            error.kind(),
+            io::ErrorKind::AlreadyExists | io::ErrorKind::Other
+        ));
+        assert!(!destination.join("first").exists());
+        assert_eq!(
+            fs::read(destination.join("collision")).unwrap(),
+            b"existing"
+        );
+
+        symlink(&outside, destination.join("ancestor")).expect("create ancestor symlink");
+        assert!(
+            reproduce_out_dir_artifacts(&[artifact("ancestor/escape", b"escape")], &root).is_err()
+        );
+        assert!(!outside.join("escape").exists());
+
+        symlink("missing", destination.join("final-link")).expect("create final symlink");
+        assert!(reproduce_out_dir_artifacts(&[artifact("final-link", b"replace")], &root).is_err());
+        assert_eq!(
+            fs::read_link(destination.join("final-link")).expect("read final symlink"),
+            PathBuf::from("missing")
+        );
+        let _ = fs::remove_dir_all(destination);
+        let _ = fs::remove_dir_all(outside);
     }
 
     // Test lane: redaction

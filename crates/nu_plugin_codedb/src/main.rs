@@ -3116,6 +3116,18 @@ impl SimplePluginCommand for Capture {
                     "Optional capture time budget, for example 15m",
                     None,
                 )
+                .named(
+                    "raw-persistence",
+                    SyntaxShape::String,
+                    "Explicit built-in authority; only safe-source is accepted",
+                    None,
+                )
+                .named(
+                    "raw-persistence-policy",
+                    SyntaxShape::Filepath,
+                    "Absolute external operator policy bound to the repository snapshot",
+                    None,
+                )
                 .switch("resume", "Resume from the selected store checkpoint", None),
         )
     }
@@ -3144,6 +3156,26 @@ impl SimplePluginCommand for Capture {
         }
         if let Some(value) = call.get_flag::<String>("time-budget")? {
             argv.extend(["--time-budget".to_string(), value]);
+        }
+        let raw_persistence = call.get_flag::<String>("raw-persistence")?;
+        let external_policy = call.get_flag::<String>("raw-persistence-policy")?;
+        if raw_persistence.is_some() && external_policy.is_some() {
+            return Err(LabeledError::new("conflicting raw persistence authorities")
+                .with_label("select exactly one raw persistence authority", call.head));
+        }
+        if let Some(value) = raw_persistence {
+            if value != "safe-source" {
+                return Err(LabeledError::new("invalid raw persistence authority")
+                    .with_label("only safe-source is accepted", call.head));
+            }
+            argv.extend(["--raw-persistence".to_string(), value]);
+        }
+        if let Some(value) = external_policy {
+            let policy_path = path_from_engine_cwd(Path::new(&value), engine, call.head)?;
+            argv.extend([
+                "--raw-persistence-policy".to_string(),
+                policy_path.display().to_string(),
+            ]);
         }
         if call.has_flag("resume")? {
             argv.push("--resume".to_string());
