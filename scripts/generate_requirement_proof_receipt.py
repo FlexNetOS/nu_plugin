@@ -166,6 +166,11 @@ RUNTIME_SIDE_EFFECT_PREFIXES = (
     ".kb/index/",
     ".envctl/",
     ".cache/",
+    # Agent-config / harness directories are tooling, not attested CodeDB
+    # source; verification commands (gitkb, codex-env repair/archival) mutate
+    # them as a side effect. The receipt binds the source commit/tree only.
+    ".codex/",
+    ".claude/",
 )
 RUNTIME_SIDE_EFFECT_EXACT = (
     ".claude.tar.xz",
