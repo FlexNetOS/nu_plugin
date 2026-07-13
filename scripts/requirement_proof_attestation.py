@@ -14,12 +14,52 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 ATTESTATION_TYPE = "requirement-proof"
+EXTERNAL_SOURCE_PIN_PATH = Path(
+    "external-sources/requirement-proof-sources.json"
+)
+EXTERNAL_SOURCE_PIN_SCHEMA_VERSION = 1
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 ARTIFACT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 EMPTY_STATUS_SHA256 = hashlib.sha256(b"").hexdigest()
+
+REQUIRED_EXTERNAL_SOURCE_PINS: dict[str, dict[str, str]] = {
+    "envctl": {
+        "repository": "FlexNetOS/envctl",
+        "source_ref": "refs/heads/envctl-db-automation-2026-07-12",
+        "commit_sha": "b62669c4e32c8de0407aa51ca3add94d529b50b6",
+        "tree_sha": "f9ca54b6c7529ab1b690ab1f75c507d7ff54d6eb",
+        "checkout_path": "../envctl",
+    },
+    "loop_lib": {
+        "repository": "FlexNetOS/loop_lib",
+        "source_ref": "refs/heads/main",
+        "commit_sha": "6e79836387d15ac5849e73e7bb869c6077953d90",
+        "tree_sha": "bb08ee9abf326bd6658655ae9222306ddaed743c",
+        "checkout_path": "../loop_lib",
+    },
+    "meta_plugin_protocol": {
+        "repository": "FlexNetOS/meta_plugin_protocol",
+        "source_ref": "refs/heads/main",
+        "commit_sha": "7d65eeac3bba8e9702eb0590ba9476e4e420bfb3",
+        "tree_sha": "00b5119317c513385d675c6e33f653f6e4696530",
+        "checkout_path": "../meta_plugin_protocol",
+    },
+}
+
+
+@dataclass(frozen=True)
+class ExternalSourceIdentity:
+    name: str
+    repository: str
+    source_ref: str
+    commit_sha: str
+    tree_sha: str
+    checkout_path: str
+    pin_path: str
+    pin_sha256: str
 
 
 @dataclass(frozen=True)
@@ -30,6 +70,7 @@ class CheckoutIdentity:
     ledger_sha256: str
     validator_sha256: str
     clean: bool
+    external_sources: dict[str, ExternalSourceIdentity]
 
 
 @dataclass(frozen=True)
@@ -131,6 +172,16 @@ def canonical_receipt_row_payload(row: dict[str, Any]) -> bytes:
     )
 
 
+def canonical_command_execution_payload(execution: dict[str, Any]) -> bytes:
+    return _canonical_json(
+        {
+            key: value
+            for key, value in execution.items()
+            if key != "execution_sha256"
+        }
+    )
+
+
 def canonical_ledger_row_payload(row: dict[str, str]) -> bytes:
     return _canonical_json(row)
 
@@ -163,6 +214,107 @@ def canonical_repository(remote: str) -> str:
             f"repository remote has no owner/repository identity: {remote!r}"
         )
     return "/".join(parts)
+
+
+def load_external_source_pins(
+    path: Path,
+    *,
+    pin_path: Path = EXTERNAL_SOURCE_PIN_PATH,
+) -> dict[str, ExternalSourceIdentity]:
+    """Load the exact, policy-required sibling repositories from a tracked pin."""
+
+    raw_bytes = path.read_bytes()
+    value = json.loads(raw_bytes)
+    if not isinstance(value, dict):
+        raise ValueError("external-source pin root must be a JSON object")
+    if value.get("schema_version") != EXTERNAL_SOURCE_PIN_SCHEMA_VERSION:
+        raise ValueError(
+            "external-source pin schema_version mismatch: "
+            f"expected {EXTERNAL_SOURCE_PIN_SCHEMA_VERSION}, "
+            f"observed {value.get('schema_version')!r}"
+        )
+    raw_sources = value.get("sources")
+    if not isinstance(raw_sources, list):
+        raise ValueError("external-source pin sources must be a list")
+
+    indexed: dict[str, dict[str, Any]] = {}
+    for index, raw_source in enumerate(raw_sources):
+        if not isinstance(raw_source, dict):
+            raise ValueError(f"external-source pin sources[{index}] is not an object")
+        name = raw_source.get("name")
+        if not isinstance(name, str) or not ARTIFACT_NAME_PATTERN.fullmatch(name):
+            raise ValueError(
+                f"external-source pin sources[{index}] has invalid name {name!r}"
+            )
+        if name in indexed:
+            raise ValueError(f"duplicate external-source pin: {name}")
+        indexed[name] = raw_source
+
+    expected_names = set(REQUIRED_EXTERNAL_SOURCE_PINS)
+    observed_names = set(indexed)
+    if observed_names != expected_names:
+        raise ValueError(
+            "external-source pin inventory mismatch: "
+            f"missing={sorted(expected_names - observed_names)}, "
+            f"unexpected={sorted(observed_names - expected_names)}"
+        )
+
+    pin_digest = sha256_bytes(raw_bytes)
+    identities: dict[str, ExternalSourceIdentity] = {}
+    for name in sorted(expected_names):
+        raw_source = indexed[name]
+        expected = REQUIRED_EXTERNAL_SOURCE_PINS[name]
+        allowed_fields = {"name", *expected.keys()}
+        if set(raw_source) != allowed_fields:
+            raise ValueError(
+                f"{name}: external-source pin fields mismatch: "
+                f"expected={sorted(allowed_fields)}, observed={sorted(raw_source)}"
+            )
+        for field_name, expected_value in expected.items():
+            observed_value = raw_source.get(field_name)
+            if observed_value != expected_value:
+                raise ValueError(
+                    f"{name}: external-source pin {field_name} mismatch: "
+                    f"expected={expected_value!r}, observed={observed_value!r}"
+                )
+        if canonical_repository(
+            f"https://github.com/{raw_source['repository']}.git"
+        ) != raw_source["repository"]:
+            raise ValueError(f"{name}: invalid pinned GitHub repository")
+        for field_name in ("commit_sha", "tree_sha"):
+            if not GIT_SHA_PATTERN.fullmatch(str(raw_source[field_name])):
+                raise ValueError(f"{name}: invalid pinned {field_name}")
+        raw_checkout = str(raw_source["checkout_path"])
+        checkout_path = PurePosixPath(raw_checkout)
+        if checkout_path.is_absolute() or checkout_path.as_posix() != raw_checkout:
+            raise ValueError(f"{name}: checkout_path must be normalized and relative")
+        identities[name] = ExternalSourceIdentity(
+            name=name,
+            repository=str(raw_source["repository"]),
+            source_ref=str(raw_source["source_ref"]),
+            commit_sha=str(raw_source["commit_sha"]),
+            tree_sha=str(raw_source["tree_sha"]),
+            checkout_path=raw_checkout,
+            pin_path=pin_path.as_posix(),
+            pin_sha256=pin_digest,
+        )
+    return identities
+
+
+def external_source_receipt_identity(
+    source: ExternalSourceIdentity,
+) -> dict[str, Any]:
+    return {
+        "repository": source.repository,
+        "source_ref": source.source_ref,
+        "commit_sha": source.commit_sha,
+        "tree_sha": source.tree_sha,
+        "checkout_path": source.checkout_path,
+        "pin": {
+            "path": source.pin_path,
+            "sha256": source.pin_sha256,
+        },
+    }
 
 
 def load_receipt(path: Path) -> dict[str, Any]:
@@ -256,6 +408,102 @@ def validate_receipt(
             validator.get("sha256"),
         )
 
+    receipt_external_sources = receipt.get("external_sources")
+    if not isinstance(receipt_external_sources, dict):
+        violations.append(
+            ReceiptViolation("invalid external-source identity", "must be an object")
+        )
+        receipt_external_sources = {}
+    expected_external_names = set(identity.external_sources)
+    observed_external_names = set(receipt_external_sources)
+    for missing_name in sorted(expected_external_names - observed_external_names):
+        violations.append(
+            ReceiptViolation("missing external-source identity", missing_name)
+        )
+    for unexpected_name in sorted(observed_external_names - expected_external_names):
+        violations.append(
+            ReceiptViolation("unexpected external-source identity", unexpected_name)
+        )
+    for name in sorted(expected_external_names & observed_external_names):
+        observed_source = receipt_external_sources[name]
+        if not isinstance(observed_source, dict):
+            violations.append(
+                ReceiptViolation(
+                    "invalid external-source identity", f"{name} must be an object"
+                )
+            )
+            continue
+        expected_source = external_source_receipt_identity(
+            identity.external_sources[name]
+        )
+        expected_source_fields = {*expected_source, "worktree"}
+        if set(observed_source) != expected_source_fields:
+            violations.append(
+                ReceiptViolation(
+                    "invalid external-source identity",
+                    f"{name} fields: expected={sorted(expected_source_fields)}, "
+                    f"observed={sorted(observed_source)}",
+                )
+            )
+        for field_name, expected_value in expected_source.items():
+            mismatch(
+                f"external_sources.{name}.{field_name}",
+                expected_value,
+                observed_source.get(field_name),
+            )
+        for field_name in ("commit_sha", "tree_sha"):
+            value = observed_source.get(field_name)
+            if not isinstance(value, str) or not GIT_SHA_PATTERN.fullmatch(value):
+                violations.append(
+                    ReceiptViolation(
+                        "invalid external Git identity",
+                        f"{name}.{field_name}={value!r}",
+                    )
+                )
+        external_worktree = observed_source.get("worktree")
+        if not isinstance(external_worktree, dict):
+            violations.append(
+                ReceiptViolation(
+                    "invalid external worktree proof", f"{name} must be an object"
+                )
+            )
+        else:
+            expected_worktree_fields = {
+                "clean_before",
+                "clean_after",
+                "status_before_sha256",
+                "status_after_sha256",
+            }
+            if set(external_worktree) != expected_worktree_fields:
+                violations.append(
+                    ReceiptViolation(
+                        "invalid external worktree proof",
+                        f"{name} fields: expected="
+                        f"{sorted(expected_worktree_fields)}, observed="
+                        f"{sorted(external_worktree)}",
+                    )
+                )
+            for field_name in ("clean_before", "clean_after"):
+                if external_worktree.get(field_name) is not True:
+                    violations.append(
+                        ReceiptViolation(
+                            "dirty external proof execution",
+                            f"external_sources.{name}.worktree.{field_name} is not true",
+                        )
+                    )
+            for field_name in (
+                "status_before_sha256",
+                "status_after_sha256",
+            ):
+                if external_worktree.get(field_name) != EMPTY_STATUS_SHA256:
+                    violations.append(
+                        ReceiptViolation(
+                            "dirty external proof status digest",
+                            f"external_sources.{name}.worktree.{field_name}="
+                            f"{external_worktree.get(field_name)!r}",
+                        )
+                    )
+
     worktree = receipt.get("worktree")
     if not isinstance(worktree, dict):
         violations.append(
@@ -314,9 +562,110 @@ def validate_receipt(
             )
         )
 
+    raw_command_executions = receipt.get("command_executions")
+    command_executions_by_digest: dict[str, dict[str, Any]] = {}
+    command_executions_by_command: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw_command_executions, list):
+        violations.append(
+            ReceiptViolation("invalid command executions", "must be a list")
+        )
+        raw_command_executions = []
+    for index, execution in enumerate(raw_command_executions):
+        if not isinstance(execution, dict):
+            violations.append(
+                ReceiptViolation(
+                    "invalid command execution", f"command_executions[{index}]"
+                )
+            )
+            continue
+        expected_fields = {
+            "verification_command",
+            "exit_code",
+            "stdout_size_bytes",
+            "stderr_size_bytes",
+            "stdout_sha256",
+            "stderr_sha256",
+            "execution_sha256",
+        }
+        if set(execution) != expected_fields:
+            violations.append(
+                ReceiptViolation(
+                    "invalid command execution",
+                    f"command_executions[{index}] fields: "
+                    f"expected={sorted(expected_fields)}, "
+                    f"observed={sorted(execution)}",
+                )
+            )
+        command = execution.get("verification_command")
+        if not isinstance(command, str) or not command.strip():
+            violations.append(
+                ReceiptViolation(
+                    "invalid command execution",
+                    f"command_executions[{index}].verification_command={command!r}",
+                )
+            )
+        elif command in command_executions_by_command:
+            violations.append(
+                ReceiptViolation("duplicate command execution", command)
+            )
+        else:
+            command_executions_by_command[command] = execution
+        if execution.get("exit_code") != 0:
+            violations.append(
+                ReceiptViolation(
+                    "failed command execution",
+                    f"command_executions[{index}].exit_code="
+                    f"{execution.get('exit_code')!r}",
+                )
+            )
+        for field_name in ("stdout_size_bytes", "stderr_size_bytes"):
+            size = execution.get(field_name)
+            if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+                violations.append(
+                    ReceiptViolation(
+                        "invalid command execution",
+                        f"command_executions[{index}].{field_name}={size!r}",
+                    )
+                )
+        for field_name in ("stdout_sha256", "stderr_sha256"):
+            digest = execution.get(field_name)
+            if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
+                violations.append(
+                    ReceiptViolation(
+                        "invalid command-output digest",
+                        f"command_executions[{index}].{field_name}={digest!r}",
+                    )
+                )
+        expected_execution_sha = sha256_bytes(
+            canonical_command_execution_payload(execution)
+        )
+        execution_sha = execution.get("execution_sha256")
+        if not isinstance(execution_sha, str) or not SHA256_PATTERN.fullmatch(
+            execution_sha
+        ):
+            violations.append(
+                ReceiptViolation(
+                    "invalid command execution digest", repr(execution_sha)
+                )
+            )
+        elif execution_sha != expected_execution_sha:
+            violations.append(
+                ReceiptViolation(
+                    "command execution digest mismatch",
+                    f"expected={expected_execution_sha}, observed={execution_sha}",
+                )
+            )
+        elif execution_sha in command_executions_by_digest:
+            violations.append(
+                ReceiptViolation("duplicate command execution digest", execution_sha)
+            )
+        else:
+            command_executions_by_digest[execution_sha] = execution
+
     ledger_by_id = {row["requirement_id"]: row for row in ledger_rows}
     receipt_rows = receipt.get("rows")
     indexed_rows: dict[str, dict[str, Any]] = {}
+    referenced_command_executions: set[str] = set()
     if not isinstance(receipt_rows, list):
         violations.append(ReceiptViolation("invalid receipt rows", "must be a list"))
         receipt_rows = []
@@ -387,6 +736,42 @@ def validate_receipt(
             ledger_row["verification_command"],
             row.get("verification_command"),
         )
+        row_command_execution: dict[str, Any] | None = None
+        command_execution_sha = row.get("command_execution_sha256")
+        if not isinstance(command_execution_sha, str) or not SHA256_PATTERN.fullmatch(
+            command_execution_sha
+        ):
+            violations.append(
+                ReceiptViolation(
+                    "invalid command execution reference",
+                    f"{requirement_id}: {command_execution_sha!r}",
+                )
+            )
+        else:
+            command_execution = command_executions_by_digest.get(
+                command_execution_sha
+            )
+            if command_execution is None:
+                violations.append(
+                    ReceiptViolation(
+                        "missing command execution",
+                        f"{requirement_id}: {command_execution_sha}",
+                    )
+                )
+            else:
+                row_command_execution = command_execution
+                referenced_command_executions.add(command_execution_sha)
+                for field_name in (
+                    "verification_command",
+                    "exit_code",
+                    "stdout_sha256",
+                    "stderr_sha256",
+                ):
+                    mismatch(
+                        f"{requirement_id}.command_execution.{field_name}",
+                        row.get(field_name),
+                        command_execution.get(field_name),
+                    )
         if row.get("status") != "verified":
             violations.append(
                 ReceiptViolation(
@@ -517,6 +902,21 @@ def validate_receipt(
                             "must not claim a file path",
                         )
                     )
+                if (
+                    declaration.artifact_type in {"stdout", "stderr"}
+                    and row_command_execution is not None
+                ):
+                    stream = declaration.artifact_type
+                    mismatch(
+                        f"{requirement_id}.{logical_name}.sha256",
+                        row_command_execution.get(f"{stream}_sha256"),
+                        item.get("sha256"),
+                    )
+                    mismatch(
+                        f"{requirement_id}.{logical_name}.size_bytes",
+                        row_command_execution.get(f"{stream}_size_bytes"),
+                        item.get("size_bytes"),
+                    )
             missing_evidence = sorted(set(expected_by_name) - observed_names)
             if missing_evidence:
                 violations.append(
@@ -526,6 +926,14 @@ def validate_receipt(
                         f"{missing_evidence}",
                     )
                 )
+
+    unused_command_executions = sorted(
+        set(command_executions_by_digest) - referenced_command_executions
+    )
+    for execution_sha in unused_command_executions:
+        violations.append(
+            ReceiptViolation("unreferenced command execution", execution_sha)
+        )
 
     return indexed_rows, violations
 

@@ -11,6 +11,23 @@ from pathlib import Path
 
 SURFACES = ("GitKB", "RTK", "Kache", "wild", "Fenix")
 
+EXTRACTED_SOURCE_ALIGNMENT = (
+    "a033f801-5ddb-4b34-af1d-36d7288fe11c",
+    "NBSOURCE-003",
+    "NBSOURCE-029",
+    "NBSOURCE-030",
+    "NBSOURCE-031",
+    "NBSOURCE-032",
+    "Rust `cdylib`",
+    "napi-rs",
+    "complete locked online Node dependency set",
+    "No live CodeDB RuVector adapter is claimed",
+    "exact-byte",
+    "must not read redb/PostgreSQL internals",
+    "MessagePack serializer",
+    "non-UTF-8",
+)
+
 BOUNDARIES = {
     "GitKB": ("GitKB Boundary", ("durable explanations", "Rust/crate truth")),
     "RTK": ("RTK Boundary", ("raw failure logs", "source of truth")),
@@ -162,6 +179,18 @@ def audit_text(document: str) -> list[Violation]:
             violations.append(
                 Violation("evidence-path", surface, "universal raw-log/evidence path is absent")
             )
+
+    extracted_alignment = sections.get(
+        _normalize("Extracted NotebookLM Source Alignment"), ""
+    )
+    for missing in _missing_fragments(extracted_alignment, EXTRACTED_SOURCE_ALIGNMENT):
+        violations.append(
+            Violation(
+                "source-alignment",
+                "NotebookLM/RuVector",
+                f"missing {missing!r}",
+            )
+        )
 
     ownership_section = sections.get(_normalize("Ownership Matrix"), "")
     ownership_rows, ownership_header_valid = _ownership_rows(ownership_section)

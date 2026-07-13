@@ -198,6 +198,20 @@ jobs:
       - nix
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: codedb
+          POSTGRES_PASSWORD: codedb
+          POSTGRES_DB: codedb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U codedb -d codedb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       CODEDB_REVIEWED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       CODEDB_PROOF_RECEIPT: /tmp/codedb-requirement-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}.json
@@ -209,12 +223,123 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Check out exact external proof sources without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          checkout_exact() {
+            name="$1"
+            repository="$2"
+            source_ref="$3"
+            commit_sha="$4"
+            tree_sha="$5"
+            checkout="../$name"
+            test ! -e "$checkout"
+            git init -q "$checkout"
+            git -C "$checkout" remote add origin "https://github.com/$repository.git"
+            git -C "$checkout" fetch --depth=1 origin "$source_ref"
+            test "$(git -C "$checkout" rev-parse FETCH_HEAD)" = "$commit_sha"
+            git -C "$checkout" checkout -q --detach "$commit_sha"
+            test "$(git -C "$checkout" rev-parse HEAD)" = "$commit_sha"
+            test "$(git -C "$checkout" rev-parse 'HEAD^{tree}')" = "$tree_sha"
+            test -z "$(git -C "$checkout" status --porcelain=v1 --untracked-files=all)"
+          }
+          checkout_exact \
+            envctl \
+            FlexNetOS/envctl \
+            refs/heads/envctl-db-automation-2026-07-12 \
+            b62669c4e32c8de0407aa51ca3add94d529b50b6 \
+            f9ca54b6c7529ab1b690ab1f75c507d7ff54d6eb
+          checkout_exact \
+            loop_lib \
+            FlexNetOS/loop_lib \
+            refs/heads/main \
+            6e79836387d15ac5849e73e7bb869c6077953d90 \
+            bb08ee9abf326bd6658655ae9222306ddaed743c
+          checkout_exact \
+            meta_plugin_protocol \
+            FlexNetOS/meta_plugin_protocol \
+            refs/heads/main \
+            7d65eeac3bba8e9702eb0590ba9476e4e420bfb3 \
+            00b5119317c513385d675c6e33f653f6e4696530
+          test ! -e ../Cargo.toml
+          cp external-sources/Cargo.toml ../Cargo.toml
+          cmp -s external-sources/Cargo.toml ../Cargo.toml
+
+      - name: Require verified TLS for receipt PostgreSQL proofs
+        shell: bash
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          cert_root="$RUNNER_TEMP/codedb-proof-postgres-tls"
+          mkdir -m 700 "$cert_root"
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$cert_root/ca.key" \
+            -out "$cert_root/ca.crt" \
+            -subj "/CN=CodeDB Proof CI Test CA" \
+            -days 1
+          openssl req -newkey rsa:2048 -nodes \
+            -keyout "$cert_root/server.key" \
+            -out "$cert_root/server.csr" \
+            -subj "/CN=localhost"
+          printf '%s\n' \
+            'subjectAltName=DNS:localhost' \
+            'extendedKeyUsage=serverAuth' \
+            > "$cert_root/server.ext"
+          openssl x509 -req \
+            -in "$cert_root/server.csr" \
+            -CA "$cert_root/ca.crt" \
+            -CAkey "$cert_root/ca.key" \
+            -CAcreateserial \
+            -out "$cert_root/server.crt" \
+            -days 1 \
+            -extfile "$cert_root/server.ext"
+
+          docker cp "$cert_root/server.crt" \
+            "$POSTGRES_CONTAINER:/var/lib/postgresql/data/server.crt"
+          docker cp "$cert_root/server.key" \
+            "$POSTGRES_CONTAINER:/var/lib/postgresql/data/server.key"
+          docker exec "$POSTGRES_CONTAINER" \
+            chown postgres:postgres \
+            /var/lib/postgresql/data/server.crt \
+            /var/lib/postgresql/data/server.key
+          docker exec "$POSTGRES_CONTAINER" \
+            chmod 600 /var/lib/postgresql/data/server.key
+          docker exec --user postgres "$POSTGRES_CONTAINER" sh -ceu \
+            'printf "%s\n" "ssl = on" \
+              "ssl_cert_file = '\''server.crt'\''" \
+              "ssl_key_file = '\''server.key'\''" \
+              >> "$PGDATA/postgresql.conf"'
+          docker restart "$POSTGRES_CONTAINER" >/dev/null
+          for _ in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER" \
+              pg_isready -U codedb -d codedb >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec "$POSTGRES_CONTAINER" \
+            pg_isready -U codedb -d codedb
+          encoded_ca="$(
+            python3 -c \
+              'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' \
+              "$cert_root/ca.crt"
+          )"
+          printf '%s\n' \
+            "CODEDB_PG_CONN=postgresql://codedb:codedb@localhost:5432/codedb?sslmode=verify-full&sslrootcert=$encoded_ca" \
+            >> "$GITHUB_ENV"
+
       - name: Prove exact source identity and clean checkout
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$CODEDB_REVIEWED_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          for checkout in ../envctl ../loop_lib ../meta_plugin_protocol; do
+            test -z "$(git -C "$checkout" status --porcelain=v1 --untracked-files=all)"
+          done
+          cmp -s external-sources/Cargo.toml ../Cargo.toml
           case "$CODEDB_PROOF_RECEIPT" in
             "$GITHUB_WORKSPACE"/*)
               echo "receipt path must remain outside the source checkout" >&2
@@ -222,7 +347,7 @@ jobs:
               ;;
           esac
 
-      - name: Test schema-3 receipt and detached-verification policy
+      - name: Test schema-4 receipt and detached-verification policy
         run: >-
           python3 -m unittest
           tests/test_requirement_proof_attestation.py
@@ -259,12 +384,30 @@ jobs:
                   row["requirement_id"] for row in csv.DictReader(handle)
               }
           assert len(expected_requirements) == 140
-          assert receipt["schema_version"] == 3
+          assert receipt["schema_version"] == 4
           assert receipt["attestation_type"] == "requirement-proof"
           assert receipt["repository"] == os.environ["GITHUB_REPOSITORY"]
           assert receipt["commit_sha"] == os.environ["CODEDB_REVIEWED_SHA"]
           assert receipt["generator"]["provider"] == "github-actions"
           assert receipt["generator"]["run_id"] == os.environ["GITHUB_RUN_ID"]
+          assert len(receipt["command_executions"]) == len({
+              row["verification_command"] for row in receipt["rows"]
+          }) == 61
+          execution_shas = {
+              execution["execution_sha256"]
+              for execution in receipt["command_executions"]
+          }
+          assert {
+              row["command_execution_sha256"] for row in receipt["rows"]
+          } == execution_shas
+          assert {
+              name: source["commit_sha"]
+              for name, source in receipt["external_sources"].items()
+          } == {
+              "envctl": "b62669c4e32c8de0407aa51ca3add94d529b50b6",
+              "loop_lib": "6e79836387d15ac5849e73e7bb869c6077953d90",
+              "meta_plugin_protocol": "7d65eeac3bba8e9702eb0590ba9476e4e420bfb3",
+          }
           assert len(receipt["rows"]) == 140
           assert {row["requirement_id"] for row in receipt["rows"]} == expected_requirements
           assert receipt["worktree"]["clean_before"] is True
@@ -286,6 +429,10 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$CODEDB_REVIEWED_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          for checkout in ../envctl ../loop_lib ../meta_plugin_protocol; do
+            test -z "$(git -C "$checkout" status --porcelain=v1 --untracked-files=all)"
+          done
+          cmp -s external-sources/Cargo.toml ../Cargo.toml
 
   requirement_proof_signer:
     name: Protected requirement proof signer
@@ -310,7 +457,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: codedb-requirement-proof-unsigned-${{ env.CODEDB_REVIEWED_SHA }}
-          path: ${{ runner.temp }}
+          path: /tmp
 
       - name: Bind the signer subject to the exact reviewed head SHA
         shell: bash
@@ -322,10 +469,22 @@ jobs:
           import os
           from pathlib import Path
           receipt = json.loads(Path(os.environ["CODEDB_PROOF_RECEIPT"]).read_text())
-          assert receipt["schema_version"] == 3
+          assert receipt["schema_version"] == 4
           assert receipt["repository"] == os.environ["GITHUB_REPOSITORY"]
           assert receipt["commit_sha"] == os.environ["CODEDB_REVIEWED_SHA"]
           assert len(receipt["rows"]) == 140
+          assert len(receipt["command_executions"]) == 61
+          execution_shas = {
+              execution["execution_sha256"]
+              for execution in receipt["command_executions"]
+          }
+          assert len(execution_shas) == 61
+          assert {
+              row["command_execution_sha256"] for row in receipt["rows"]
+          } == execution_shas
+          assert set(receipt["external_sources"]) == {
+              "envctl", "loop_lib", "meta_plugin_protocol"
+          }
           PY
 
       - name: Create the real detached GitHub artifact attestation

@@ -38,7 +38,8 @@ authoritative when an extracted statement differs from implementation.
 Whole-tree capture includes regular files and symlink metadata, including safe
 Bun `.bin` links. Replay must verify digests, reject absolute or escaping link
 targets, and preserve exact-byte capture separately from any lossy AST,
-embedding, or graph projection.
+embedding, or graph projection. A non-UTF-8 link target fails closed as an
+explicit capture gap instead of being rewritten through a lossy string.
 
 ## GitKB Boundary
 

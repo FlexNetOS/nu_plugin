@@ -326,13 +326,42 @@ const MANDATORY_COMPILER_ARTIFACTS: [CompilerEvidenceArtifactKind; 6] = [
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompilerArtifactPayload {
+    Text(String),
+    Binary(Vec<u8>),
+}
+
+impl CompilerArtifactPayload {
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Text(value) => value.as_bytes(),
+            Self::Binary(value) => value,
+        }
+    }
+
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Self::Text(value) => Some(value),
+            Self::Binary(_) => None,
+        }
+    }
+
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Text(_) => "text",
+            Self::Binary(_) => "binary",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilerArtifactEvidence {
     pub kind: CompilerEvidenceArtifactKind,
     pub status: CompilerArtifactStatus,
     pub command: Vec<String>,
-    /// Full UTF-8 compiler or rustdoc evidence. Binary metadata is represented only
-    /// by `evidence_sha256` and `evidence_bytes`.
-    pub output: Option<String>,
+    /// Exact compiler or rustdoc artifact bytes, retaining whether the artifact
+    /// is UTF-8 text or an opaque compiler binary such as rustc metadata.
+    pub payload: Option<CompilerArtifactPayload>,
     pub evidence_sha256: Option<String>,
     pub evidence_bytes: Option<usize>,
     /// Hash of the complete compiler input context used to produce this artifact.
@@ -1474,6 +1503,21 @@ fn validate_approved_compiler_report(report: &CompilerEvidenceReport) -> Result<
             report.collection_status.as_str()
         ));
     }
+    let context_sha256 = report
+        .context
+        .as_ref()
+        .map(|context| context.context_sha256.as_str());
+    let toolchain_sha256 = report
+        .toolchain
+        .as_ref()
+        .map(|toolchain| toolchain.toolchain_sha256.as_str());
+    if context_sha256.is_none() {
+        failures.push("context=missing".to_string());
+    }
+    if toolchain_sha256.is_none() {
+        failures.push("toolchain=missing".to_string());
+    }
+
     for kind in MANDATORY_COMPILER_ARTIFACTS {
         let matching = report
             .artifacts
@@ -1481,7 +1525,56 @@ fn validate_approved_compiler_report(report: &CompilerEvidenceReport) -> Result<
             .filter(|artifact| artifact.kind == kind)
             .collect::<Vec<_>>();
         match matching.as_slice() {
-            [artifact] if artifact.status == CompilerArtifactStatus::CompilerObserved => {}
+            [artifact] if artifact.status == CompilerArtifactStatus::CompilerObserved => {
+                let Some(payload) = artifact.payload.as_ref() else {
+                    failures.push(format!("{}=missing_payload", kind.as_str()));
+                    continue;
+                };
+                let expected_payload_kind = if kind == CompilerEvidenceArtifactKind::MacroResolution
+                {
+                    "binary"
+                } else {
+                    "text"
+                };
+                if payload.kind() != expected_payload_kind {
+                    failures.push(format!(
+                        "{}=expected_{expected_payload_kind}_payload_found_{}",
+                        kind.as_str(),
+                        payload.kind()
+                    ));
+                }
+                let bytes = payload.as_bytes();
+                if bytes.is_empty() {
+                    failures.push(format!("{}=empty_payload", kind.as_str()));
+                }
+                let observed_sha256 = sha256_bytes(bytes);
+                if artifact.evidence_sha256.as_deref() != Some(observed_sha256.as_str()) {
+                    failures.push(format!("{}=payload_checksum_mismatch", kind.as_str()));
+                }
+                if artifact.evidence_bytes != Some(bytes.len()) {
+                    failures.push(format!("{}=payload_length_mismatch", kind.as_str()));
+                }
+                if artifact.context_sha256.as_deref() != context_sha256 {
+                    failures.push(format!("{}=context_pin_mismatch", kind.as_str()));
+                }
+                if artifact.toolchain_sha256.as_deref() != toolchain_sha256 {
+                    failures.push(format!("{}=toolchain_pin_mismatch", kind.as_str()));
+                }
+                if let (Some(context_sha256), Some(toolchain_sha256)) =
+                    (context_sha256, toolchain_sha256)
+                {
+                    let expected_pin = hash_lines(&[
+                        format!("kind\0{}", kind.as_str()),
+                        format!("evidence_sha256\0{observed_sha256}"),
+                        format!("evidence_bytes\0{}", bytes.len()),
+                        format!("context_sha256\0{context_sha256}"),
+                        format!("toolchain_sha256\0{toolchain_sha256}"),
+                    ]);
+                    if artifact.pin_sha256.as_deref() != Some(expected_pin.as_str()) {
+                        failures.push(format!("{}=artifact_pin_mismatch", kind.as_str()));
+                    }
+                }
+            }
             [artifact] => failures.push(format!("{}={}", kind.as_str(), artifact.status.as_str())),
             artifacts => failures.push(format!(
                 "{}=expected_one_observed_artifact_found_{}",
@@ -1893,8 +1986,9 @@ fn capture_authorized_compiler_evidence(
             .find(|artifact| artifact.kind == kind)
             .expect("all required compiler artifacts are present");
         let output = artifact
-            .output
-            .as_deref()
+            .payload
+            .as_ref()
+            .and_then(CompilerArtifactPayload::as_text)
             .expect("observed HIR/MIR artifacts retain UTF-8 output");
         semantic_inputs.push(format!(
             "{}\0{}",
@@ -2609,7 +2703,7 @@ fn observe_text_artifact(
         command,
         evidence_sha256: Some(sha256_bytes(output.as_bytes())),
         evidence_bytes: Some(output.len()),
-        output: Some(output),
+        payload: Some(CompilerArtifactPayload::Text(output)),
         context_sha256: None,
         toolchain_sha256: None,
         pin_sha256: None,
@@ -2641,13 +2735,15 @@ fn observe_binary_artifact(
             );
         }
     };
+    let evidence_sha256 = sha256_bytes(&bytes);
+    let evidence_bytes = bytes.len();
     CompilerArtifactEvidence {
         kind,
         status: CompilerArtifactStatus::CompilerObserved,
         command,
-        output: None,
-        evidence_sha256: Some(sha256_bytes(&bytes)),
-        evidence_bytes: Some(bytes.len()),
+        payload: Some(CompilerArtifactPayload::Binary(bytes)),
+        evidence_sha256: Some(evidence_sha256),
+        evidence_bytes: Some(evidence_bytes),
         context_sha256: None,
         toolchain_sha256: None,
         pin_sha256: None,
@@ -2727,7 +2823,7 @@ fn observe_rustdoc_public_api_artifact(
                 command,
                 evidence_sha256: Some(sha256_bytes(json.as_bytes())),
                 evidence_bytes: Some(json.len()),
-                output: Some(json),
+                payload: Some(CompilerArtifactPayload::Text(json)),
                 context_sha256: None,
                 toolchain_sha256: None,
                 pin_sha256: None,
@@ -2742,7 +2838,7 @@ fn observe_rustdoc_public_api_artifact(
         command,
         evidence_sha256: Some(sha256_bytes(json.as_bytes())),
         evidence_bytes: Some(json.len()),
-        output: Some(json),
+        payload: Some(CompilerArtifactPayload::Text(json)),
         context_sha256: None,
         toolchain_sha256: None,
         pin_sha256: None,
@@ -2797,7 +2893,7 @@ fn unavailable_artifact(
         kind,
         status: CompilerArtifactStatus::EvidenceUnavailable,
         command,
-        output: None,
+        payload: None,
         evidence_sha256: None,
         evidence_bytes: None,
         context_sha256: None,
@@ -2817,10 +2913,12 @@ fn finalize_artifact_pins(
         if artifact.status != CompilerArtifactStatus::CompilerObserved {
             continue;
         }
-        if let Some(output) = &mut artifact.output {
+        if let Some(CompilerArtifactPayload::Text(output)) = &mut artifact.payload {
             *output = normalize_compiler_output(output, source_path);
-            artifact.evidence_sha256 = Some(sha256_bytes(output.as_bytes()));
-            artifact.evidence_bytes = Some(output.len());
+        }
+        if let Some(payload) = &artifact.payload {
+            artifact.evidence_sha256 = Some(sha256_bytes(payload.as_bytes()));
+            artifact.evidence_bytes = Some(payload.as_bytes().len());
         }
         let (Some(evidence_sha256), Some(evidence_bytes)) =
             (artifact.evidence_sha256.as_deref(), artifact.evidence_bytes)
@@ -4426,16 +4524,23 @@ fn helper_private_renamed() -> usize {
                         .iter()
                         .any(|arg| arg == "-Zunpretty=expanded,identified")
                 );
-                assert!(expansion.output.as_deref().is_some_and(|output| {
-                    output.contains("generated_answer") && output.contains("/*")
-                }));
-                assert_eq!(
-                    report
-                        .artifact(CompilerEvidenceArtifactKind::MacroResolution)
-                        .expect("macro resolution evidence")
-                        .status,
-                    CompilerArtifactStatus::CompilerObserved
+                assert!(
+                    expansion
+                        .payload
+                        .as_ref()
+                        .and_then(CompilerArtifactPayload::as_text)
+                        .is_some_and(|output| {
+                            output.contains("generated_answer") && output.contains("/*")
+                        })
                 );
+                let resolution = report
+                    .artifact(CompilerEvidenceArtifactKind::MacroResolution)
+                    .expect("macro resolution evidence");
+                assert_eq!(resolution.status, CompilerArtifactStatus::CompilerObserved);
+                assert!(matches!(
+                    resolution.payload,
+                    Some(CompilerArtifactPayload::Binary(ref bytes)) if !bytes.is_empty()
+                ));
                 let hygiene = report
                     .artifact(CompilerEvidenceArtifactKind::MacroHygiene)
                     .expect("macro hygiene evidence");
@@ -4445,11 +4550,17 @@ fn helper_private_renamed() -> usize {
                         .iter()
                         .any(|arg| arg == "-Zunpretty=expanded,hygiene")
                 );
-                assert!(hygiene.output.as_deref().is_some_and(|output| {
-                    output.contains("Expansions:")
-                        && output.contains("SyntaxContexts:")
-                        && output.contains("add_one_with_hygienic_local")
-                }));
+                assert!(
+                    hygiene
+                        .payload
+                        .as_ref()
+                        .and_then(CompilerArtifactPayload::as_text)
+                        .is_some_and(|output| {
+                            output.contains("Expansions:")
+                                && output.contains("SyntaxContexts:")
+                                && output.contains("add_one_with_hygienic_local")
+                        })
+                );
                 assert_eq!(
                     report
                         .artifact(CompilerEvidenceArtifactKind::Hir)
@@ -4471,6 +4582,23 @@ fn helper_private_renamed() -> usize {
                 assert!(!report.gaps.is_empty());
             }
         }
+
+        validate_approved_compiler_report(&report)
+            .expect("complete compiler-observed report must pass the approved gate");
+        let mut corrupted = report.clone();
+        let resolution = corrupted
+            .artifacts
+            .iter_mut()
+            .find(|artifact| artifact.kind == CompilerEvidenceArtifactKind::MacroResolution)
+            .expect("mutable macro resolution evidence");
+        let Some(CompilerArtifactPayload::Binary(bytes)) = resolution.payload.as_mut() else {
+            panic!("macro resolution must retain a binary payload");
+        };
+        bytes[0] ^= 0xff;
+        let error = validate_approved_compiler_report(&corrupted)
+            .expect_err("payload corruption must fail the approved compiler gate");
+        assert!(error.contains("macro_resolution=payload_checksum_mismatch"));
+        assert!(error.contains("macro_resolution=artifact_pin_mismatch"));
     }
 
     // Defends: the compiler-capture layer is opt-in; its default cannot turn
@@ -4744,8 +4872,9 @@ fn renamed_private_helper() -> u32 {
                 assert!(
                     base.artifact(CompilerEvidenceArtifactKind::RustdocPublicApi)
                         .expect("rustdoc JSON evidence")
-                        .output
-                        .as_deref()
+                        .payload
+                        .as_ref()
+                        .and_then(CompilerArtifactPayload::as_text)
                         .is_some_and(|output| output.contains("public_api"))
                 );
             }

@@ -84,8 +84,8 @@
       "evidence_bytes": 3407,
       "context_sha256": "3565ff89efe460f87443f2c63817c6f672ed6e92fcb42af5a7b76616aae852ed",
       "pin_sha256": "07eed2bdcbf74a49241914f853831f6d9768181b9eefdc39ee358b27e818b4d6",
-      "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_observed_consumer --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=3565ff89efe460f87443f2c63817c6f672ed6e92fcb42af5a7b76616aae852ed --extern codedb_observed_proc_macro=/tmp/codedb-compiler-broker/proc_macro/libcodedb_observed_proc_macro.so --emit=metadata -o /tmp/codedb_compiler_evidence_367695_1783899006558713310/metadata.rmeta /tmp/codedb-compiler-broker/proc_macro/consumer.rs"
+      "file": "macro_resolution.rmeta",
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_observed_consumer --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=3565ff89efe460f87443f2c63817c6f672ed6e92fcb42af5a7b76616aae852ed --extern codedb_observed_proc_macro=/tmp/codedb-compiler-broker/proc_macro/libcodedb_observed_proc_macro.so --emit=metadata -o /tmp/codedb_compiler_evidence_622535_1783900738588854782/metadata.rmeta /tmp/codedb-compiler-broker/proc_macro/consumer.rs"
     },
     {
       "kind": "macro_hygiene",
@@ -125,7 +125,7 @@
       "context_sha256": "3565ff89efe460f87443f2c63817c6f672ed6e92fcb42af5a7b76616aae852ed",
       "pin_sha256": "1a91d5469d63db8782e727a296d5694e1a4b8652f4b53d1b6dbaa1a67826ccab",
       "file": "rustdoc_public_api.json",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_observed_consumer --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=3565ff89efe460f87443f2c63817c6f672ed6e92fcb42af5a7b76616aae852ed --extern codedb_observed_proc_macro=/tmp/codedb-compiler-broker/proc_macro/libcodedb_observed_proc_macro.so -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_367695_1783899006558713310/rustdoc /tmp/codedb-compiler-broker/proc_macro/consumer.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_observed_consumer --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=3565ff89efe460f87443f2c63817c6f672ed6e92fcb42af5a7b76616aae852ed --extern codedb_observed_proc_macro=/tmp/codedb-compiler-broker/proc_macro/libcodedb_observed_proc_macro.so -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_622535_1783900738588854782/rustdoc /tmp/codedb-compiler-broker/proc_macro/consumer.rs"
     }
   ],
   "capture_gaps": []

@@ -98,8 +98,24 @@ class DetachedRequirementProofWorkflowTest(unittest.TestCase):
         self.assertIn("scripts/generate_requirement_proof_receipt.py", self.verify_job)
         self.assertIn("assert len(expected_requirements) == 140", self.verify_job)
         self.assertIn('assert len(receipt["rows"]) == 140', self.verify_job)
+        self.assertIn('len(receipt["command_executions"])', self.verify_job)
+        self.assertIn("}) == 61", self.verify_job)
         self.assertIn("execution/REQUIREMENT_PROOF_LEDGER.csv", self.verify_job)
-        self.assertIn('"schema_version"] == 3', self.verify_job)
+        self.assertIn('"schema_version"] == 4', self.verify_job)
+
+    def test_verifier_provides_non_skipping_verified_tls_postgres(self) -> None:
+        for expected in (
+            "services:",
+            "image: postgres:17",
+            "POSTGRES_CONTAINER: ${{ job.services.postgres.id }}",
+            "CODEDB_PG_CONN=postgresql://codedb:codedb@localhost:5432/codedb",
+            "sslmode=verify-full",
+            "sslrootcert=$encoded_ca",
+            "openssl x509 -req",
+            "pg_isready -U codedb -d codedb",
+        ):
+            self.assertIn(expected, self.verify_job)
+        self.assertNotIn("CODEDB_PG_CONN", self.sign_job)
 
     def test_trusted_post_check_signer_is_protected_and_exact_sha_bound(self) -> None:
         self.assertIn("needs: requirement_proof_verification", self.sign_job)
@@ -113,6 +129,7 @@ class DetachedRequirementProofWorkflowTest(unittest.TestCase):
         self.assertIn("attestations: write", self.sign_job)
         self.assertIn("contents: read", self.sign_job)
         self.assertIn("CODEDB_REVIEWED_SHA", self.sign_job)
+        self.assertIn("path: /tmp", self.sign_job)
         self.assertIn(
             '"commit_sha"] == os.environ["CODEDB_REVIEWED_SHA"]', self.sign_job
         )

@@ -4,9 +4,9 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
-    CompilerArtifactStatus, CompilerEvidenceArtifactKind, CompilerEvidenceCollectionStatus,
-    CompilerEvidenceOptions, CompilerExecutionApprovalAuthority, CompilerExtern,
-    CompilerExternKind, capture_compiler_evidence_with_capability,
+    CompilerArtifactPayload, CompilerArtifactStatus, CompilerEvidenceArtifactKind,
+    CompilerEvidenceCollectionStatus, CompilerEvidenceOptions, CompilerExecutionApprovalAuthority,
+    CompilerExtern, CompilerExternKind, capture_compiler_evidence_with_capability,
 };
 
 #[test]
@@ -127,11 +127,21 @@ fn observes_real_proc_macro_and_pins_every_compiler_artifact() {
         .artifact(CompilerEvidenceArtifactKind::MacroExpansion)
         .expect("macro expansion");
     assert_eq!(expansion.status, CompilerArtifactStatus::CompilerObserved);
-    assert!(expansion.output.as_deref().is_some_and(|output| {
-        output.contains("generated_by_macro_rules")
-            && output.contains("generated_by_observed_proc_macro")
-    }));
-    let expansion_output = expansion.output.as_deref().expect("expansion output");
+    assert!(
+        expansion
+            .payload
+            .as_ref()
+            .and_then(CompilerArtifactPayload::as_text)
+            .is_some_and(|output| {
+                output.contains("generated_by_macro_rules")
+                    && output.contains("generated_by_observed_proc_macro")
+            })
+    );
+    let expansion_output = expansion
+        .payload
+        .as_ref()
+        .and_then(CompilerArtifactPayload::as_text)
+        .expect("expansion output");
     for proof in [
         "CODEDB_SANDBOX_NETWORK_DENIED",
         "CODEDB_SANDBOX_HOME_HIDDEN",
@@ -179,7 +189,8 @@ fn observes_real_proc_macro_and_pins_every_compiler_artifact() {
     ] {
         let output = report
             .artifact(kind)
-            .and_then(|artifact| artifact.output.as_deref())
+            .and_then(|artifact| artifact.payload.as_ref())
+            .and_then(CompilerArtifactPayload::as_text)
             .expect("pinned text artifact");
         assert!(
             output.contains("generated_by_observed_proc_macro"),

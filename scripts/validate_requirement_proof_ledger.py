@@ -21,8 +21,10 @@ from pathlib import Path
 from typing import Iterable
 
 from requirement_proof_attestation import (
+    EXTERNAL_SOURCE_PIN_PATH,
     CheckoutIdentity,
     canonical_repository,
+    load_external_source_pins,
     load_receipt,
     validate_receipt,
     verify_github_attestation,
@@ -435,6 +437,9 @@ def audit_ledger(
                     label="proof receipt",
                 )
                 receipt = load_receipt(resolved_receipt)
+                external_sources = load_external_source_pins(
+                    root / EXTERNAL_SOURCE_PIN_PATH
+                )
                 receipt_rows, failures = validate_receipt(
                     receipt,
                     identity=CheckoutIdentity(
@@ -444,6 +449,7 @@ def audit_ledger(
                         ledger_sha256=_sha256_file(path),
                         validator_sha256=_sha256_file(Path(__file__).resolve()),
                         clean=_worktree_clean(root),
+                        external_sources=external_sources,
                     ),
                     ledger_rows=rows,
                 )

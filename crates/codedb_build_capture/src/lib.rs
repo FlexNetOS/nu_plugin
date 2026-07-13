@@ -565,7 +565,7 @@ fn capture_approved_fixture_build_with_capability(
         let Some(out_dir) = observation.out_dir.as_deref() else {
             continue;
         };
-        match capture_out_dir_artifacts(out_dir, &observation.package_id, &request) {
+        match capture_out_dir_artifacts(out_dir, &target_dir, &observation.package_id, &request) {
             Ok(mut artifacts) => out_dir_artifacts.append(&mut artifacts),
             Err(source) => {
                 out_dir_capture_failed = true;
@@ -2086,11 +2086,44 @@ fn native_link_facts_from_observations_and_instructions(
 
 fn capture_out_dir_artifacts(
     out_dir: &Path,
+    target_dir: &Path,
     package_id: &str,
     request: &BuildCaptureRequest,
 ) -> io::Result<Vec<Row>> {
+    let execution_path = out_dir.strip_prefix(target_dir).map_err(|_| {
+        invalid_artifact("captured OUT_DIR is outside the isolated Cargo target directory")
+    })?;
+    let execution_id = execution_path
+        .components()
+        .map(|component| match component {
+            Component::Normal(value) => Ok(value.to_string_lossy().into_owned()),
+            _ => Err(invalid_artifact(
+                "captured OUT_DIR execution path is not normalized",
+            )),
+        })
+        .collect::<io::Result<Vec<_>>>()?
+        .join("/");
+    let execution_id = if execution_id.is_empty() {
+        ".".to_string()
+    } else {
+        execution_id
+    };
+    let artifact_group_id = format!(
+        "sha256:{}",
+        sha256_hex(
+            format!("codedb-out-dir-artifact-group-v1\0{package_id}\0{execution_id}").as_bytes()
+        )
+    );
     let mut artifacts = Vec::new();
-    capture_out_dir_artifacts_from(out_dir, out_dir, package_id, request, &mut artifacts)?;
+    capture_out_dir_artifacts_from(
+        out_dir,
+        out_dir,
+        package_id,
+        &execution_id,
+        &artifact_group_id,
+        request,
+        &mut artifacts,
+    )?;
     Ok(artifacts)
 }
 
@@ -2098,6 +2131,8 @@ fn capture_out_dir_artifacts_from(
     root: &Path,
     directory: &Path,
     package_id: &str,
+    execution_id: &str,
+    artifact_group_id: &str,
     request: &BuildCaptureRequest,
     artifacts: &mut Vec<Row>,
 ) -> io::Result<()> {
@@ -2112,7 +2147,15 @@ fn capture_out_dir_artifacts_from(
             .display()
             .to_string();
         if metadata.file_type().is_dir() {
-            capture_out_dir_artifacts_from(root, &path, package_id, request, artifacts)?;
+            capture_out_dir_artifacts_from(
+                root,
+                &path,
+                package_id,
+                execution_id,
+                artifact_group_id,
+                request,
+                artifacts,
+            )?;
             continue;
         }
 
@@ -2121,6 +2164,11 @@ fn capture_out_dir_artifacts_from(
         artifact.insert("approval_id".to_string(), approval_id(request));
         artifact.insert("status".to_string(), "observed".to_string());
         artifact.insert("package_id".to_string(), package_id.to_string());
+        artifact.insert(
+            "artifact_group_id".to_string(),
+            artifact_group_id.to_string(),
+        );
+        artifact.insert("out_dir_execution_id".to_string(), execution_id.to_string());
         artifact.insert("out_dir".to_string(), root.display().to_string());
         artifact.insert("relative_path".to_string(), relative_path);
         artifact.insert("size_bytes".to_string(), metadata.len().to_string());
@@ -4304,6 +4352,8 @@ edition = "2024"
                         row["file_kind"].clone(),
                         row.get("sha256").cloned().unwrap_or_default(),
                         row.get("link_target").cloned().unwrap_or_default(),
+                        row["artifact_group_id"].clone(),
+                        row["out_dir_execution_id"].clone(),
                         row["reproduction_sha256"].clone(),
                     )
                 })
@@ -5026,10 +5076,10 @@ edition = "2024"
             cleanup_plan: Some("remove isolated fixture and cargo target after proof".to_string()),
         };
 
-        let first =
-            capture_out_dir_artifacts(&source, "fixture 0.1.0", &request).expect("first capture");
-        let second =
-            capture_out_dir_artifacts(&source, "fixture 0.1.0", &request).expect("second capture");
+        let first = capture_out_dir_artifacts(&source, &source, "fixture 0.1.0", &request)
+            .expect("first capture");
+        let second = capture_out_dir_artifacts(&source, &source, "fixture 0.1.0", &request)
+            .expect("second capture");
 
         let stable_projection = |rows: &[Row]| {
             rows.iter()
@@ -5038,6 +5088,8 @@ edition = "2024"
                         row["relative_path"].clone(),
                         row["sha256"].clone(),
                         row["content_hex"].clone(),
+                        row["artifact_group_id"].clone(),
+                        row["out_dir_execution_id"].clone(),
                         row["reproduction_sha256"].clone(),
                     )
                 })

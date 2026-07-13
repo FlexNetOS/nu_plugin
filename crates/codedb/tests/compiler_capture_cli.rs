@@ -165,22 +165,53 @@ pub fn answer() -> u32 {
             row.get("status").map(String::as_str),
             Some("compiler_observed")
         );
+        let artifact_path = PathBuf::from(row.get("evidence_path").expect("artifact path"));
+        let bytes = fs::read(&artifact_path).expect("persisted compiler artifact");
+        let sha256 = format!("{:x}", Sha256::digest(&bytes));
+        assert_eq!(row.get("evidence_sha256"), Some(&sha256));
+        assert_eq!(
+            row.get("evidence_bytes")
+                .and_then(|value| value.parse::<usize>().ok()),
+            Some(bytes.len())
+        );
         if kind == "macro_resolution" {
-            assert_eq!(row.get("evidence_path").map(String::as_str), Some(""));
-            assert!(
-                row.get("evidence_sha256")
-                    .is_some_and(|value| value.len() == 64)
+            assert_eq!(
+                artifact_path.extension().and_then(|value| value.to_str()),
+                Some("rmeta")
             );
+            assert_eq!(row.get("payload_kind").map(String::as_str), Some("binary"));
+
+            let restored = root.join("evidence/restored-resolution");
+            let store_relative_path = row
+                .get("store_relative_path")
+                .expect("stored resolution path");
+            let materialized = Command::new(env!("CARGO_BIN_EXE_codedb"))
+                .args([
+                    "materialize",
+                    "--store",
+                    store.to_str().expect("UTF-8 store path"),
+                    "--out-dir",
+                    restored.to_str().expect("UTF-8 restore path"),
+                    "--path",
+                    store_relative_path,
+                    "--format",
+                    "json",
+                ])
+                .output()
+                .expect("materialize stored resolution artifact");
             assert!(
-                row.get("evidence_bytes")
-                    .and_then(|value| value.parse::<usize>().ok())
-                    .is_some_and(|bytes| bytes > 0)
+                materialized.status.success(),
+                "stored resolution retrieval failed: {}",
+                String::from_utf8_lossy(&materialized.stderr)
+            );
+            assert_eq!(
+                fs::read(restored.join(store_relative_path))
+                    .expect("read retrieved resolution artifact"),
+                bytes,
+                "stored macro-resolution bytes differ from the external artifact"
             );
         } else {
-            let artifact_path = PathBuf::from(row.get("evidence_path").expect("artifact path"));
-            let bytes = fs::read(&artifact_path).expect("persisted compiler artifact");
-            let sha256 = format!("{:x}", Sha256::digest(&bytes));
-            assert_eq!(row.get("evidence_sha256"), Some(&sha256));
+            assert_eq!(row.get("payload_kind").map(String::as_str), Some("text"));
         }
         assert!(row.get("pin_sha256").is_some_and(|value| value.len() == 64));
     }
