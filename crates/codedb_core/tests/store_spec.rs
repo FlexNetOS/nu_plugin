@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use codedb_core::store_spec::{StoreBackend, StoreSpec};
 
@@ -74,13 +74,11 @@ fn bare_pg_requires_an_explicit_external_postgresql_dsn() {
 
 #[test]
 fn rejects_every_unknown_uri_scheme_without_filesystem_writes() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock is after the Unix epoch")
-        .as_nanos();
+    static NEXT_PROBE_ID: AtomicU64 = AtomicU64::new(0);
+    let sequence = NEXT_PROBE_ID.fetch_add(1, Ordering::Relaxed);
     let untouched_path = std::env::temp_dir().join(format!(
-        "codedb-core-store-spec-{}-{nonce}/store",
-        std::process::id()
+        "codedb-core-store-spec-{}-{sequence}/store",
+        std::process::id(),
     ));
     assert!(
         !untouched_path.exists(),

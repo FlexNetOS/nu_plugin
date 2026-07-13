@@ -205,11 +205,16 @@ fn parse_package_name(toml: &str) -> Option<String> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     fn tmp(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("codedb-merge-{tag}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
+        static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        let d = std::env::temp_dir().join(format!(
+            "codedb-merge-{tag}-{}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir(&d).unwrap();
         d
     }
 

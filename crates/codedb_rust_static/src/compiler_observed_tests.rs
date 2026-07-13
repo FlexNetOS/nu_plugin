@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
     CompilerArtifactPayload, CompilerArtifactStatus, CompilerEvidenceArtifactKind,
@@ -280,16 +280,14 @@ struct ScratchDirectory {
 
 impl ScratchDirectory {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock before unix epoch")
-            .as_nanos();
+        static NEXT_SCRATCH_ID: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT_SCRATCH_ID.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
             "codedb_compiler_observed_test_{}_{}",
             std::process::id(),
-            nonce
+            sequence
         ));
-        fs::create_dir_all(&path).expect("create compiler-observed scratch directory");
+        fs::create_dir(&path).expect("reserve compiler-observed scratch directory");
         Self { path }
     }
 }

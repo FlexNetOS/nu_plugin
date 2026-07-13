@@ -4690,15 +4690,7 @@ mod tests {
 
     #[test]
     fn mcp_frontdoor_rejects_postgresql_argv_sentinels_without_echoing_them() {
-        let root = env::temp_dir().join(format!(
-            "codedb_mcp_argv_guard_{}_{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("create MCP root");
+        let root = temp_repo();
         let credential_sentinel = "CODEDB_ARGV_CREDENTIAL_SENTINEL";
         let query_sentinel = "CODEDB_ARGV_QUERY_SENTINEL";
         let percent_sentinel = "%43%4f%44%45%44%42";

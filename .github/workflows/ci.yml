@@ -158,9 +158,27 @@ jobs:
       - name: Enable and prove Bubblewrap on GitHub-hosted fallback runners
         if: runner.environment == 'github-hosted'
         run: bash scripts/ci/require_bwrap_userns.sh
-      - name: Install Rust toolchain on GitHub-hosted runners
+      - name: Select pinned Nix Rust toolchain on GitHub-hosted runners
         if: runner.environment == 'github-hosted'
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016
+          toolbin="$(nix develop .#ci -c bash -lc 'dirname "$(command -v cargo)"')"
+          case "$toolbin" in
+            /nix/store/*/bin) ;;
+            *)
+              echo "Rust toolchain must resolve from the pinned Nix store: $toolbin" >&2
+              exit 1
+              ;;
+          esac
+          for tool in cargo rustc rustdoc rustfmt; do
+            test -x "$toolbin/$tool"
+          done
+          echo "$toolbin" >> "$GITHUB_PATH"
+          "$toolbin/cargo" --version
+          "$toolbin/rustc" -Vv
+          "$toolbin/rustdoc" -Vv
       - name: Select profile-owned Rust toolchain on FlexNetOS self-hosted runners
         if: runner.environment == 'self-hosted'
         shell: bash

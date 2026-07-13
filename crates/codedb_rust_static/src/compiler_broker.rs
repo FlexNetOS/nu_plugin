@@ -19,7 +19,7 @@
 //! `OUT_DIR` include) are recorded as explicit capability boundaries
 //! (`capture_gap`) rather than faked or silently omitted.
 
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -122,6 +122,16 @@ struct ProcMacroSpec {
 /// Runs the broker over every fixture and writes the deterministic evidence tree
 /// under `output_dir`. Returns the structured outcome for gating.
 pub(crate) fn run_compiler_broker(output_dir: &Path) -> BrokerReport {
+    let broker_lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(std::env::temp_dir().join("codedb-compiler-broker.lock"))
+        .expect("open compiler broker lock");
+    broker_lock
+        .lock()
+        .expect("serialize compiler broker evidence regeneration");
     let repo = repo_root();
     // Regenerate the evidence tree from scratch so runs are deterministic and
     // never carry stale files from an earlier toolchain.
@@ -682,10 +692,8 @@ struct TemporaryBrokerOutput(PathBuf);
 
 impl TemporaryBrokerOutput {
     fn new() -> Self {
-        let sequence = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("broker test clock")
-            .as_nanos();
+        static NEXT_OUTPUT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = NEXT_OUTPUT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self(std::env::temp_dir().join(format!(
             "codedb-compiler-broker-test-{}-{sequence}",
             std::process::id()

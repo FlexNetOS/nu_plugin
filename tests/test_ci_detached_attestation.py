@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/ci.yml"
 FLAKE = ROOT / "flake.nix"
+FLAKE_LOCK = ROOT / "flake.lock"
 SANDBOX_SETUP = ROOT / "scripts/ci/require_bwrap_userns.sh"
 PINNED_ACTION = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+@[0-9a-f]{40}$")
 
@@ -205,6 +207,28 @@ class DetachedRequirementProofWorkflowTest(unittest.TestCase):
             "scripts/generate_requirement_proof_receipt.py",
             self.verify_job,
         )
+
+    def test_ci_shell_pins_a_matching_nightly_compiler_toolchain(self) -> None:
+        flake = FLAKE.read_text(encoding="utf-8")
+        lock = json.loads(FLAKE_LOCK.read_text(encoding="utf-8"))
+        ci_shell = flake.split("devShells =", 1)[1].split("formatter =", 1)[0]
+
+        self.assertIn("rust-overlay.overlays.default", ci_shell)
+        self.assertIn("rust-bin.selectLatestNightlyWith", ci_shell)
+        self.assertIn("toolchain: toolchain.default", ci_shell)
+        self.assertIn("rustToolchain", ci_shell)
+        for unpinned_stable_component in (
+            "pkgs.cargo",
+            "pkgs.clippy",
+            "pkgs.rustc",
+            "pkgs.rustfmt",
+        ):
+            self.assertNotIn(unpinned_stable_component, ci_shell)
+
+        overlay = lock["nodes"]["rust-overlay"]
+        self.assertEqual(["nixpkgs"], overlay["inputs"]["nixpkgs"])
+        self.assertRegex(overlay["locked"]["rev"], r"^[0-9a-f]{40}$")
+        self.assertRegex(overlay["locked"]["narHash"], r"^sha256-")
 
 
 if __name__ == "__main__":
