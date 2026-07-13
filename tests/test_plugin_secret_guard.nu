@@ -70,7 +70,8 @@ def main [] {
     with-env { PATH: $path } {
         run_cargo_checked [build --quiet -p nu_plugin_codedb] | ignore
 
-        let plugin = ([$repo_root target debug nu_plugin_codedb] | path join)
+        let target_dir = ($env.CARGO_TARGET_DIR? | default ([$repo_root target] | path join))
+        let plugin = ([$target_dir debug nu_plugin_codedb] | path join)
         if not ($plugin | path exists) {
             fail $"expected plugin binary was not built: ($plugin)"
         }

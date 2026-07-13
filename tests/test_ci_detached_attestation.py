@@ -156,6 +156,20 @@ class DetachedRequirementProofWorkflowTest(unittest.TestCase):
         )
         self.assertNotIn("HY3", jobs)
 
+    def test_nushell_binary_consumers_honor_external_cargo_target_dir(self) -> None:
+        for relative_path in (
+            "tests/test_dynamic_store_plugin.nu",
+            "tests/test_yazelix_enabled_smoke.nu",
+            "tests/test_transient_plugin.nu",
+            "tests/test_plugin_secret_guard.nu",
+            "tests/test_no_real_home_plugin_registration.nu",
+            "tests/test_plugin_registry.nu",
+        ):
+            with self.subTest(path=relative_path):
+                source = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertIn("$env.CARGO_TARGET_DIR?", source)
+                self.assertNotIn("[$repo_root target debug", source)
+
 
 if __name__ == "__main__":
     unittest.main()

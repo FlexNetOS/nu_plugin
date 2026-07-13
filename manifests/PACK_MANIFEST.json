@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "9b657ce29758dfa1387b50b89f6fb579b2ff2a3ec76356e5af9111095e55ab29",
+  "checksum_scope_files_sha256": "603b90c030844cc33635024c9c8b2ab0525119f1ecdba3ef3f1312b11b36b5eb",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 801,
   "files": [
@@ -3866,9 +3866,9 @@
       "sha256": "0a8b50a15598d4fa148e370c39eb0c212d1933613b95f390dc46f7d31773d5d6"
     },
     {
-      "bytes": 6692,
+      "bytes": 7383,
       "path": "tests/test_ci_detached_attestation.py",
-      "sha256": "074357143bb5c5a693853da9485dbbcb3034fb1e4c92e1fc71d9fbfca82c757d"
+      "sha256": "fa562c928d8ab95b1f04270e9d7f479eec0e11132e96d74419d139a9f29555a9"
     },
     {
       "bytes": 1557,
@@ -3886,9 +3886,9 @@
       "sha256": "1cdfc867fbf47f7b8b35b66a36712feb1e024f1cc10f30ff172f2e764841a0ce"
     },
     {
-      "bytes": 4669,
+      "bytes": 4747,
       "path": "tests/test_dynamic_store_plugin.nu",
-      "sha256": "6fb49c8b54ff9cab82859eee2dd0041dc16aa2c03737ebb577cc07c99ea5cf3c"
+      "sha256": "7be2caf030c200f6d6dd14e2009039cbd9ed0b742420047677c1dc413222a32b"
     },
     {
       "bytes": 4298,
@@ -3926,9 +3926,9 @@
       "sha256": "4a56704fbf7ee5b20312ccaab29d54d0447d30c0a85435b94ec9cc2723c11173"
     },
     {
-      "bytes": 4277,
+      "bytes": 4365,
       "path": "tests/test_no_real_home_plugin_registration.nu",
-      "sha256": "d61cfb0ab72e7f84f92daa0c0f35ed7509634d8ef4fa8b92c88afd6faae8a3c5"
+      "sha256": "c987d34714da7148512a1ff0ec3b93e2da0d4a6948f59308d2798b23d0f38028"
     },
     {
       "bytes": 2433,
@@ -3936,14 +3936,14 @@
       "sha256": "3d5d2518b90350db50630921a45ff49e3228d0c52f73ada8222f1b22d204e22c"
     },
     {
-      "bytes": 3957,
+      "bytes": 4045,
       "path": "tests/test_plugin_registry.nu",
-      "sha256": "2fcb0851c5c5b507ae02db955fba8eeb8d119497da326404441933373055d4da"
+      "sha256": "d2e0c3bd11337ec74d808f4f8bcfe878d75017cc25ab4dced4c4999f41d94d94"
     },
     {
-      "bytes": 4573,
+      "bytes": 4661,
       "path": "tests/test_plugin_secret_guard.nu",
-      "sha256": "f65d59f78ab65e7cab62bf816f3dbef2b2489795497eb4a85b44f367cf9dc0eb"
+      "sha256": "35232ed5a9a4a3d46638223d0f9d4aacb9c99d7ff4e55e96f25b130bc8d9d5ae"
     },
     {
       "bytes": 1025,
@@ -3986,9 +3986,9 @@
       "sha256": "38876d5a521e0042cc3e27fce0a915b3be3be371fe935d0aaea194e13f8b8a83"
     },
     {
-      "bytes": 4788,
+      "bytes": 4876,
       "path": "tests/test_transient_plugin.nu",
-      "sha256": "23d562345f4190b1984ae6507ac3a080321d366450afc59e0eea865472f875b7"
+      "sha256": "96b8edc493e8ecc46531067a738a7dce07286f63928c324ade4a1d4b5d7a9fde"
     },
     {
       "bytes": 3075,
@@ -4011,12 +4011,12 @@
       "sha256": "0ee64f3115a6a0eef015cc40ef7988d16963207bb701cbb6b9109f9ea420aa67"
     },
     {
-      "bytes": 4954,
+      "bytes": 5036,
       "path": "tests/test_yazelix_enabled_smoke.nu",
-      "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
+      "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-13T00:19:08+00:00",
+  "generated_at_utc": "2026-07-13T00:24:27+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
