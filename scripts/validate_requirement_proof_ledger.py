@@ -26,6 +26,7 @@ from requirement_proof_attestation import (
     canonical_repository,
     load_external_source_pins,
     load_receipt,
+    parse_artifact_declarations,
     validate_receipt,
     verify_github_attestation,
 )
@@ -374,8 +375,22 @@ def validate_rows(
                 )
             )
 
-        logical_artifacts = _split_paths(row.get("proof_artifacts", ""))
-        if not logical_artifacts:
+        proof_artifacts = row.get("proof_artifacts", "")
+        try:
+            logical_artifacts = [
+                declaration.logical_name
+                for declaration in parse_artifact_declarations(proof_artifacts)
+            ]
+        except ValueError as error:
+            logical_artifacts = []
+            violations.append(
+                Violation(
+                    requirement_id,
+                    "invalid logical proof artifact",
+                    str(error),
+                )
+            )
+        if not proof_artifacts.strip():
             violations.append(
                 Violation(
                     requirement_id,

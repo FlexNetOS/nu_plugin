@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "38f45556a504ed5e56bf9e354cb11ff8f88511a05f81190a4e4fa81d0d75f081",
+  "checksum_scope_files_sha256": "afaaa0d3520a334df3b515d8b4481120b0ab7dc03936166df58e6d4cb4327ce9",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 801,
   "files": [
@@ -3846,9 +3846,9 @@
       "sha256": "c1fe5247e8d6a3e58d6a27c6080ff620046e6d065ee7a7ea99f6821df71e62ac"
     },
     {
-      "bytes": 24266,
+      "bytes": 24754,
       "path": "scripts/validate_requirement_proof_ledger.py",
-      "sha256": "76bcb93a884dd75dd228814ce6dc6cda4768efc328de751242b3da49343be722"
+      "sha256": "58d383c50954e9676806645ddb3acd2eda5941cfba6c38b057ffb3cc4c4db3a3"
     },
     {
       "bytes": 48465,
@@ -3966,9 +3966,9 @@
       "sha256": "da7dea06bf5a58d6901c831e3a920ddc4ceebc2cf1a621f536bd715942fe89b6"
     },
     {
-      "bytes": 27545,
+      "bytes": 28077,
       "path": "tests/test_requirement_proof_ledger.py",
-      "sha256": "9daaeb2f311d3a307dc41b4709e612500ccaed6318406756aebfd7dbea1f042b"
+      "sha256": "ed10d5ace5d34c9c4896edb8df950f7f569acc9452a2803be2cc31f79ecfca27"
     },
     {
       "bytes": 9469,
@@ -4016,7 +4016,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-13T00:35:32+00:00",
+  "generated_at_utc": "2026-07-13T01:02:27+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

@@ -49,7 +49,7 @@ def complete_row(requirement_id: str, head: str = "") -> dict[str, str]:
         "implementation_paths": "src/implementation.rs",
         "test_paths": "tests/proof_test.py",
         "verification_command": "python3 tests/proof_test.py",
-        "proof_artifacts": "cargo-metadata-output",
+        "proof_artifacts": "stdout:cargo-metadata-output",
         "proof_head_sha": head,
         "evidence_status": "verified",
         "task_status": "complete",
@@ -330,6 +330,21 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
             receipt_rows={"CDB013": wrong},
         )
         self.assertTrue(
+            any(v.rule == "receipt missing logical proof artifact" for v in violations)
+        )
+
+    def test_typed_artifact_declaration_matches_receipt_logical_name(self) -> None:
+        head = "a" * 40
+        row = complete_row("CDB013")
+        violations = validate_rows(
+            Path("."),
+            [row],
+            expected_ids={"CDB013"},
+            current_head=head,
+            require_all_verified=True,
+            receipt_rows={"CDB013": receipt_row("CDB013")},
+        )
+        self.assertFalse(
             any(v.rule == "receipt missing logical proof artifact" for v in violations)
         )
 
