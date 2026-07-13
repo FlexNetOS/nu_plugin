@@ -133,6 +133,9 @@
               pkgs.nushell
               pkgs.python3
               pkgs.nixfmt
+            ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+              pkgs.bubblewrap
             ];
 
             CODEDB_CI_SHELL = "1";

@@ -20,7 +20,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+      - name: Require the trusted Bubblewrap sandbox
+        run: nix develop .#ci -c bash -lc 'command -v bwrap && bwrap --version'
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
       - name: Validate executable task graph, maps, receipts, and manifests
@@ -30,7 +32,15 @@ jobs:
       - name: Prove locked context, path safety, and PostgreSQL policy
         run: python3 -m unittest tests/test_locked_context_integration.py tests/test_materialization_safety.py tests/test_postgres_open_policy.py tests/test_mandatory_pg_parity.py
       - name: Test affected crates and frontdoors
-        run: cargo test -p codedb-core -p codedb-context -p codedb-cargo -p codedb -p nu_plugin_codedb -p codedb-mcp -p codedb-store-pg
+        run: >-
+          nix develop .#ci -c cargo test
+          -p codedb-core
+          -p codedb-context
+          -p codedb-cargo
+          -p codedb
+          -p nu_plugin_codedb
+          -p codedb-mcp
+          -p codedb-store-pg
 
   postgres_parity:
     name: PostgreSQL/redb mandatory parity
@@ -172,6 +182,8 @@ jobs:
           # shellcheck disable=SC2016
           nix develop .#ci -c bash -lc '
             set -euo pipefail
+            command -v bwrap
+            bwrap --version
             for test in tests/*.nu; do
               echo "=== $test ==="
               nu "$test"
@@ -222,6 +234,14 @@ jobs:
           ref: ${{ env.CODEDB_REVIEWED_SHA }}
           fetch-depth: 1
           persist-credentials: false
+
+      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+
+      - name: Require the complete proof toolchain and trusted sandbox
+        run: >-
+          nix develop .#ci -c bash -lc
+          'command -v bwrap && bwrap --version &&
+          cargo --version && nu --version && python3 --version'
 
       - name: Check out exact external proof sources without credentials
         shell: bash
@@ -358,7 +378,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/generate_requirement_proof_receipt.py \
+          nix develop .#ci -c python3 scripts/generate_requirement_proof_receipt.py \
             --output "$CODEDB_PROOF_RECEIPT" \
             --provider github-actions \
             --run-id "$GITHUB_RUN_ID" \
