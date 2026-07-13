@@ -2344,12 +2344,19 @@ struct CompilerScratch {
 
 impl CompilerScratch {
     fn new() -> Result<Self, io::Error> {
+        // pid+nonce alone collides when two rustc-evidence captures land in the
+        // same tick (parallel test threads or concurrent processes). Colliding
+        // scratch roots let one capture's Drop delete the sandbox source out from
+        // under another's in-flight bwrap mount ("Can't get type of source ...").
+        // A per-process atomic sequence makes every scratch root unique.
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
+        let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "codedb_compiler_evidence_{}_{}",
+            "codedb_compiler_evidence_{}_{}_{seq}",
             std::process::id(),
             nonce
         ));

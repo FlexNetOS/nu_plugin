@@ -128,9 +128,17 @@ pub(crate) fn run_compiler_broker(output_dir: &Path) -> BrokerReport {
     let _ = fs::remove_dir_all(output_dir);
     fs::create_dir_all(output_dir).expect("create broker output dir");
     // Scratch tree for compiled proc-macro externs and substituted consumers.
-    // Kept at a fixed path (outside the evidence tree) so the evidence directory
-    // stays clean and the request-bound context hashes remain deterministic.
-    let build_root = std::env::temp_dir().join("codedb-compiler-broker");
+    // Kept outside the evidence tree so the evidence directory stays clean and
+    // the request-bound context hashes remain deterministic (the scratch path is
+    // never hashed into the output). Namespaced by process id + an atomic
+    // sequence so concurrent broker runs (parallel test threads or two
+    // `cargo test --workspace` processes) never clobber each other's scratch.
+    static BROKER_SCRATCH_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let scratch_seq = BROKER_SCRATCH_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let build_root = std::env::temp_dir().join(format!(
+        "codedb-compiler-broker-{}-{scratch_seq}",
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&build_root);
     fs::create_dir_all(&build_root).expect("create broker build scratch");
 
@@ -218,6 +226,10 @@ pub(crate) fn run_compiler_broker(output_dir: &Path) -> BrokerReport {
         &toolchain_sha256,
     );
     write_summary_json(output_dir, &host, &toolchain_sha256, &outcomes);
+
+    // Remove the process-unique scratch now that every fixture has been compiled;
+    // the evidence tree under output_dir is the durable artifact.
+    let _ = fs::remove_dir_all(&build_root);
 
     BrokerReport {
         output_dir: output_dir.to_path_buf(),

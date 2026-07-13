@@ -74,12 +74,14 @@ fn bare_pg_requires_an_explicit_external_postgresql_dsn() {
 
 #[test]
 fn rejects_every_unknown_uri_scheme_without_filesystem_writes() {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock is after the Unix epoch")
         .as_nanos();
+    let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let untouched_path = std::env::temp_dir().join(format!(
-        "codedb-core-store-spec-{}-{nonce}/store",
+        "codedb-core-store-spec-{}-{nonce}-{seq}/store",
         std::process::id()
     ));
     assert!(

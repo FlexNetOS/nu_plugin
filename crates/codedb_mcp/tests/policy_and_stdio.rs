@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1189,8 +1190,14 @@ fn summary_count(rows: &[Row], table: &str) -> usize {
 }
 
 fn temp_dir(label: &str) -> PathBuf {
+    // The nanosecond suffix alone collides across concurrent processes sharing
+    // /tmp (e.g. two `cargo test --workspace` runs); the process id and a
+    // per-process atomic sequence make every fixture dir unique.
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let suffix = unique_suffix();
-    let path = std::env::temp_dir().join(format!("codedb_mcp_{label}_{suffix}"));
+    let pid = std::process::id();
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("codedb_mcp_{label}_{pid}_{suffix}_{seq}"));
     fs::create_dir_all(&path).expect("create temp directory");
     path
 }

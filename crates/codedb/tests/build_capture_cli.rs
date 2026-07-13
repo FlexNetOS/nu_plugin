@@ -2,14 +2,23 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_root() -> PathBuf {
+    // Uniqueness must survive concurrent test threads AND concurrent processes
+    // (e.g. two `cargo test --workspace` runs sharing /tmp). A bare nanosecond
+    // timestamp collides when two callers land in the same tick, and the second
+    // capture.log write then fails with AlreadyExists. Compose the timestamp with
+    // the process id and a per-process atomic sequence for a collision-free path.
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let suffix = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    std::env::temp_dir().join(format!("codedb-build-cli-{suffix}"))
+    let pid = std::process::id();
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("codedb-build-cli-{pid}-{suffix}-{seq}"))
 }
 
 fn source_snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {

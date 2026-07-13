@@ -280,12 +280,17 @@ struct ScratchDirectory {
 
 impl ScratchDirectory {
     fn new() -> Self {
+        // pid+nonce alone collides across parallel test threads landing in the
+        // same tick; a per-process atomic sequence guarantees a distinct dir so
+        // one fixture's Drop cleanup never deletes another's live scratch.
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock before unix epoch")
             .as_nanos();
+        let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "codedb_compiler_observed_test_{}_{}",
+            "codedb_compiler_observed_test_{}_{}_{seq}",
             std::process::id(),
             nonce
         ));
