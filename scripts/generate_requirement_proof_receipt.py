@@ -151,8 +151,33 @@ def git_output(root: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+# Declared runtime side-effect paths that verification commands legitimately
+# write (test run-logs, gitkb runtime store/cache/workspaces). These are never
+# part of the attested tracked tree (the receipt binds commit/tree SHAs), so an
+# UNTRACKED file under one of these prefixes must not count as a dirty checkout.
+# The full untracked-file check remains in force for every other path — a
+# command that generates an unexpected source/config/manifest file still fails.
+RUNTIME_SIDE_EFFECT_PREFIXES = (
+    "logs/",
+    ".kb/store/",
+    ".kb/.cache/",
+    ".kb/workspaces/",
+)
+
+
+def _is_runtime_side_effect(status_line: str) -> bool:
+    # Only untracked entries ("?? path") are tolerated; any tracked-file change
+    # (M/A/D/R) under these prefixes is still reported so nothing attested drifts.
+    if not status_line.startswith("?? "):
+        return False
+    path = status_line[3:].strip().strip('"')
+    return path.startswith(RUNTIME_SIDE_EFFECT_PREFIXES)
+
+
 def worktree_status(root: Path) -> str:
-    return git_output(root, "status", "--porcelain=v1", "--untracked-files=all")
+    raw = git_output(root, "status", "--porcelain=v1", "--untracked-files=all")
+    lines = [line for line in raw.splitlines() if line and not _is_runtime_side_effect(line)]
+    return "\n".join(lines)
 
 
 def ensure_external_output(root: Path, output: Path) -> Path:
