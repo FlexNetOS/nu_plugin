@@ -27,8 +27,9 @@ def main [] {
     with-env { PATH: $path } {
         run_checked cargo [build --quiet -p codedb -p nu_plugin_codedb] | ignore
 
-        let codedb_bin = ([$repo_root target debug codedb] | path join)
-        let plugin_bin = ([$repo_root target debug nu_plugin_codedb] | path join)
+        let target_dir = ($env.CARGO_TARGET_DIR? | default ([$repo_root target] | path join))
+        let codedb_bin = ([$target_dir debug codedb] | path join)
+        let plugin_bin = ([$target_dir debug nu_plugin_codedb] | path join)
         if not ($codedb_bin | path exists) {
             fail $"expected codedb binary was not built: ($codedb_bin)"
         }

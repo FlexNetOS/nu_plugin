@@ -21,9 +21,12 @@ from pathlib import Path
 from typing import Iterable
 
 from requirement_proof_attestation import (
+    EXTERNAL_SOURCE_PIN_PATH,
     CheckoutIdentity,
     canonical_repository,
+    load_external_source_pins,
     load_receipt,
+    parse_artifact_declarations,
     validate_receipt,
     verify_github_attestation,
 )
@@ -69,6 +72,14 @@ EXECUTABLE_COMMAND = re.compile(
     r"(^|[;&|]\s*)(cargo|python3?|pytest|bash|sh|nu|nix|codedb|envctl)\b"
 )
 NON_PROOF_PREFIXES = ("docs/", "execution/", "logs/", "manifests/")
+CONTRADICTORY_COMPLETION_NOTES = (
+    "not bound to a current-head proof artifact",
+    "completeness is not proven",
+    "not current-head release proof",
+    "positive approved proof is unresolved",
+    "not wide dual-backend current-head proof",
+    "remain unverified",
+)
 
 
 @dataclass(frozen=True)
@@ -98,7 +109,9 @@ def _split_paths(value: str) -> list[str]:
 def _resolve_paths(root: Path, value: str) -> list[Path]:
     resolved: list[Path] = []
     for item in _split_paths(value):
-        if item.startswith(("external:", "gitkb:", "https://", "http://")):
+        if item.startswith("external:"):
+            item = item.removeprefix("external:")
+        elif item.startswith(("gitkb:", "https://", "http://")):
             continue
         matches = [Path(match) for match in glob.glob(str(root / item), recursive=True)]
         resolved.extend(matches)
@@ -141,6 +154,26 @@ def _worktree_clean(root: Path) -> bool:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# Marker written by the owner-authorized local-release staging step. Its
+# presence records that a genuine provider=local receipt sealed the inventory
+# locally (compiled with flexnetos_runner and staged in the release repo).
+LOCAL_RELEASE_MARKER = Path("execution/LOCAL_RELEASE.json")
+
+
+def local_release_is_staged(root: Path = Path(__file__).resolve().parents[1]) -> bool:
+    """True when a local release has been staged for this tree.
+
+    This is an ADDITIVE, opt-in toggle: it defaults to False, so the
+    fail-closed release-integrity checks stay fully active for the public
+    (GitHub-attested) lane and for an in-progress inventory. When an owner has
+    staged a local release (recorded by ``execution/LOCAL_RELEASE.json``), the
+    non-blocking local-release path becomes available. The marker never relaxes
+    ``validate_receipt`` or the GitHub lane; it only signals that the local
+    lane has legitimately completed.
+    """
+    return (Path(root) / LOCAL_RELEASE_MARKER).is_file()
 
 
 def _external_path(root: Path, path: Path, *, label: str) -> Path:
@@ -249,7 +282,29 @@ def validate_rows(
                 )
             )
 
-        gap_text = f"{evidence_status} {row.get('notes', '')}".lower()
+        notes = row.get("notes", "")
+        contradictory_note = next(
+            (
+                phrase
+                for phrase in CONTRADICTORY_COMPLETION_NOTES
+                if phrase in notes.lower()
+            ),
+            None,
+        )
+        if (
+            evidence_status == "verified"
+            and task_status == "complete"
+            and contradictory_note is not None
+        ):
+            violations.append(
+                Violation(
+                    requirement_id,
+                    "verified completion note denies current-head proof",
+                    notes,
+                )
+            )
+
+        gap_text = f"{evidence_status} {notes}".lower()
         if "gap" in gap_text and re.search(
             r"\b(closure|complete|completed|satisfied|proof)\b", gap_text
         ):
@@ -320,8 +375,22 @@ def validate_rows(
                 )
             )
 
-        logical_artifacts = _split_paths(row.get("proof_artifacts", ""))
-        if not logical_artifacts:
+        proof_artifacts = row.get("proof_artifacts", "")
+        try:
+            logical_artifacts = [
+                declaration.logical_name
+                for declaration in parse_artifact_declarations(proof_artifacts)
+            ]
+        except ValueError as error:
+            logical_artifacts = []
+            violations.append(
+                Violation(
+                    requirement_id,
+                    "invalid logical proof artifact",
+                    str(error),
+                )
+            )
+        if not proof_artifacts.strip():
             violations.append(
                 Violation(
                     requirement_id,
@@ -413,6 +482,9 @@ def audit_ledger(
                     label="proof receipt",
                 )
                 receipt = load_receipt(resolved_receipt)
+                external_sources = load_external_source_pins(
+                    root / EXTERNAL_SOURCE_PIN_PATH
+                )
                 receipt_rows, failures = validate_receipt(
                     receipt,
                     identity=CheckoutIdentity(
@@ -422,6 +494,7 @@ def audit_ledger(
                         ledger_sha256=_sha256_file(path),
                         validator_sha256=_sha256_file(Path(__file__).resolve()),
                         clean=_worktree_clean(root),
+                        external_sources=external_sources,
                     ),
                     ledger_rows=rows,
                 )

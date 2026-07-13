@@ -18,6 +18,29 @@ Source: PRD section 16.
 
 An integration is valid only when it has: owner, input rows, output rows, validation gate, forbidden actions, and raw-log/evidence path.
 
+## Extracted NotebookLM Source Alignment
+
+The NotebookLM `Agentic Mindmap` artifact
+`a033f801-5ddb-4b34-af1d-36d7288fe11c` is an architecture overview, not
+implementation proof. The cross-reference corpus is the locally extracted
+planning-spine registry and source set under
+`../lifeos/planning-spine-v0/generated/notebooklm_source_{registry.source.csv,extracts/}`.
+The checked source tree, exact dependency receipts, and executable tests remain
+authoritative when an extracted statement differs from implementation.
+
+| Extracted sources | CodeDB integration contract |
+|---|---|
+| `NBSOURCE-003`, `NBSOURCE-030` | redb and PostgreSQL remain backend-neutral exact-byte CodeDB stores. RuVector embeddings or semantic indexes are derived layers and are not substitutes for source bytes, receipts, or deterministic materialization. No live CodeDB RuVector adapter is claimed until runtime proof exists. |
+| `NBSOURCE-029`, `NBSOURCE-030` | The verified native chain is the local `ruvector-core` Rust crate -> `ruvector-node` `cdylib` -> napi-rs -> platform `.node` npm package -> `@ruvector/core` wrapper -> exact Bun install -> CodeDB capture. The extracted "C++ extension" wording is superseded by the checked Rust `cdylib` and napi-rs sources. Capture preserves the complete locked online Node dependency set, package aliases, and observed wrapper/native versions rather than collapsing them to one package name. |
+| `NBSOURCE-031` | envctl consumes exported rows, checksums, and materialized paths. It must not read redb/PostgreSQL internals or silently become CodeDB's storage owner. |
+| `NBSOURCE-032` | The Nushell integration remains a native Rust Nu plugin using the plugin protocol's MessagePack serializer. It does not become a shell-script parser or inherit an unverified host registry. |
+
+Whole-tree capture includes regular files and symlink metadata, including safe
+Bun `.bin` links. Replay must verify digests, reject absolute or escaping link
+targets, and preserve exact-byte capture separately from any lossy AST,
+embedding, or graph projection. A non-UTF-8 link target fails closed as an
+explicit capture gap instead of being rewritten through a lossy string.
+
 ## GitKB Boundary
 
 GitKB stores durable explanations, decisions, and handoffs. It is not the source

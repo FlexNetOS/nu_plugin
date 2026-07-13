@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 use codedb_core::SchemaVersion;
 use codedb_core::store::{
     BlobStore, CURRENT_STORE_SCHEMA_VERSION, LEGACY_STORE_SCHEMA_VERSION,
-    MaterializedFile as CoreMaterializedFile, SourceFileRow as CoreSourceFileRow, StoreBackupKind,
-    StoreError as CoreStoreError, StoreMetadataRow as CoreStoreMetadataRow, StoreMigrationBackup,
-    StoreMigrationReport, StoreMigrationStep, atomic_materialize_file, parse_schema_version,
-    plan_store_migration,
+    MaterializedFile as CoreMaterializedFile, SourceFileRow as CoreSourceFileRow,
+    SourceSymlinkRow as CoreSourceSymlinkRow, StoreBackupKind, StoreError as CoreStoreError,
+    StoreMetadataRow as CoreStoreMetadataRow, StoreMigrationBackup, StoreMigrationReport,
+    StoreMigrationStep, atomic_materialize_file, parse_schema_version, plan_store_migration,
 };
 use codedb_core::store_spec::StoreBackend;
 use redb::{
@@ -444,6 +444,53 @@ fn persist_batch_db(
 }
 
 #[allow(clippy::result_large_err)]
+fn persist_symlink_db(
+    db: &Database,
+    relative_path: &str,
+    target: &str,
+) -> Result<CoreSourceSymlinkRow, StoreError> {
+    let row = CoreSourceSymlinkRow::new(relative_path, target);
+    let blob_ref = format!("sha256:{}", row.target_sha256);
+    let write_txn = db.begin_write()?;
+    {
+        let mut blobs = write_txn.open_table(SOURCE_BLOBS_TABLE)?;
+        blobs.insert(row.target_sha256.as_str(), target.as_bytes())?;
+    }
+    {
+        let mut files = write_txn.open_table(SOURCE_FILES_TABLE)?;
+        files.insert(relative_path, blob_ref.as_str())?;
+    }
+    {
+        let mut metadata = write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+        metadata.insert(
+            source_file_metadata_key(relative_path, "artifact_kind").as_str(),
+            "symlink",
+        )?;
+        metadata.insert(
+            source_file_metadata_key(relative_path, "symlink_target_sha256").as_str(),
+            row.target_sha256.as_str(),
+        )?;
+    }
+    write_txn.commit()?;
+    Ok(row)
+}
+
+#[allow(clippy::result_large_err)]
+fn source_artifact_kind_db(
+    read_txn: &redb::ReadTransaction,
+    relative_path: &str,
+) -> Result<Option<String>, StoreError> {
+    let metadata = match read_txn.open_table(SOURCE_FILE_METADATA_TABLE) {
+        Ok(metadata) => metadata,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    Ok(metadata
+        .get(source_file_metadata_key(relative_path, "artifact_kind").as_str())?
+        .map(|value| value.value().to_string()))
+}
+
+#[allow(clippy::result_large_err)]
 pub fn read_source_file_blob(
     store_path: impl AsRef<Path>,
     relative_path: impl AsRef<str>,
@@ -502,6 +549,9 @@ fn list_source_files_db<D: ReadableDatabase>(db: &D) -> Result<Vec<SourceBlobRow
     for item in files.iter()? {
         let (key, value) = item?;
         let relative_path = key.value().to_string();
+        if source_artifact_kind_db(&read_txn, &relative_path)?.as_deref() == Some("symlink") {
+            continue;
+        }
         let blob_ref = value.value().to_string();
         let sha256 = blob_ref.trim_start_matches("sha256:").to_string();
         let bytes = blobs
@@ -518,6 +568,80 @@ fn list_source_files_db<D: ReadableDatabase>(db: &D) -> Result<Vec<SourceBlobRow
     Ok(rows)
 }
 
+#[allow(clippy::result_large_err)]
+fn list_source_symlinks_db<D: ReadableDatabase>(
+    db: &D,
+) -> Result<Vec<CoreSourceSymlinkRow>, StoreError> {
+    let read_txn = db.begin_read()?;
+    let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+    let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
+    let metadata = match read_txn.open_table(SOURCE_FILE_METADATA_TABLE) {
+        Ok(metadata) => metadata,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut rows = Vec::new();
+    for item in files.iter()? {
+        let (key, value) = item?;
+        let relative_path = key.value().to_string();
+        let artifact_kind = metadata
+            .get(source_file_metadata_key(&relative_path, "artifact_kind").as_str())?
+            .map(|value| value.value().to_string());
+        if artifact_kind.as_deref() != Some("symlink") {
+            continue;
+        }
+        let blob_ref = value.value().to_string();
+        let target_sha256 = blob_ref
+            .strip_prefix("sha256:")
+            .ok_or_else(|| {
+                StoreError::Materialization(CoreStoreError::new(format!(
+                    "captured symlink {:?} has invalid target blob reference {:?}",
+                    relative_path, blob_ref
+                )))
+            })?
+            .to_string();
+        let target_bytes = blobs
+            .get(target_sha256.as_str())?
+            .ok_or_else(|| {
+                StoreError::Materialization(CoreStoreError::new(format!(
+                    "captured symlink {:?} points to missing target metadata blob sha256:{}",
+                    relative_path, target_sha256
+                )))
+            })?
+            .value()
+            .to_vec();
+        let target = String::from_utf8(target_bytes).map_err(|_| {
+            StoreError::Materialization(CoreStoreError::new(format!(
+                "captured symlink {:?} target metadata is not UTF-8",
+                relative_path
+            )))
+        })?;
+        let row = CoreSourceSymlinkRow {
+            relative_path,
+            target,
+            target_sha256,
+        };
+        row.verify().map_err(StoreError::Materialization)?;
+        let metadata_sha256 = metadata
+            .get(source_file_metadata_key(&row.relative_path, "symlink_target_sha256").as_str())?
+            .map(|value| value.value().to_string())
+            .ok_or_else(|| {
+                StoreError::Materialization(CoreStoreError::new(format!(
+                    "captured symlink {:?} is missing its checksum metadata",
+                    row.relative_path
+                )))
+            })?;
+        if metadata_sha256 != row.target_sha256 {
+            return Err(StoreError::Materialization(CoreStoreError::new(format!(
+                "captured symlink {:?} checksum metadata mismatch",
+                row.relative_path
+            ))));
+        }
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
 /// Raw bytes for a captured relative path, or `None` if absent — the
 /// [`BlobStore::read_source_file_blob`] read path against an open database.
 #[allow(clippy::result_large_err)]
@@ -526,6 +650,9 @@ fn read_source_blob_bytes_db(
     relative_path: &str,
 ) -> Result<Option<Vec<u8>>, StoreError> {
     let read_txn = db.begin_read()?;
+    if source_artifact_kind_db(&read_txn, relative_path)?.as_deref() == Some("symlink") {
+        return Ok(None);
+    }
     let blob_ref = {
         let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
         match files.get(relative_path)? {
@@ -563,6 +690,11 @@ fn materialize_source_file_db(
 ) -> Result<FileMaterializationReport, StoreError> {
     let output_path = output_path.to_path_buf();
     let read_txn = db.begin_read()?;
+    if source_artifact_kind_db(&read_txn, relative_path)?.as_deref() == Some("symlink") {
+        return Err(StoreError::Materialization(CoreStoreError::new(format!(
+            "captured symlink {relative_path:?} cannot be materialized as a regular file"
+        ))));
+    }
     let blob_ref = {
         let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
         files
@@ -947,6 +1079,14 @@ impl BlobStore for CaptureBatcher {
         Ok(rows.into_iter().map(to_core_row).collect())
     }
 
+    fn persist_symlink(
+        &mut self,
+        relative_path: &str,
+        target: &str,
+    ) -> Result<CoreSourceSymlinkRow, CoreStoreError> {
+        persist_symlink_db(&self.db, relative_path, target).map_err(to_core_err)
+    }
+
     fn captured_paths(&self) -> Result<std::collections::BTreeSet<String>, CoreStoreError> {
         captured_paths_db(&self.db).map_err(to_core_err)
     }
@@ -961,6 +1101,10 @@ impl BlobStore for CaptureBatcher {
     fn list_source_files(&self) -> Result<Vec<CoreSourceFileRow>, CoreStoreError> {
         let rows = list_source_files_db(&self.db).map_err(to_core_err)?;
         Ok(rows.into_iter().map(to_core_row).collect())
+    }
+
+    fn list_source_symlinks(&self) -> Result<Vec<CoreSourceSymlinkRow>, CoreStoreError> {
+        list_source_symlinks_db(&self.db).map_err(to_core_err)
     }
 
     fn materialize_source_file(
@@ -1019,6 +1163,16 @@ impl BlobStore for ReadOnlyStore {
         ))
     }
 
+    fn persist_symlink(
+        &mut self,
+        _relative_path: &str,
+        _target: &str,
+    ) -> Result<CoreSourceSymlinkRow, CoreStoreError> {
+        Err(CoreStoreError::new(
+            "read-only redb store refuses symlink persistence",
+        ))
+    }
+
     fn captured_paths(&self) -> Result<std::collections::BTreeSet<String>, CoreStoreError> {
         captured_paths_db(&self.db).map_err(to_core_err)
     }
@@ -1034,6 +1188,10 @@ impl BlobStore for ReadOnlyStore {
         list_source_files_db(&self.db)
             .map_err(to_core_err)
             .map(|rows| rows.into_iter().map(to_core_row).collect())
+    }
+
+    fn list_source_symlinks(&self) -> Result<Vec<CoreSourceSymlinkRow>, CoreStoreError> {
+        list_source_symlinks_db(&self.db).map_err(to_core_err)
     }
 
     fn materialize_source_file(
@@ -1379,6 +1537,58 @@ mod tests {
         fs::remove_file(&backup_path).ok();
         fs::remove_file(&restored_path).ok();
         fs::remove_file(&output_path).ok();
+    }
+
+    #[test]
+    fn symlink_metadata_is_checksum_bound_and_never_exposed_as_regular_file_bytes() {
+        let path = temp_store_path();
+        initialize_store(&path, &init_ctx()).expect("store init");
+        let mut store = CaptureBatcher::open(&path).expect("open store");
+        let relative_path = "node_modules/.bin/tool";
+        let target = "../tool/bin/tool.js";
+        let persisted = store
+            .persist_symlink(relative_path, target)
+            .expect("persist symlink metadata");
+
+        assert_eq!(
+            store.list_source_symlinks().unwrap(),
+            vec![persisted.clone()]
+        );
+        assert!(store.list_source_files().unwrap().is_empty());
+        assert_eq!(store.read_source_file_blob(relative_path).unwrap(), None);
+        assert!(
+            store
+                .materialize_source_file(relative_path, &path.with_extension("must-not-be-file"))
+                .expect_err("symlink target text must never become a regular file")
+                .message()
+                .contains("symlink")
+        );
+
+        {
+            let write_txn = store
+                .db
+                .begin_write()
+                .expect("begin corruption transaction");
+            {
+                let mut blobs = write_txn
+                    .open_table(SOURCE_BLOBS_TABLE)
+                    .expect("blob table");
+                blobs
+                    .insert(
+                        persisted.target_sha256.as_str(),
+                        b"../different/target".as_slice(),
+                    )
+                    .expect("corrupt target metadata blob");
+            }
+            write_txn.commit().expect("commit corrupt target fixture");
+        }
+        let error = store
+            .list_source_symlinks()
+            .expect_err("corrupt symlink target must fail checksum verification");
+        assert!(error.message().contains("checksum mismatch"));
+
+        drop(store);
+        fs::remove_file(&path).ok();
     }
 
     // Test lane: default

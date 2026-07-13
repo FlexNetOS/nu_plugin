@@ -73,7 +73,7 @@
       "context_sha256": "",
       "pin_sha256": "",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Zunpretty=expanded,identified /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=b02d4c4f942ea547bd6c4b4a87382c43346fccfc0fd5281acfd77988fefe3ceb -Zunpretty=expanded,identified /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
     },
     {
       "kind": "macro_resolution",
@@ -83,7 +83,7 @@
       "context_sha256": "",
       "pin_sha256": "",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu --emit=metadata -o /tmp/codedb_compiler_evidence_3202735_1783889548241136709/metadata.rmeta /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=b02d4c4f942ea547bd6c4b4a87382c43346fccfc0fd5281acfd77988fefe3ceb --emit=metadata -o /tmp/codedb_compiler_evidence_622535_1783900739348488197/metadata.rmeta /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
     },
     {
       "kind": "macro_hygiene",
@@ -93,7 +93,7 @@
       "context_sha256": "",
       "pin_sha256": "",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Zunpretty=expanded,hygiene /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=b02d4c4f942ea547bd6c4b4a87382c43346fccfc0fd5281acfd77988fefe3ceb -Zunpretty=expanded,hygiene /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
     },
     {
       "kind": "hir",
@@ -103,7 +103,7 @@
       "context_sha256": "",
       "pin_sha256": "",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Zunpretty=hir /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=b02d4c4f942ea547bd6c4b4a87382c43346fccfc0fd5281acfd77988fefe3ceb -Zunpretty=hir /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
     },
     {
       "kind": "mir",
@@ -113,7 +113,7 @@
       "context_sha256": "",
       "pin_sha256": "",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Zunpretty=mir /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=b02d4c4f942ea547bd6c4b4a87382c43346fccfc0fd5281acfd77988fefe3ceb -Zunpretty=mir /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
     },
     {
       "kind": "rustdoc_public_api",
@@ -123,7 +123,7 @@
       "context_sha256": "",
       "pin_sha256": "",
       "file": "",
-      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_3202735_1783889548241136709/rustdoc /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
+      "command": "/nix/store/hvskc9m22j4xp8ki2q98gr7q834z1vn9-rust-mixed/bin/rustdoc --crate-name codedb_fixture_out_dir_generator --crate-type lib --edition 2021 --target x86_64-unknown-linux-gnu -C metadata=b02d4c4f942ea547bd6c4b4a87382c43346fccfc0fd5281acfd77988fefe3ceb -Z unstable-options --output-format json -o /tmp/codedb_compiler_evidence_622535_1783900739348488197/rustdoc /home/flexnetos/meta/src/nu_plugin/fixtures/out_dir_generator/src/lib.rs"
     }
   ],
   "capture_gaps": [

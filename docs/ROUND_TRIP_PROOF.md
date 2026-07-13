@@ -41,12 +41,28 @@ mode bits so executable source artifacts keep their executable state when
 restored into an isolated output path. Raw blob capture records an explicit
 permission-capture gap because it has no source filesystem metadata.
 
-Generated `OUT_DIR` reproduction is represented by a CDB080 gap until dynamic
-capture emits checksum-bound generated artifact manifests.
+Approved `codedb capture build` persists checksum-bound generated `OUT_DIR`
+artifacts and a content-addressed receipt. `codedb reproduce --approval-id`
+restores the exact bytes into an isolated artifact directory and verifies each
+checksum. The production CLI integration test proves both reproduction and
+source-tree immutability.
 
 CDB081 models symlink materialization as platform-dependent capability rows.
-When link creation is unavailable, CodeDB preserves link metadata and target
-paths as a `metadata_only_fallback` instead of writing a regular file.
+On Linux, link publication is descriptor-relative, no-follow, durable, and
+no-replace. When link creation is unavailable, CodeDB deterministically
+preserves link metadata and target paths as a `metadata_only_fallback` instead
+of writing a regular file.
+
+Whole-tree capture persists each symlink path and exact target as a distinct
+`source_symlinks` row with a SHA-256 target digest in both redb and PostgreSQL.
+Regular-file reads explicitly exclude those rows. Materialization verifies all
+stored targets before publishing any output, safely recreates contained relative
+links such as Bun `node_modules/.bin` entries, and rejects absolute or escaping
+targets. Unix targets that are not valid UTF-8 are never lossily converted or
+reported as captured; they produce an explicit `non_utf8_symlink_target` gap and
+make the capture summary `complete_with_gaps`. Batch rollback retains bound parent descriptors plus symlink
+device/inode identities so a later link failure removes only links created by
+that attempt and never deletes a concurrent replacement.
 
 ## CDB074 Isolated Patch Proof
 

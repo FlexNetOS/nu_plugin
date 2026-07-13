@@ -58,6 +58,43 @@ pub struct SourceFileRow {
     pub bytes: u64,
 }
 
+/// Exact metadata for one captured symbolic link.
+///
+/// A link target is metadata, never source-file content. `target_sha256` binds
+/// the stored target bytes so backends can detect corruption before replay and
+/// callers cannot accidentally materialize the target text as a regular file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSymlinkRow {
+    pub relative_path: String,
+    pub target: String,
+    pub target_sha256: String,
+}
+
+impl SourceSymlinkRow {
+    pub fn new(relative_path: impl Into<String>, target: impl Into<String>) -> Self {
+        let relative_path = relative_path.into();
+        let target = target.into();
+        let target_sha256 = format!("{:x}", Sha256::digest(target.as_bytes()));
+        Self {
+            relative_path,
+            target,
+            target_sha256,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), StoreError> {
+        let observed = format!("{:x}", Sha256::digest(self.target.as_bytes()));
+        if observed == self.target_sha256 {
+            Ok(())
+        } else {
+            Err(StoreError::new(format!(
+                "captured symlink target checksum mismatch for {:?}: expected {}, observed {}",
+                self.relative_path, self.target_sha256, observed
+            )))
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MaterializedFile {
     pub path: PathBuf,
@@ -94,6 +131,13 @@ pub struct MaterializedFileRollback {
     #[cfg(target_os = "linux")]
     file_inode: u64,
 }
+
+/// Unforgeable rollback authority for one native symlink publication.
+///
+/// The inner publication identity uses the same bound-parent and device/inode
+/// checks as regular-file rollback, so a concurrent replacement is preserved
+/// and reported instead of being deleted.
+pub struct MaterializedSymlinkRollback(MaterializedFileRollback);
 
 impl std::fmt::Debug for MaterializedFileRollback {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
@@ -479,13 +523,35 @@ pub fn materialize_symlink(
         });
     }
 
-    materialize_symlink_impl(&path, target)?;
+    let rollback = materialize_symlink_impl(&path, target)?;
+    #[cfg(target_os = "linux")]
+    retained_materialization_rollbacks()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(path.clone(), rollback);
+    #[cfg(not(target_os = "linux"))]
+    let _ = rollback;
     Ok(MaterializedSymlink {
         path,
         target: target.to_string(),
         status,
         link_created: true,
     })
+}
+
+/// Take identity-bound rollback authority retained by a successful native
+/// symlink publication.
+pub fn take_materialized_symlink_rollback(
+    output_path: &Path,
+) -> Result<MaterializedSymlinkRollback, StoreError> {
+    take_materialized_file_rollback_impl(output_path).map(MaterializedSymlinkRollback)
+}
+
+/// Remove only the exact symlink inode published by this attempt.
+pub fn rollback_materialized_symlink(
+    rollback: MaterializedSymlinkRollback,
+) -> Result<(), StoreError> {
+    rollback_materialized_file_impl(rollback.0)
 }
 
 fn validate_materialization_symlink_target(
@@ -534,7 +600,10 @@ fn validate_materialization_symlink_target(
 }
 
 #[cfg(target_os = "linux")]
-fn materialize_symlink_impl(output_path: &Path, target: &str) -> Result<(), StoreError> {
+fn materialize_symlink_impl(
+    output_path: &Path,
+    target: &str,
+) -> Result<MaterializedFileRollback, StoreError> {
     use rustix::fs::AtFlags;
 
     let parent_path = output_path
@@ -559,8 +628,36 @@ fn materialize_symlink_impl(output_path: &Path, target: &str) -> Result<(), Stor
         }
     })?;
 
+    let link_identity = rustix::fs::statat(&parent, final_name, AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(|error| {
+            let _ = rustix::fs::unlinkat(&parent, final_name, AtFlags::empty());
+            StoreError::new(format!(
+                "inspect symlink materialization publication identity failed: {error}"
+            ))
+        })?;
+    let parent_identity = rustix::fs::fstat(&parent).map_err(|error| {
+        let _ = rustix::fs::unlinkat(&parent, final_name, AtFlags::empty());
+        StoreError::new(format!(
+            "inspect symlink materialization parent identity failed: {error}"
+        ))
+    })?;
+    let rollback = MaterializedFileRollback {
+        path: output_path.to_path_buf(),
+        parent: rustix::io::dup(&parent).map_err(|error| {
+            let _ = rustix::fs::unlinkat(&parent, final_name, AtFlags::empty());
+            StoreError::new(format!(
+                "retain bound symlink materialization parent failed: {error}"
+            ))
+        })?,
+        final_name: final_name.to_os_string(),
+        parent_device: parent_identity.st_dev,
+        parent_inode: parent_identity.st_ino,
+        file_device: link_identity.st_dev,
+        file_inode: link_identity.st_ino,
+    };
+
     if let Err(error) = rustix::fs::fsync(&parent) {
-        let cleanup = rustix::fs::unlinkat(&parent, final_name, AtFlags::empty());
+        let cleanup = rollback_materialized_file(rollback);
         return Err(StoreError::new(match cleanup {
             Ok(()) => format!("fsync symlink materialization directory failed: {error}"),
             Err(cleanup_error) => format!(
@@ -568,11 +665,14 @@ fn materialize_symlink_impl(output_path: &Path, target: &str) -> Result<(), Stor
             ),
         }));
     }
-    Ok(())
+    Ok(rollback)
 }
 
 #[cfg(not(target_os = "linux"))]
-fn materialize_symlink_impl(_output_path: &Path, _target: &str) -> Result<(), StoreError> {
+fn materialize_symlink_impl(
+    _output_path: &Path,
+    _target: &str,
+) -> Result<MaterializedFileRollback, StoreError> {
     Err(StoreError::new(
         "native descriptor-relative symlink materialization is unavailable on this platform",
     ))
@@ -1310,11 +1410,19 @@ pub trait BlobStore {
         files: &[(String, Vec<u8>)],
     ) -> Result<Vec<SourceFileRow>, StoreError>;
 
+    fn persist_symlink(
+        &mut self,
+        relative_path: &str,
+        target: &str,
+    ) -> Result<SourceSymlinkRow, StoreError>;
+
     fn captured_paths(&self) -> Result<BTreeSet<String>, StoreError>;
 
     fn read_source_file_blob(&self, relative_path: &str) -> Result<Option<Vec<u8>>, StoreError>;
 
     fn list_source_files(&self) -> Result<Vec<SourceFileRow>, StoreError>;
+
+    fn list_source_symlinks(&self) -> Result<Vec<SourceSymlinkRow>, StoreError>;
 
     fn materialize_source_file(
         &self,

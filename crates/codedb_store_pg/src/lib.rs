@@ -21,9 +21,9 @@ use std::sync::Arc;
 
 use codedb_core::store::{
     BlobStore, CURRENT_STORE_SCHEMA_VERSION, CURRENT_STORE_SCHEMA_VERSION_TEXT,
-    LEGACY_STORE_SCHEMA_VERSION, MaterializedFile, SourceFileRow, StoreBackupKind, StoreError,
-    StoreMetadataRow, StoreMigrationBackup, StoreMigrationReport, StoreMigrationStep,
-    atomic_materialize_file, parse_schema_version, plan_store_migration,
+    LEGACY_STORE_SCHEMA_VERSION, MaterializedFile, SourceFileRow, SourceSymlinkRow,
+    StoreBackupKind, StoreError, StoreMetadataRow, StoreMigrationBackup, StoreMigrationReport,
+    StoreMigrationStep, atomic_materialize_file, parse_schema_version, plan_store_migration,
 };
 use codedb_core::store_spec::StoreBackend;
 use postgres::config::{Host, SslMode};
@@ -367,6 +367,51 @@ impl BlobStore for PgStore {
         Ok(rows)
     }
 
+    fn persist_symlink(
+        &mut self,
+        relative_path: &str,
+        target: &str,
+    ) -> Result<SourceSymlinkRow, StoreError> {
+        let row = SourceSymlinkRow::new(relative_path, target);
+        let metadata = serde_json::json!({
+            "artifact_kind": "symlink",
+            "symlink_target_sha256": row.target_sha256,
+        })
+        .to_string();
+        let mut client = self.client.borrow_mut();
+        let mut tx = client
+            .transaction()
+            .map_err(|_| database_error("begin symlink transaction"))?;
+        let blob_sql = format!(
+            "INSERT INTO {} (sha256, content, bytes) VALUES ($1, $2, $3) \
+             ON CONFLICT (sha256) DO NOTHING",
+            self.tables.blobs
+        );
+        let path_sql = format!(
+            "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::text::jsonb) \
+             ON CONFLICT (module_path) DO UPDATE SET \
+                 sha256 = EXCLUDED.sha256, metadata = EXCLUDED.metadata",
+            self.tables.path_refs
+        );
+        let target_bytes = target.as_bytes();
+        let target_len = i64::try_from(target_bytes.len()).map_err(|_| {
+            StoreError::new("captured symlink target exceeds PostgreSQL bigint size")
+        })?;
+        tx.execute(
+            blob_sql.as_str(),
+            &[&row.target_sha256, &target_bytes, &target_len],
+        )
+        .map_err(|_| database_error("insert content-addressed symlink target"))?;
+        tx.execute(
+            path_sql.as_str(),
+            &[&relative_path, &row.target_sha256, &metadata],
+        )
+        .map_err(|_| database_error("upsert symlink path reference"))?;
+        tx.commit()
+            .map_err(|_| database_error("commit symlink transaction"))?;
+        Ok(row)
+    }
+
     fn captured_paths(&self) -> Result<BTreeSet<String>, StoreError> {
         let mut client = self.client.borrow_mut();
         let sql = format!(
@@ -382,7 +427,7 @@ impl BlobStore for PgStore {
     fn read_source_file_blob(&self, relative_path: &str) -> Result<Option<Vec<u8>>, StoreError> {
         let mut client = self.client.borrow_mut();
         let sql = format!(
-            "SELECT p.sha256, b.content FROM {} p \
+            "SELECT p.sha256, b.content, p.metadata->>'artifact_kind' FROM {} p \
              LEFT JOIN {} b ON b.sha256 = p.sha256 WHERE p.module_path = $1",
             self.tables.path_refs, self.tables.blobs
         );
@@ -394,6 +439,10 @@ impl BlobStore for PgStore {
         };
         let sha256: String = row.get(0);
         let content: Option<Vec<u8>> = row.get(1);
+        let artifact_kind: Option<String> = row.get(2);
+        if artifact_kind.as_deref() == Some("symlink") {
+            return Ok(None);
+        }
         content
             .ok_or_else(|| corrupt_path_reference_error(relative_path, &sha256))
             .map(Some)
@@ -404,6 +453,7 @@ impl BlobStore for PgStore {
         let sql = format!(
             "SELECT p.module_path, p.sha256, b.bytes FROM {} p \
              LEFT JOIN {} b ON b.sha256 = p.sha256 \
+             WHERE p.metadata->>'artifact_kind' IS DISTINCT FROM 'symlink' \
              ORDER BY p.module_path COLLATE \"C\"",
             self.tables.path_refs, self.tables.blobs
         );
@@ -429,6 +479,49 @@ impl BlobStore for PgStore {
             .collect()
     }
 
+    fn list_source_symlinks(&self) -> Result<Vec<SourceSymlinkRow>, StoreError> {
+        let mut client = self.client.borrow_mut();
+        let sql = format!(
+            "SELECT p.module_path, p.sha256, b.content, \
+                    p.metadata->>'symlink_target_sha256' \
+             FROM {} p LEFT JOIN {} b ON b.sha256 = p.sha256 \
+             WHERE p.metadata->>'artifact_kind' = 'symlink' \
+             ORDER BY p.module_path COLLATE \"C\"",
+            self.tables.path_refs, self.tables.blobs
+        );
+        client
+            .query(sql.as_str(), &[])
+            .map_err(|_| database_error("list symlink path references"))?
+            .into_iter()
+            .map(|row| {
+                let relative_path: String = row.get(0);
+                let target_sha256: String = row.get(1);
+                let target_bytes: Option<Vec<u8>> = row.get(2);
+                let metadata_sha256: Option<String> = row.get(3);
+                let target_bytes = target_bytes
+                    .ok_or_else(|| corrupt_path_reference_error(&relative_path, &target_sha256))?;
+                let target = String::from_utf8(target_bytes).map_err(|_| {
+                    StoreError::new(format!(
+                        "PostgreSQL CodeDB symlink target for {relative_path:?} is not UTF-8"
+                    ))
+                })?;
+                let result = SourceSymlinkRow {
+                    relative_path,
+                    target,
+                    target_sha256,
+                };
+                result.verify()?;
+                if metadata_sha256.as_deref() != Some(result.target_sha256.as_str()) {
+                    return Err(StoreError::new(format!(
+                        "PostgreSQL CodeDB symlink checksum metadata mismatch for {:?}",
+                        result.relative_path
+                    )));
+                }
+                Ok(result)
+            })
+            .collect()
+    }
+
     fn materialize_source_file(
         &self,
         relative_path: &str,
@@ -436,7 +529,8 @@ impl BlobStore for PgStore {
     ) -> Result<MaterializedFile, StoreError> {
         let mut client = self.client.borrow_mut();
         let sql = format!(
-            "SELECT p.sha256, b.content, p.metadata::text FROM {} p \
+            "SELECT p.sha256, b.content, p.metadata::text, \
+                    p.metadata->>'artifact_kind' FROM {} p \
              LEFT JOIN {} b ON b.sha256 = p.sha256 WHERE p.module_path = $1",
             self.tables.path_refs, self.tables.blobs
         );
@@ -447,6 +541,12 @@ impl BlobStore for PgStore {
             .first()
             .ok_or_else(|| StoreError::new(format!("missing source file: {relative_path}")))?;
         let sha256: String = row.get(0);
+        let artifact_kind: Option<String> = row.get(3);
+        if artifact_kind.as_deref() == Some("symlink") {
+            return Err(StoreError::new(format!(
+                "captured symlink {relative_path:?} cannot be materialized as a regular file"
+            )));
+        }
         let content: Option<Vec<u8>> = row.get(1);
         let content =
             content.ok_or_else(|| corrupt_path_reference_error(relative_path, &sha256))?;

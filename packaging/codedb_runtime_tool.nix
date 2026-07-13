@@ -1,5 +1,7 @@
 {
+  bubblewrap,
   lib,
+  makeWrapper,
   rustPlatform,
 }:
 
@@ -36,7 +38,14 @@ rustPlatform.buildRustPackage {
 
   cargoBuildFlags = cargoPackageFlags;
 
-  cargoTestFlags = cargoPackageFlags;
+  # Kernel-enforced compiler/build integration runs in the host/CI test lane.
+  # A Nix build sandbox cannot create the nested user namespace bubblewrap
+  # requires, so this package derivation runs the selected binaries' unit
+  # targets and leaves the non-skipping integration suite to `cargo test
+  # --workspace --all-features` outside the nested sandbox.
+  cargoTestFlags = cargoPackageFlags ++ [ "--bins" ];
+
+  nativeBuildInputs = [ makeWrapper ];
 
   installPhase = ''
     runHook preInstall
@@ -51,6 +60,8 @@ rustPlatform.buildRustPackage {
 
     install -Dm755 "$codedb_bin" "$out/bin/codedb"
     install -Dm755 "$plugin_bin" "$out/bin/nu_plugin_codedb"
+    wrapProgram "$out/bin/codedb" \
+      --prefix PATH : ${lib.makeBinPath [ bubblewrap ]}
 
     mkdir -p "$out/share/codedb"
     cat > "$out/share/codedb/runtime-tool-metadata.json" <<JSON

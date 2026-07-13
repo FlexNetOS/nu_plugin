@@ -43,3 +43,13 @@ Use `execution/BIDIRECTIONAL_TASK_GRAPH.csv` and
 upgrade. Use GitKB tasks with matching CDB IDs as the live ledger. Update
 `execution/COMMAND_LEDGER.csv`, `execution/WORKLOG.md`, and manifests whenever
 source artifacts change.
+
+## Current State
+
+The CDB013-CDB063 implementation rail and CDB070-CDB090 bidirectional rail are
+complete in their authoritative task graphs. The V1.2 polyglot planning rail
+remains a separate planning package and does not replace implementation proof.
+
+Release authorization still requires the external receipt and detached
+attestation described in `RELEASE_GATE.md`. That clean committed-tree artifact
+cannot be produced from an uncommitted development worktree.

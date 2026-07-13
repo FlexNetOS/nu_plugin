@@ -421,3 +421,27 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 ## fixture source lockfile check
 none
 CDB046 validation passed
+
+## Current-tree additive validation — 2026-07-12T17:31:46-05:00
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`: passed.
+- `cargo test --workspace --all-features`: every non-PostgreSQL test passed; the
+  environment-gated PostgreSQL cases reported only the absent `CODEDB_PG_CONN`.
+- Disposable PostgreSQL 16.14 parity run with `CODEDB_PG_CONN`: 13 passed; the
+  service was stopped and its temporary data/socket directories were removed.
+- All 15 `tests/*.nu` files passed under `nu --no-config-file`.
+- `python3 -m unittest discover -s tests -p 'test_*.py' -v`: 88 passed after
+  both external-path validators and completed-gate regressions were added.
+- `codedb doctor --nu --yazelix --codex --format json`: exited 0. Host and
+  Yazelix Nu were found; their 0.113.1 versus plugin-protocol 0.112.2 mismatch
+  was accurately reported as degraded without registry mutation. Codex was
+  available through the bounded export boundary.
+- `python3 scripts/validate_task_graph.py --structure`: passed.
+
+No source checkout, tool profile, Nu registry, or external repository was
+mutated by these validation commands.
+
+Final terminal-state recheck: `cargo test --workspace` passed after the
+bidirectional runner changed from 14 active tasks to 21/21 satisfied; all 15 Nu
+scripts and the disposable PostgreSQL 13-case lane remained green.

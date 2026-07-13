@@ -330,9 +330,10 @@ fn write_fixture_evidence(
 ) -> BrokerFixtureOutcome {
     let mut records = Vec::new();
     for artifact in &report.artifacts {
-        let file = if let Some(output) = artifact.output.as_ref() {
+        let file = if let Some(payload) = artifact.payload.as_ref() {
             let name = artifact_file_name(artifact.kind);
-            fs::write(fixture_dir.join(&name), output).expect("write artifact evidence");
+            fs::write(fixture_dir.join(&name), payload.as_bytes())
+                .expect("write artifact evidence");
             if let Some(sha) = artifact.evidence_sha256.as_ref() {
                 fs::write(
                     fixture_dir.join(format!("{name}.sha256")),
@@ -391,6 +392,7 @@ fn write_fixture_evidence(
 
 fn artifact_file_name(kind: CompilerEvidenceArtifactKind) -> String {
     let ext = match kind {
+        CompilerEvidenceArtifactKind::MacroResolution => "rmeta",
         CompilerEvidenceArtifactKind::RustdocPublicApi => "json",
         _ => "txt",
     };
@@ -636,9 +638,73 @@ fn artifact_status_str(status: CompilerArtifactStatus) -> &'static str {
     }
 }
 
+fn evidence_tree_snapshot(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fn visit(
+        root: &Path,
+        directory: &Path,
+        snapshot: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>,
+    ) {
+        if !directory.exists() {
+            return;
+        }
+        let mut entries = fs::read_dir(directory)
+            .expect("read evidence snapshot directory")
+            .map(|entry| entry.expect("read evidence snapshot entry"))
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.path());
+        for entry in entries {
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(root)
+                .expect("evidence path must remain beneath snapshot root")
+                .to_path_buf();
+            if entry
+                .file_type()
+                .expect("inspect evidence snapshot entry")
+                .is_dir()
+            {
+                visit(root, &path, snapshot);
+            } else {
+                snapshot.insert(
+                    relative,
+                    fs::read(path).expect("read evidence snapshot file"),
+                );
+            }
+        }
+    }
+
+    let mut snapshot = std::collections::BTreeMap::new();
+    visit(root, root, &mut snapshot);
+    snapshot
+}
+
+struct TemporaryBrokerOutput(PathBuf);
+
+impl TemporaryBrokerOutput {
+    fn new() -> Self {
+        let sequence = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("broker test clock")
+            .as_nanos();
+        Self(std::env::temp_dir().join(format!(
+            "codedb-compiler-broker-test-{}-{sequence}",
+            std::process::id()
+        )))
+    }
+}
+
+impl Drop for TemporaryBrokerOutput {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 #[test]
 fn broker_captures_pinned_hir_mir_rustdoc_for_macro_rules_and_proc_macro() {
-    let output_dir = repo_root().join("logs/compiler-observed");
+    let tracked_output_dir = repo_root().join("logs/compiler-observed");
+    let tracked_before = evidence_tree_snapshot(&tracked_output_dir);
+    let temporary_output = TemporaryBrokerOutput::new();
+    let output_dir = temporary_output.0.clone();
     let report = run_compiler_broker(&output_dir);
 
     assert!(
@@ -659,6 +725,11 @@ fn broker_captures_pinned_hir_mir_rustdoc_for_macro_rules_and_proc_macro() {
     assert!(!report.sysroot.is_empty(), "broker must record the sysroot");
     assert!(output_dir.join("toolchain.json").is_file());
     assert!(output_dir.join("SUMMARY.json").is_file());
+    assert_eq!(
+        evidence_tree_snapshot(&tracked_output_dir),
+        tracked_before,
+        "ordinary broker tests must never regenerate tracked evidence"
+    );
 
     println!("codedb compiler/build broker");
     println!(
@@ -748,6 +819,18 @@ fn broker_captures_pinned_hir_mir_rustdoc_for_macro_rules_and_proc_macro() {
                 written.display()
             );
         }
+        let resolution = fixture
+            .artifact(CompilerEvidenceArtifactKind::MacroResolution)
+            .expect("macro resolution artifact");
+        let resolution_file = resolution
+            .file
+            .as_deref()
+            .expect("macro resolution artifact must be written");
+        assert!(
+            resolution_file.ends_with(".rmeta")
+                && output_dir.join(name).join(resolution_file).is_file(),
+            "macro resolution must be retained as a binary rmeta artifact"
+        );
     }
 
     // The build-script and OUT_DIR fixtures cannot compile hermetically through
@@ -777,4 +860,15 @@ fn broker_captures_pinned_hir_mir_rustdoc_for_macro_rules_and_proc_macro() {
             "{name} capture_gap.json must be written"
         );
     }
+}
+
+/// Explicit maintenance entrypoint for the checked compiler evidence tree.
+/// Ordinary `cargo test` skips this mutating operation.
+#[test]
+#[ignore = "explicit tracked-evidence regeneration; run only during final proof sealing"]
+fn regenerate_tracked_compiler_evidence() {
+    let output_dir = repo_root().join("logs/compiler-observed");
+    let report = run_compiler_broker(&output_dir);
+    assert_eq!(report.output_dir, output_dir);
+    assert!(report.output_dir.join("SUMMARY.json").is_file());
 }

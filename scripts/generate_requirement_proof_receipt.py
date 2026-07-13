@@ -11,16 +11,22 @@ import os
 import stat
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from requirement_proof_attestation import (
     ATTESTATION_TYPE,
+    EXTERNAL_SOURCE_PIN_PATH,
     SCHEMA_VERSION,
+    ExternalSourceIdentity,
+    canonical_command_execution_payload,
     canonical_ledger_row_payload,
     canonical_receipt_payload,
     canonical_receipt_row_payload,
     canonical_repository,
+    external_source_receipt_identity,
+    load_external_source_pins,
     parse_artifact_declarations,
     sha256_bytes,
 )
@@ -32,6 +38,107 @@ from validate_requirement_proof_ledger import (
 
 
 VALIDATOR_PATH = Path("scripts/validate_requirement_proof_ledger.py")
+EXTERNAL_WORKSPACE_TEMPLATE_PATH = Path("external-sources/Cargo.toml")
+EXTERNAL_WORKSPACE_PATH = Path("../Cargo.toml")
+
+
+def checkout_snapshot(root: Path) -> dict[str, str]:
+    return {
+        "commit_sha": git_output(root, "rev-parse", "HEAD"),
+        "tree_sha": git_output(root, "rev-parse", "HEAD^{tree}"),
+        "status": worktree_status(root),
+    }
+
+
+def external_checkout_snapshot(
+    root: Path,
+    source: ExternalSourceIdentity,
+) -> tuple[Path, dict[str, str]]:
+    checkout = (root / source.checkout_path).resolve()
+    try:
+        checkout.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        raise RuntimeError(
+            f"{source.name}: external checkout must remain outside the "
+            f"attested repository: {checkout}"
+        )
+    if not checkout.is_dir():
+        raise RuntimeError(
+            f"{source.name}: required external checkout is absent: {checkout}"
+        )
+    try:
+        repository = canonical_repository(
+            git_output(checkout, "config", "--get", "remote.origin.url")
+        )
+        commit_sha = git_output(checkout, "rev-parse", "HEAD")
+        tree_sha = git_output(checkout, "rev-parse", "HEAD^{tree}")
+        status = worktree_status(checkout)
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(
+            f"{source.name}: invalid external checkout {checkout}: {error}"
+        ) from error
+    if repository != source.repository:
+        raise RuntimeError(
+            f"{source.name}: external remote mismatch: "
+            f"expected={source.repository}, observed={repository}"
+        )
+    if commit_sha != source.commit_sha:
+        raise RuntimeError(
+            f"{source.name}: external HEAD mismatch: "
+            f"expected={source.commit_sha}, observed={commit_sha}"
+        )
+    if tree_sha != source.tree_sha:
+        raise RuntimeError(
+            f"{source.name}: external tree mismatch: "
+            f"expected={source.tree_sha}, observed={tree_sha}"
+        )
+    if status:
+        raise RuntimeError(
+            f"{source.name}: external checkout is dirty: {status}"
+        )
+    return checkout, {
+        "repository": repository,
+        "commit_sha": commit_sha,
+        "tree_sha": tree_sha,
+        "status": status,
+    }
+
+
+def load_external_checkouts(
+    root: Path,
+) -> dict[str, tuple[ExternalSourceIdentity, Path, dict[str, str]]]:
+    sources = load_external_source_pins(root / EXTERNAL_SOURCE_PIN_PATH)
+    checkouts: dict[
+        str, tuple[ExternalSourceIdentity, Path, dict[str, str]]
+    ] = {}
+    for name, source in sources.items():
+        checkout, snapshot = external_checkout_snapshot(root, source)
+        checkouts[name] = (source, checkout, snapshot)
+    return checkouts
+
+
+def external_workspace_snapshot(root: Path) -> str:
+    template = (root / EXTERNAL_WORKSPACE_TEMPLATE_PATH).resolve(strict=True)
+    workspace = (root / EXTERNAL_WORKSPACE_PATH).resolve(strict=True)
+    try:
+        workspace.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        raise RuntimeError(
+            f"external Cargo workspace must remain outside the attested "
+            f"repository: {workspace}"
+        )
+    template_bytes = template.read_bytes()
+    workspace_bytes = workspace.read_bytes()
+    if workspace_bytes != template_bytes:
+        raise RuntimeError(
+            "external Cargo workspace does not match the tracked template: "
+            f"{workspace} != {template}"
+        )
+    return sha256_bytes(workspace_bytes)
 
 
 def git_output(root: Path, *args: str) -> str:
@@ -87,7 +194,9 @@ def ensure_attestable_row(root: Path, row: dict[str, str]) -> None:
     if not test_items or any(item == "<missing-direct-test>" for item in test_items):
         raise RuntimeError(f"{requirement_id}: ledger has no direct test path")
     for item in test_items:
-        if item.startswith(("external:", "https://", "http://")):
+        if item.startswith("external:"):
+            item = item.removeprefix("external:")
+        elif item.startswith(("https://", "http://")):
             raise RuntimeError(
                 f"{requirement_id}: direct test path is not locally executable: {item}"
             )
@@ -175,35 +284,122 @@ def hash_file_artifact(
             os.close(directory_fd)
 
 
-def run_requirement(
+def execute_verification_command(
+    root: Path,
+    command: str,
+    *,
+    requirement_ids: list[str],
+    external_checkouts: dict[
+        str, tuple[ExternalSourceIdentity, Path, dict[str, str]]
+    ]
+    | None = None,
+    external_workspace_sha256: str | None = None,
+    proof_environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    execution_label = ",".join(requirement_ids)
+    before_snapshot = checkout_snapshot(root)
+    before = before_snapshot["status"]
+    if before:
+        raise RuntimeError(
+            f"{execution_label}: checkout became dirty before proof command: {before}"
+        )
+    external_before: dict[str, dict[str, str]] = {}
+    for name, (source, expected_path, expected_snapshot) in (
+        external_checkouts or {}
+    ).items():
+        observed_path, observed_snapshot = external_checkout_snapshot(root, source)
+        if observed_path != expected_path or observed_snapshot != expected_snapshot:
+            raise RuntimeError(
+                f"{execution_label}: external checkout {name} changed before "
+                "proof command"
+            )
+        external_before[name] = observed_snapshot
+    if external_workspace_sha256 is not None:
+        observed_workspace_sha256 = external_workspace_snapshot(root)
+        if observed_workspace_sha256 != external_workspace_sha256:
+            raise RuntimeError(
+                f"{execution_label}: external Cargo workspace changed before "
+                "proof command"
+            )
+    completed = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", command],
+        cwd=root,
+        capture_output=True,
+        env=proof_environment,
+    )
+    after_snapshot = checkout_snapshot(root)
+    if after_snapshot != before_snapshot:
+        raise RuntimeError(
+            f"{execution_label}: proof command mutated checkout: "
+            f"before={before_snapshot!r}, after={after_snapshot!r}"
+        )
+    for name, (source, expected_path, _) in (external_checkouts or {}).items():
+        try:
+            observed_path, observed_snapshot = external_checkout_snapshot(root, source)
+        except RuntimeError as error:
+            raise RuntimeError(
+                f"{execution_label}: proof command mutated external checkout "
+                f"{name}: {error}"
+            ) from error
+        if (
+            observed_path != expected_path
+            or observed_snapshot != external_before[name]
+        ):
+            raise RuntimeError(
+                f"{execution_label}: proof command mutated external checkout "
+                f"{name}: before={external_before[name]!r}, "
+                f"after={observed_snapshot!r}"
+            )
+    if external_workspace_sha256 is not None:
+        try:
+            observed_workspace_sha256 = external_workspace_snapshot(root)
+        except (OSError, RuntimeError) as error:
+            raise RuntimeError(
+                f"{execution_label}: proof command mutated external Cargo "
+                f"workspace: {error}"
+            ) from error
+        if observed_workspace_sha256 != external_workspace_sha256:
+            raise RuntimeError(
+                f"{execution_label}: proof command mutated external Cargo "
+                "workspace"
+            )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"{execution_label}: verification command failed with exit code "
+            f"{completed.returncode}"
+        )
+    return completed
+
+
+def build_command_execution(
+    command: str,
+    completed: subprocess.CompletedProcess[bytes],
+) -> dict[str, object]:
+    execution: dict[str, object] = {
+        "verification_command": command,
+        "exit_code": completed.returncode,
+        "stdout_size_bytes": len(completed.stdout),
+        "stderr_size_bytes": len(completed.stderr),
+        "stdout_sha256": sha256_bytes(completed.stdout),
+        "stderr_sha256": sha256_bytes(completed.stderr),
+    }
+    execution["execution_sha256"] = sha256_bytes(
+        canonical_command_execution_payload(execution)
+    )
+    return execution
+
+
+def derive_receipt_row(
     root: Path,
     row: dict[str, str],
+    completed: subprocess.CompletedProcess[bytes],
+    command_execution_sha256: str,
     *,
     approved_artifact_roots: dict[str, Path] | None = None,
 ) -> dict:
     requirement_id = row["requirement_id"]
     command = row["verification_command"]
     ensure_attestable_row(root, row)
-    before = worktree_status(root)
-    if before:
-        raise RuntimeError(
-            f"{requirement_id}: checkout became dirty before proof command: {before}"
-        )
-    completed = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", command],
-        cwd=root,
-        capture_output=True,
-    )
-    after = worktree_status(root)
-    if after != before:
-        raise RuntimeError(
-            f"{requirement_id}: proof command mutated checkout: before={before!r}, after={after!r}"
-        )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            f"{requirement_id}: verification command failed with exit code "
-            f"{completed.returncode}"
-        )
 
     declarations = parse_artifact_declarations(row["proof_artifacts"])
     approved_roots = {
@@ -259,11 +455,43 @@ def run_requirement(
         "exit_code": completed.returncode,
         "stdout_sha256": sha256_bytes(completed.stdout),
         "stderr_sha256": sha256_bytes(completed.stderr),
+        "command_execution_sha256": command_execution_sha256,
         "evidence": evidence,
         "ledger_row_sha256": sha256_bytes(canonical_ledger_row_payload(row)),
     }
     receipt_row["row_sha256"] = sha256_bytes(canonical_receipt_row_payload(receipt_row))
     return receipt_row
+
+
+def run_requirement(
+    root: Path,
+    row: dict[str, str],
+    *,
+    approved_artifact_roots: dict[str, Path] | None = None,
+    external_checkouts: dict[
+        str, tuple[ExternalSourceIdentity, Path, dict[str, str]]
+    ]
+    | None = None,
+    external_workspace_sha256: str | None = None,
+    proof_environment: dict[str, str] | None = None,
+) -> dict:
+    ensure_attestable_row(root, row)
+    completed = execute_verification_command(
+        root,
+        row["verification_command"],
+        requirement_ids=[row["requirement_id"]],
+        external_checkouts=external_checkouts,
+        external_workspace_sha256=external_workspace_sha256,
+        proof_environment=proof_environment,
+    )
+    execution = build_command_execution(row["verification_command"], completed)
+    return derive_receipt_row(
+        root,
+        row,
+        completed,
+        str(execution["execution_sha256"]),
+        approved_artifact_roots=approved_artifact_roots,
+    )
 
 
 def build_receipt(
@@ -277,6 +505,8 @@ def build_receipt(
     before = worktree_status(root)
     if before:
         raise RuntimeError(f"proof checkout is not clean: {before}")
+    external_checkouts = load_external_checkouts(root)
+    external_workspace_sha256 = external_workspace_snapshot(root)
 
     ledger_path = root / LEDGER_PATH
     validator_path = root / VALIDATOR_PATH
@@ -315,13 +545,67 @@ def build_receipt(
     for row in selected_rows:
         ensure_attestable_row(root, row)
 
-    receipt_rows = [run_requirement(root, row) for row in selected_rows]
+    with tempfile.TemporaryDirectory(
+        prefix="codedb-requirement-proof-target-", dir="/tmp"
+    ) as target:
+        proof_environment = os.environ.copy()
+        proof_environment["CARGO_TARGET_DIR"] = target
+        command_groups: dict[str, list[dict[str, str]]] = {}
+        for row in selected_rows:
+            command_groups.setdefault(row["verification_command"], []).append(row)
+        command_executions: list[dict[str, object]] = []
+        receipt_rows_by_id: dict[str, dict] = {}
+        for command, command_rows in command_groups.items():
+            completed = execute_verification_command(
+                root,
+                command,
+                requirement_ids=[row["requirement_id"] for row in command_rows],
+                external_checkouts=external_checkouts,
+                external_workspace_sha256=external_workspace_sha256,
+                proof_environment=proof_environment,
+            )
+            command_execution = build_command_execution(command, completed)
+            command_executions.append(command_execution)
+            execution_sha256 = str(command_execution["execution_sha256"])
+            for row in command_rows:
+                receipt_rows_by_id[row["requirement_id"]] = derive_receipt_row(
+                    root,
+                    row,
+                    completed,
+                    execution_sha256,
+                )
+        receipt_rows = [
+            receipt_rows_by_id[row["requirement_id"]] for row in selected_rows
+        ]
 
     after = worktree_status(root)
     if after != before:
         raise RuntimeError(
             f"proof execution mutated checkout: before={before!r}, after={after!r}"
         )
+
+    external_receipts: dict[str, dict[str, object]] = {}
+    for name, (source, expected_path, before_snapshot) in external_checkouts.items():
+        after_path, after_snapshot = external_checkout_snapshot(root, source)
+        if after_path != expected_path or after_snapshot != before_snapshot:
+            raise RuntimeError(
+                f"proof execution mutated external checkout {name}: "
+                f"before={before_snapshot!r}, after={after_snapshot!r}"
+            )
+        external_receipt = external_source_receipt_identity(source)
+        external_receipt["worktree"] = {
+            "clean_before": not before_snapshot["status"],
+            "clean_after": not after_snapshot["status"],
+            "status_before_sha256": sha256_bytes(
+                before_snapshot["status"].encode()
+            ),
+            "status_after_sha256": sha256_bytes(
+                after_snapshot["status"].encode()
+            ),
+        }
+        external_receipts[name] = external_receipt
+    if external_workspace_snapshot(root) != external_workspace_sha256:
+        raise RuntimeError("proof execution mutated external Cargo workspace")
 
     remote = git_output(root, "config", "--get", "remote.origin.url")
     receipt = {
@@ -338,6 +622,7 @@ def build_receipt(
             "path": VALIDATOR_PATH.as_posix(),
             "sha256": sha256_bytes(validator_path.read_bytes()),
         },
+        "external_sources": external_receipts,
         "generated_at_utc": datetime.now(timezone.utc)
         .replace(microsecond=0)
         .isoformat(),
@@ -351,6 +636,7 @@ def build_receipt(
             "status_before_sha256": sha256_bytes(before.encode()),
             "status_after_sha256": sha256_bytes(after.encode()),
         },
+        "command_executions": command_executions,
         "rows": receipt_rows,
     }
     receipt["receipt_sha256"] = sha256_bytes(canonical_receipt_payload(receipt))

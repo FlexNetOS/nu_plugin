@@ -49,7 +49,7 @@ def complete_row(requirement_id: str, head: str = "") -> dict[str, str]:
         "implementation_paths": "src/implementation.rs",
         "test_paths": "tests/proof_test.py",
         "verification_command": "python3 tests/proof_test.py",
-        "proof_artifacts": "cargo-metadata-output",
+        "proof_artifacts": "stdout:cargo-metadata-output",
         "proof_head_sha": head,
         "evidence_status": "verified",
         "task_status": "complete",
@@ -151,6 +151,48 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
             "\n" + "\n".join(map(str, violations)),
         )
 
+    def test_verified_external_sibling_paths_must_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            root = workspace / "nu_plugin"
+            envctl = workspace / "envctl"
+            for path in [
+                root / "execution/source.md",
+                envctl / "README.md",
+                envctl / "tests/db_docs_contract.rs",
+            ]:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("proof\n", encoding="utf-8")
+
+            row = complete_row("CDB013")
+            row["implementation_paths"] = "external:../envctl/README.md"
+            row["test_paths"] = "external:../envctl/tests/db_docs_contract.rs"
+            violations = validate_rows(
+                root,
+                [row],
+                expected_ids={"CDB013"},
+                current_head="a" * 40,
+                require_all_verified=True,
+                require_receipts=False,
+                graph_statuses={"CDB013": "complete"},
+            )
+            self.assertEqual([], violations, "\n" + "\n".join(map(str, violations)))
+
+            row["test_paths"] = "external:../envctl/tests/missing.rs"
+            violations = validate_rows(
+                root,
+                [row],
+                expected_ids={"CDB013"},
+                current_head="a" * 40,
+                require_all_verified=True,
+                require_receipts=False,
+                graph_statuses={"CDB013": "complete"},
+            )
+            self.assertTrue(
+                any(v.rule == "missing test path" for v in violations),
+                "\n" + "\n".join(map(str, violations)),
+            )
+
     def test_missing_expected_requirement_fails_closed(self) -> None:
         violations = validate_rows(
             Path("."),
@@ -238,6 +280,42 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
         )
         self.assertTrue(any(v.rule == "task complete without verified proof" for v in violations))
 
+    def test_verified_completion_note_cannot_deny_current_head_proof(self) -> None:
+        for notes in ledger_validator.CONTRADICTORY_COMPLETION_NOTES:
+            with self.subTest(notes=notes):
+                row = complete_row("CDB013", "")
+                row["notes"] = notes
+                violations = validate_rows(
+                    Path("."),
+                    [row],
+                    expected_ids={"CDB013"},
+                    current_head="a" * 40,
+                    require_all_verified=False,
+                )
+                self.assertTrue(
+                    any(
+                        v.rule == "verified completion note denies current-head proof"
+                        for v in violations
+                    )
+                )
+
+    def test_verified_completion_note_can_limit_proof_scope(self) -> None:
+        row = complete_row("CDB013", "")
+        row["notes"] = "Static coverage is not compiler-observed completion"
+        violations = validate_rows(
+            Path("."),
+            [row],
+            expected_ids={"CDB013"},
+            current_head="a" * 40,
+            require_all_verified=False,
+        )
+        self.assertFalse(
+            any(
+                v.rule == "verified completion note denies current-head proof"
+                for v in violations
+            )
+        )
+
     def test_receipt_evidence_is_bound_to_the_specific_requirement_row(self) -> None:
         head = "a" * 40
         row = complete_row("CDB013")
@@ -255,6 +333,21 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
             any(v.rule == "receipt missing logical proof artifact" for v in violations)
         )
 
+    def test_typed_artifact_declaration_matches_receipt_logical_name(self) -> None:
+        head = "a" * 40
+        row = complete_row("CDB013")
+        violations = validate_rows(
+            Path("."),
+            [row],
+            expected_ids={"CDB013"},
+            current_head=head,
+            require_all_verified=True,
+            receipt_rows={"CDB013": receipt_row("CDB013")},
+        )
+        self.assertFalse(
+            any(v.rule == "receipt missing logical proof artifact" for v in violations)
+        )
+
 
 class RepositoryRequirementProofLedgerTest(unittest.TestCase):
     def test_repository_ledger_is_exhaustive_and_structurally_valid(self) -> None:
@@ -263,21 +356,39 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
         violations = audit_ledger(ROOT, require_all_verified=False)
         self.assertEqual([], violations, "\n" + "\n".join(map(str, violations)))
 
-    def test_release_mode_fails_closed_while_any_requirement_lacks_proof(self) -> None:
+    def test_release_mode_requires_attestation_after_direct_evidence_completes(self) -> None:
         violations = audit_ledger(ROOT, require_all_verified=True)
         self.assertTrue(
-            any(v.rule == "release-blocking evidence status" for v in violations),
-            "the current ledger must block release until every row has current-head proof",
+            any(v.rule == "missing external proof receipt" for v in violations),
+            "complete direct evidence must not self-authorize a release",
         )
-        # The local-release mode does NOT relax the verified/complete floor: it
-        # only substitutes a local receipt for the GitHub signature. While any
-        # row lacks proof, local release fails closed exactly like release mode.
         local_violations = audit_ledger(
             ROOT, require_all_verified=True, local_release=True
         )
         self.assertTrue(
-            any(v.rule == "release-blocking evidence status" for v in local_violations),
-            "local-release must not relax the verified/complete floor",
+            any(v.rule == "missing external proof receipt" for v in local_violations),
+            "local-release still requires a genuine detached local receipt",
+        )
+
+        # Always enforced, independent of the live tree: a deliberately-
+        # incomplete row blocks release in BOTH release and local-release mode.
+        # local-release only swaps the GitHub signature for a local receipt; it
+        # never relaxes the verified/complete floor.
+        incomplete = complete_row("CDB013")
+        incomplete["evidence_status"] = "partial"
+        incomplete["task_status"] = "planned"
+        floor = validate_rows(
+            Path("."),
+            [incomplete],
+            expected_ids={"CDB013"},
+            current_head="a" * 40,
+            require_all_verified=True,
+            require_receipts=False,
+            graph_statuses={"CDB013": "planned"},
+        )
+        self.assertTrue(
+            any(v.rule == "release-blocking evidence status" for v in floor),
+            "\n" + "\n".join(map(str, floor)),
         )
 
     def test_full_mode_always_requires_detached_cryptographic_verification(
@@ -349,9 +460,9 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
             check=False,
         )
         self.assertNotIn("unrecognized arguments", direct.stderr)
-        self.assertNotEqual(0, direct.returncode)
-        self.assertIn("release-blocking evidence status", direct.stdout)
         self.assertNotIn("missing external proof receipt", direct.stdout)
+        self.assertEqual(0, direct.returncode, direct.stdout + direct.stderr)
+        self.assertIn("mode=direct-evidence", direct.stdout)
 
         # The dishonest "bypass" spelling stays unrecognized: there is no flag
         # that lets an already-generated in-tree receipt self-authorize.
@@ -529,10 +640,8 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
             for row in read_ledger(ROOT / "execution/REQUIREMENT_PROOF_LEDGER.csv")
         }
         expected = {
-            "CDB047": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
             "CDB090": "python3 scripts/validate_bidirectional_package.py --direct-evidence",
             "CDB106-AC10": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
-            "REQ-061-ARCH18": "python3 scripts/validate_requirement_proof_ledger.py --direct-evidence",
         }
         for requirement_id, command in expected.items():
             with self.subTest(requirement_id=requirement_id):
@@ -558,12 +667,33 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
             "no ledger row may invoke the local-release mode as its own gate",
         )
 
-        self.assertEqual("missing", rows["CDB047"]["evidence_status"])
-        self.assertEqual("planned", rows["CDB047"]["task_status"])
-        self.assertEqual("missing", rows["CDB090"]["evidence_status"])
-        self.assertEqual("active", rows["CDB090"]["task_status"])
-        self.assertEqual("partial", rows["CDB106-AC10"]["evidence_status"])
-        self.assertEqual("active", rows["CDB106-AC10"]["task_status"])
+        self.assertEqual(
+            "python3 -m unittest tests.test_truth_surface && "
+            "python3 scripts/truth_surface.py --check && "
+            "python3 scripts/truth_surface.py --check-source",
+            rows["CDB047"]["verification_command"],
+        )
+        self.assertEqual(
+            "cargo test --manifest-path ../envctl/Cargo.toml -p envctl "
+            "--test db_docs_contract",
+            rows["REQ-061-ARCH18"]["verification_command"],
+        )
+
+        completed = {
+            "CDB013",
+            "CDB040",
+            "CDB046",
+            "CDB047",
+            "CDB050",
+            *(f"CDB{index:03d}" for index in range(77, 90)),
+            "CDB090",
+            "CDB106-AC10",
+            "REQ-061-ARCH18",
+        }
+        for requirement_id in completed:
+            with self.subTest(requirement_id=requirement_id):
+                self.assertEqual("verified", rows[requirement_id]["evidence_status"])
+                self.assertEqual("complete", rows[requirement_id]["task_status"])
 
     def test_csv_header_is_stable(self) -> None:
         with (ROOT / "execution/REQUIREMENT_PROOF_LEDGER.csv").open(

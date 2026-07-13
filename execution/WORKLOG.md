@@ -368,7 +368,8 @@ Implemented and directly exercised in this wave:
   backup/migrate/rollback;
 - verified-TLS-only PostgreSQL TCP transport and explicit Unix-socket-only
   plaintext transport;
-- schema-3 detached all-requirement proof receipts with typed subjects,
+- schema-4 detached all-requirement proof receipts with typed subjects and
+  exact external-source repository/commit/tree identities,
   read-only verification, and a separate protected signer.
 
 Verification at this stopping point:
@@ -502,3 +503,37 @@ pass without mutating any profile or plugin registry. CDB050 is now complete in
 the authoritative graph and proof ledger.
 
 Evidence is appended to `logs/CDB050-runtime-tool.log`.
+
+## 2026-07-12T22:42:14Z — Mandatory execution and bidirectional rails completed
+
+Supersedes the earlier same-day interim entries that kept CDB077-CDB090 active
+because the embedded runner test still expected fourteen active rows. The
+production compiler/build capture frontdoors and their direct integration tests
+are now present, the runner test truthfully expects 21/21 satisfied rows, and
+both authoritative task graphs are complete.
+
+Source provenance was rechecked against the primary npm registry without
+NotebookLM. The ten trusted first-party RuVector/Cognitum packages exactly match
+their Bun lock, direct imports succeed, the napi-rs Linux binary is checksum
+bound, and CodeDB captured 20,381 exact source blobs (81,182,690 bytes) from the
+fresh online Node distribution. A post-fix recapture additionally persisted all
+27 Bun-generated `node_modules/.bin` links as checksum-bound symlink metadata,
+with zero capture gaps, and replayed a representative link as a real symlink.
+
+The final direct proof matrix is green:
+
+- 140/140 requirement rows are `verified/complete`;
+- 70/70 base task rows and 21/21 bidirectional rows are `complete`;
+- production build/proc-macro/OUT_DIR/native-link capture and reproduction pass;
+- production compiler expansion/hygiene/HIR/MIR/rustdoc capture and drift hashes pass;
+- descriptor-relative symlink materialization, MCP no-leak, stale-plan,
+  recovery, and operator-provenance tests pass;
+- Rust workspace, deny-warnings Clippy, 88 Python tests, all 15 Nu scripts,
+  disposable PostgreSQL 16.14 (13 parity cases), envctl docs (2 tests), and the
+  current Nix runtime-tool smoke pass.
+
+`validate_requirement_proof_ledger.py --direct-evidence` reports 140 rows and
+`validate_bidirectional_package.py --direct-evidence` reports 21 tasks plus 140
+proofs. Release mode intentionally remains fail-closed without an external
+receipt and detached attestation for the exact clean committed tree. This pass
+made no commit or push, so it does not fabricate that artifact.

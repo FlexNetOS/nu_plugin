@@ -55,3 +55,19 @@ Current-tree direct contract — 2026-07-12T21:25:33Z
 - `codedb --version`: 0.1.0.
 - `nu_plugin_codedb` resolves through the same toolbin to the same runtime-tools output and is executable.
 - No profile install, profile mutation, Home Manager switch, or plugin-registry mutation occurred.
+
+Current package derivation recheck — 2026-07-12T17:31:46-05:00
+
+- The derivation runs selected binary unit targets with `cargo test --bins`;
+  host/CI retains the full kernel-sandbox integration suite.
+- The installed `codedb` wrapper prepends the Nix-store Bubblewrap path.
+- `python3 -m unittest tests.test_runtime_tool_contract -v`: 3 passed.
+- `nix build .#checks.<system>.codedb_runtime_tool_smoke --no-link
+  --no-write-lock-file --print-out-paths`: passed at
+  `/nix/store/xhmcsj4v1rp2rajxvv96zvpz7nz5986y-codedb-runtime-tool-smoke`.
+- The profile-owned `codedb` and `nu_plugin_codedb` frontdoors remain executable;
+  `codedb --version` reports 0.1.0.
+
+Final current-tree rebuild: the same smoke passed after terminal graph/ledger
+reconciliation at
+`/nix/store/f46gq7wvm6y7izaxriz313hihr0jnx7h-codedb-runtime-tool-smoke`.

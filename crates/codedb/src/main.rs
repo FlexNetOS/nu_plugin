@@ -21,12 +21,14 @@ use codedb_core::capture_policy::{
     authorize_raw_persistence, load_external_policy,
 };
 use codedb_core::store::{
-    BlobStore, ContainedDirectory, MaterializedFileRollback, prepare_materialization_path,
-    rollback_materialized_file, take_materialized_file_rollback,
+    BlobStore, ContainedDirectory, MaterializedFileRollback, MaterializedSymlinkRollback,
+    materialize_symlink, platform_symlink_materialization_status, prepare_materialization_path,
+    rollback_materialized_file, rollback_materialized_symlink, take_materialized_file_rollback,
+    take_materialized_symlink_rollback,
 };
 use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
-    FilesystemEntry, SourceBlobMetadata, TableRow, capture_gaps,
+    FilesystemEntry, SourceBlobMetadata, SymlinkMaterializationStatus, TableRow, capture_gaps,
     capture_source_metadata_from_bytes, prove_no_mutation, scan_filesystem, schema_rows,
     table_inventory, validation_errors,
 };
@@ -358,6 +360,8 @@ fn reproduce_build_artifacts_rows(args: &[String]) -> Result<Vec<Row>, CliError>
     }
     let artifact_dir = strict_option_value(args, "--artifact-dir")?
         .ok_or_else(|| CliError::Message("reproduce requires --artifact-dir <path>".to_string()))?;
+    let selected_package_id = strict_option_value(args, "--package-id")?;
+    let selected_artifact_group = strict_option_value(args, "--artifact-group")?;
     let artifact_dir = absolute_cli_path(artifact_dir)?;
     if artifact_dir.exists() {
         return Err(CliError::Message(
@@ -377,7 +381,7 @@ fn reproduce_build_artifacts_rows(args: &[String]) -> Result<Vec<Row>, CliError>
         })?;
     let receipt_rows: Vec<Row> = serde_json::from_slice(&receipt)
         .map_err(|source| CliError::Message(format!("build receipt decode failed: {source}")))?;
-    let artifacts = receipt_rows
+    let mut artifacts = receipt_rows
         .into_iter()
         .filter(|row| row.get("table").map(String::as_str) == Some("out_dir_artifacts"))
         .collect::<Vec<_>>();
@@ -386,6 +390,96 @@ fn reproduce_build_artifacts_rows(args: &[String]) -> Result<Vec<Row>, CliError>
             "build receipt contains no OUT_DIR artifacts to reproduce".to_string(),
         ));
     }
+    for artifact in &mut artifacts {
+        if artifact
+            .get("artifact_group_id")
+            .is_some_and(|value| !value.is_empty())
+        {
+            continue;
+        }
+        let package_id = artifact.get("package_id").cloned().ok_or_else(|| {
+            CliError::Message("build receipt OUT_DIR artifact is missing package_id".to_string())
+        })?;
+        let out_dir = artifact.get("out_dir").cloned().ok_or_else(|| {
+            CliError::Message("build receipt OUT_DIR artifact is missing out_dir".to_string())
+        })?;
+        artifact.insert(
+            "artifact_group_id".to_string(),
+            format!(
+                "legacy-sha256:{}",
+                sha256_hex(format!("{package_id}\0{out_dir}").as_bytes())
+            ),
+        );
+    }
+    let package_ids = artifacts
+        .iter()
+        .map(|artifact| {
+            artifact
+                .get("package_id")
+                .filter(|package_id| !package_id.is_empty())
+                .cloned()
+                .ok_or_else(|| {
+                    CliError::Message(
+                        "build receipt OUT_DIR artifact is missing package_id".to_string(),
+                    )
+                })
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let artifacts = if let Some(selected_package_id) = selected_package_id {
+        if !package_ids.contains(selected_package_id) {
+            return Err(CliError::Message(format!(
+                "reproduce --package-id did not match an OUT_DIR package: {selected_package_id}"
+            )));
+        }
+        artifacts
+            .into_iter()
+            .filter(|artifact| {
+                artifact.get("package_id").map(String::as_str) == Some(selected_package_id)
+            })
+            .collect::<Vec<_>>()
+    } else if package_ids.len() > 1 {
+        return Err(CliError::Message(format!(
+            "build receipt contains OUT_DIR artifacts from {} packages; reproduce requires --package-id <exact-captured-package-id>",
+            package_ids.len()
+        )));
+    } else {
+        artifacts
+    };
+    let artifact_groups = artifacts
+        .iter()
+        .map(|artifact| {
+            artifact
+                .get("artifact_group_id")
+                .filter(|group| !group.is_empty())
+                .cloned()
+                .ok_or_else(|| {
+                    CliError::Message(
+                        "build receipt OUT_DIR artifact is missing artifact_group_id".to_string(),
+                    )
+                })
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let artifacts = if let Some(selected_artifact_group) = selected_artifact_group {
+        if !artifact_groups.contains(selected_artifact_group) {
+            return Err(CliError::Message(format!(
+                "reproduce --artifact-group did not match an OUT_DIR execution group: {selected_artifact_group}"
+            )));
+        }
+        artifacts
+            .into_iter()
+            .filter(|artifact| {
+                artifact.get("artifact_group_id").map(String::as_str)
+                    == Some(selected_artifact_group)
+            })
+            .collect::<Vec<_>>()
+    } else if artifact_groups.len() > 1 {
+        return Err(CliError::Message(format!(
+            "selected package contains OUT_DIR artifacts from {} execution groups; reproduce requires --artifact-group <exact-captured-artifact-group-id>",
+            artifact_groups.len()
+        )));
+    } else {
+        artifacts
+    };
 
     if let Some(parent) = artifact_dir.parent() {
         fs::create_dir_all(parent).map_err(|source| CliError::Core(Box::new(source)))?;
@@ -404,7 +498,8 @@ fn compiler_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
             "capture compiler requires <source.rs> before options".to_string(),
         ));
     }
-    let source_path = fs::canonicalize(source).map_err(|source| CliError::Core(Box::new(source)))?;
+    let source_path =
+        fs::canonicalize(source).map_err(|source| CliError::Core(Box::new(source)))?;
     if !source_path.is_file() {
         return Err(CliError::Message(
             "capture compiler source must be a regular file".to_string(),
@@ -498,13 +593,9 @@ fn compiler_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
     let evidence_parent = evidence_parent
         .canonicalize()
         .map_err(|source| CliError::Core(Box::new(source)))?;
-    let evidence_dir = evidence_parent.join(
-        evidence_dir
-            .file_name()
-            .ok_or_else(|| {
-                CliError::Message("compiler evidence directory must have a final name".to_string())
-            })?,
-    );
+    let evidence_dir = evidence_parent.join(evidence_dir.file_name().ok_or_else(|| {
+        CliError::Message("compiler evidence directory must have a final name".to_string())
+    })?);
     let store = store.expect("validated store option");
     parse_store_spec(store, args)?;
     let edition = strict_option_value(args, "--edition")?.unwrap_or("2024");
@@ -534,10 +625,10 @@ fn compiler_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
 }
 
 fn compiler_artifact_filename(kind: codedb_rust_static::CompilerEvidenceArtifactKind) -> String {
-    let extension = if kind.as_str() == "rustdoc_public_api" {
-        "json"
-    } else {
-        "txt"
+    let extension = match kind.as_str() {
+        "macro_resolution" => "rmeta",
+        "rustdoc_public_api" => "json",
+        _ => "txt",
     };
     format!("{}.{}", kind.as_str(), extension)
 }
@@ -601,7 +692,10 @@ fn persist_compiler_evidence_in_created_dir(
             ("rustdoc_path", toolchain.rustdoc_path.display().to_string()),
             ("rustdoc_version", toolchain.rustdoc_version.clone()),
             ("sysroot", toolchain.sysroot.display().to_string()),
-            ("target_libdir", toolchain.target_libdir.display().to_string()),
+            (
+                "target_libdir",
+                toolchain.target_libdir.display().to_string(),
+            ),
             ("host", toolchain.host.clone()),
             ("toolchain_sha256", toolchain.toolchain_sha256.clone()),
         ]));
@@ -624,13 +718,10 @@ fn persist_compiler_evidence_in_created_dir(
     for artifact in &report.artifacts {
         let filename = compiler_artifact_filename(artifact.kind);
         let evidence_path = outcome.evidence_dir.join(&filename);
-        let store_relative_path = format!(
-            "compiler-evidence/{}/{}",
-            outcome.approval_id, filename
-        );
-        if let Some(output) = &artifact.output {
-            write_new_evidence_file(&evidence_path, output.as_bytes())?;
-            store_files.push((store_relative_path.clone(), output.as_bytes().to_vec()));
+        let store_relative_path = format!("compiler-evidence/{}/{}", outcome.approval_id, filename);
+        if let Some(payload) = &artifact.payload {
+            write_new_evidence_file(&evidence_path, payload.as_bytes())?;
+            store_files.push((store_relative_path.clone(), payload.as_bytes().to_vec()));
         }
         rows.push(row([
             ("table", "compiler_artifacts".to_string()),
@@ -640,12 +731,20 @@ fn persist_compiler_evidence_in_created_dir(
             (
                 "evidence_path",
                 artifact
-                    .output
+                    .payload
                     .as_ref()
                     .map(|_| evidence_path.display().to_string())
                     .unwrap_or_default(),
             ),
             ("store_relative_path", store_relative_path),
+            (
+                "payload_kind",
+                artifact
+                    .payload
+                    .as_ref()
+                    .map(|payload| payload.kind().to_string())
+                    .unwrap_or_default(),
+            ),
             (
                 "evidence_sha256",
                 artifact.evidence_sha256.clone().unwrap_or_default(),
@@ -740,9 +839,10 @@ fn persist_compiler_evidence_in_created_dir(
         .into_iter()
         .map(|receipt| (receipt.relative_path.clone(), receipt))
         .collect::<BTreeMap<_, _>>();
-    for artifact in rows.iter_mut().filter(|row| {
-        row.get("table").map(String::as_str) == Some("compiler_artifacts")
-    }) {
+    for artifact in rows
+        .iter_mut()
+        .filter(|row| row.get("table").map(String::as_str) == Some("compiler_artifacts"))
+    {
         if let Some(receipt) = artifact
             .get("store_relative_path")
             .and_then(|path| persisted.get(path))
@@ -1462,6 +1562,7 @@ where
     let mut metadata_only = 0usize;
     let mut directories = 0usize;
     let mut gaps = 0usize;
+    let mut symlinks = 0usize;
     let mut resumed = 0usize;
     let mut batches = 0usize;
     let mut stopped_early = false;
@@ -1569,23 +1670,48 @@ where
                 stopped_early = true;
                 break;
             }
+        } else if entry.is_symlink {
+            if config.resume && already.contains(&entry.relative_path) {
+                resumed += 1;
+                continue;
+            }
+            flush_batch!();
+            let Some(target) = entry.symlink_target else {
+                gaps += 1;
+                rows.push(row([
+                    ("table", "capture_gaps".to_string()),
+                    ("relative_path", entry.relative_path),
+                    ("kind", kind.to_string()),
+                    ("gap", "non_utf8_symlink_target".to_string()),
+                    ("status", "gap".to_string()),
+                ]));
+                continue;
+            };
+            let persisted = store
+                .persist_symlink(&entry.relative_path, &target)
+                .map_err(|error| {
+                    CliError::Message(format!(
+                        "persist symlink metadata failed for {}: {error}",
+                        entry.relative_path
+                    ))
+                })?;
+            symlinks += 1;
+            rows.push(row([
+                ("table", "source_symlinks".to_string()),
+                ("relative_path", persisted.relative_path),
+                ("target", persisted.target),
+                ("target_sha256", persisted.target_sha256),
+                ("status", "captured".to_string()),
+            ]));
         } else {
-            // Symlinks and special files are not raw-blob-persistable yet:
-            // recorded as gaps, never silently dropped.
+            // Special files remain explicit gaps; symbolic links are first-class
+            // checksum-bound metadata and never enter the regular-file blob path.
             gaps += 1;
             rows.push(row([
                 ("table", "capture_gaps".to_string()),
                 ("relative_path", entry.relative_path),
                 ("kind", kind.to_string()),
-                (
-                    "gap",
-                    if entry.is_symlink {
-                        "symlink_not_captured_as_blob".to_string()
-                    } else {
-                        format!("unsupported_entry_kind:{kind}")
-                    },
-                ),
-                ("symlink_target", entry.symlink_target.unwrap_or_default()),
+                ("gap", format!("unsupported_entry_kind:{kind}")),
                 ("status", "gap".to_string()),
             ]));
         }
@@ -1607,6 +1733,7 @@ where
         ("files_captured", captured.to_string()),
         ("bytes_captured", captured_bytes.to_string()),
         ("files_metadata_only", metadata_only.to_string()),
+        ("symlinks_captured", symlinks.to_string()),
         ("directories_walked", directories.to_string()),
         ("capture_gaps", gaps.to_string()),
         ("files_resumed_skipped", resumed.to_string()),
@@ -1675,6 +1802,32 @@ fn materialize_rows(
     let files = store
         .list_source_files()
         .map_err(|e| CliError::Message(format!("listing store files: {e}")))?;
+    let symlinks = store
+        .list_source_symlinks()
+        .map_err(|e| CliError::Message(format!("listing store symlinks: {e}")))?;
+    let selected_symlinks = symlinks
+        .into_iter()
+        .filter(|link| only.is_none_or(|filter| link.relative_path == filter))
+        .collect::<Vec<_>>();
+    // Validate every stored target and portable path before creating any output.
+    // Metadata-only mode exercises the exact same target grammar without touching
+    // the destination tree, so one unsafe link rejects the batch fail-closed.
+    for link in &selected_symlinks {
+        link.verify()
+            .map_err(|error| CliError::Message(error.to_string()))?;
+        materialize_symlink(
+            out_dir,
+            &link.relative_path,
+            &link.target,
+            SymlinkMaterializationStatus::MetadataOnlyFallback,
+        )
+        .map_err(|error| {
+            CliError::Message(format!(
+                "unsafe symlink materialization target {} -> {}: {error}",
+                link.relative_path, link.target
+            ))
+        })?;
+    }
     let mut rows: Vec<Row> = Vec::new();
     let mut count = 0usize;
     let mut bytes = 0u64;
@@ -1742,12 +1895,79 @@ fn materialize_rows(
             )));
         }
     }
+    let symlink_status = platform_symlink_materialization_status();
+    let mut symlinks_materialized = 0usize;
+    let mut symlinks_metadata_only = 0usize;
+    let mut published_symlinks = Vec::new();
+    for link in selected_symlinks {
+        let report =
+            match materialize_symlink(out_dir, &link.relative_path, &link.target, symlink_status) {
+                Ok(report) => report,
+                Err(error) => {
+                    let rollback =
+                        rollback_materialized_publications(published_paths, published_symlinks);
+                    return Err(CliError::Message(format!(
+                        "materialize symlink failed for {} -> {}: {error}{}",
+                        link.relative_path,
+                        link.target,
+                        rollback
+                            .err()
+                            .map(|rollback_error| format!(
+                                "; rollback conflict/residual audit: {rollback_error}"
+                            ))
+                            .unwrap_or_default()
+                    )));
+                }
+            };
+        if report.link_created {
+            let rollback = match take_materialized_symlink_rollback(&report.path) {
+                Ok(rollback) => rollback,
+                Err(error) => {
+                    let prior_rollback =
+                        rollback_materialized_publications(published_paths, published_symlinks);
+                    return Err(CliError::Message(format!(
+                        "symlink materialization publication identity unavailable for {}; current residual requires audit: {error}{}",
+                        report.path.display(),
+                        prior_rollback
+                            .err()
+                            .map(|rollback_error| format!(
+                                "; prior rollback conflict/residual audit: {rollback_error}"
+                            ))
+                            .unwrap_or_default()
+                    )));
+                }
+            };
+            published_symlinks.push(rollback);
+            symlinks_materialized += 1;
+        } else {
+            symlinks_metadata_only += 1;
+        }
+        rows.push(row([
+            ("table", "materialized_symlinks".to_string()),
+            ("relative_path", link.relative_path),
+            ("path", report.path.display().to_string()),
+            ("target", report.target),
+            ("target_sha256", link.target_sha256),
+            ("platform_status", report.status.as_str().to_string()),
+            ("link_created", report.link_created.to_string()),
+            (
+                "status",
+                if report.link_created {
+                    "symlink_roundtrip_ok".to_string()
+                } else {
+                    "metadata_only_fallback".to_string()
+                },
+            ),
+        ]));
+    }
     rows.push(row([
         ("table", "materialize_summary".to_string()),
         ("store_path", store_identity),
         ("out_dir", out_dir.display().to_string()),
         ("files_materialized", count.to_string()),
         ("bytes_materialized", bytes.to_string()),
+        ("symlinks_materialized", symlinks_materialized.to_string()),
+        ("symlinks_metadata_only", symlinks_metadata_only.to_string()),
         ("status", "complete".to_string()),
     ]));
     Ok(rows)
@@ -1769,6 +1989,29 @@ fn rollback_materialized_files(
             "materialization rollback conflict/residual audit: {}",
             failures.join("; ")
         )))
+    }
+}
+
+fn rollback_materialized_publications(
+    files: Vec<MaterializedFileRollback>,
+    symlinks: Vec<MaterializedSymlinkRollback>,
+) -> Result<(), CliError> {
+    let failures = symlinks
+        .into_iter()
+        .rev()
+        .filter_map(|publication| rollback_materialized_symlink(publication).err())
+        .chain(
+            files
+                .into_iter()
+                .rev()
+                .filter_map(|publication| rollback_materialized_file(publication).err()),
+        )
+        .map(|error| error.to_string())
+        .collect::<Vec<_>>();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(CliError::Message(failures.join("; ")))
     }
 }
 
@@ -5317,9 +5560,9 @@ mod tests {
     }
 
     // Test lane: default
-    // Defends: CDB090 fails closed while mandatory bidirectional tasks remain active.
+    // Defends: CDB090 reports the completed task graph while release provenance remains mandatory.
     #[test]
-    fn runner_proof_manifest_keeps_bidirectional_release_gate_pending_until_all_tasks_complete() {
+    fn runner_proof_manifest_satisfies_bidirectional_gate_after_all_tasks_complete() {
         let repo = temp_repo();
         fs::create_dir_all(repo.join("src")).expect("create src");
         fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");
@@ -5335,7 +5578,9 @@ mod tests {
         assert!(rows.iter().any(|row| {
             row.get("gate_id")
                 .is_some_and(|gate_id| gate_id == "bidirectional_issue_212")
-                && row.get("status").is_some_and(|status| status == "pending")
+                && row
+                    .get("status")
+                    .is_some_and(|status| status == "satisfied")
                 && row
                     .get("release_without_provenance")
                     .is_some_and(|value| value == "forbidden")
@@ -5345,7 +5590,7 @@ mod tests {
                     .is_some_and(|value| value == "proven")
                 && row
                     .get("active_task_count")
-                    .is_some_and(|value| value == "14")
+                    .is_some_and(|value| value == "0")
         }));
 
         let _ = fs::remove_dir_all(repo);

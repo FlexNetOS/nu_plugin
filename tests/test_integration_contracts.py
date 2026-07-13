@@ -21,6 +21,16 @@ VALID_DOCUMENT = """\
 Every governed integration is valid only when it has: owner, input rows,
 output rows, validation gate, forbidden actions, and raw-log/evidence path.
 
+## Extracted NotebookLM Source Alignment
+
+Artifact `a033f801-5ddb-4b34-af1d-36d7288fe11c` is an overview. `NBSOURCE-003`,
+`NBSOURCE-029`, `NBSOURCE-030`, `NBSOURCE-031`, and `NBSOURCE-032` are
+cross-references. The checked chain is a Rust `cdylib` through napi-rs and the
+complete locked online Node dependency set. No live CodeDB RuVector adapter is
+claimed. CodeDB preserves exact-byte source separately from semantic indexes;
+envctl must not read redb/PostgreSQL internals. Nushell uses the MessagePack
+serializer. A non-UTF-8 symlink target fails closed without lossy conversion.
+
 ## GitKB Boundary
 
 GitKB stores durable explanations, decisions, and handoffs. It is not the
@@ -149,6 +159,12 @@ class IntegrationContractValidatorTest(unittest.TestCase):
             item.surface for item in violations if item.category == "evidence-path"
         }
         self.assertEqual({"GitKB", "RTK", "Kache", "wild", "Fenix"}, failed_surfaces)
+
+    def test_missing_extracted_source_alignment_fails(self) -> None:
+        self.assert_category_fails(
+            VALID_DOCUMENT.replace("complete locked online Node dependency set", "one package"),
+            "source-alignment",
+        )
 
 
 if __name__ == "__main__":

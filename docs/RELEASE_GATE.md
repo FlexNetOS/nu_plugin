@@ -58,9 +58,22 @@ python3 scripts/generate_requirement_proof_receipt.py \
 
 `--all-requirements` requires the exact 140-row mandatory inventory, preflights
 every row before executing any command, rejects any unresolved or incomplete
-row, then runs every row's exact committed verification command. A receipt with
+row, then runs every distinct exact committed verification command. A receipt with
 five selected release rows or any other subset cannot satisfy full release
 validation.
+
+Execution is deduplicated only by byte-identical `verification_command` text.
+The current 140-row ledger contains 61 distinct commands, so each distinct
+command runs once under the same clean source/external-checkout guards. The
+receipt records one digest-bound `command_executions` entry per command,
+including its exact text, exit code, stdout/stderr byte sizes, and hashes. Every
+requirement row retains its own ledger-row digest and logical artifact names,
+and references the shared execution digest from which its stream evidence was
+derived. The validator requires exactly one execution per distinct command,
+rejects unreferenced or duplicate executions, and verifies every row's command
+and output hashes against its referenced execution. Different command bytes
+always execute separately; one failed or mutating shared command aborts the
+whole receipt.
 
 CI receipts must be generated from a clean checkout, remain outside the source
 tree, and be uploaded as a GitHub artifact attestation. The attestation is
@@ -84,15 +97,47 @@ and artifact subject described by the `gh attestation verify --format json`
 contract. A `generator.provider = github-actions` string or an embedded
 attestation reference is metadata, not trust.
 
-Receipt schema 3 binds the canonical repository, commit, tree, ledger SHA-256,
+Receipt schema 4 binds the canonical repository, commit, tree, ledger SHA-256,
 validator SHA-256, complete selected ledger-row digests, per-receipt-row
 digests, requirement IDs, exact verification commands, exit status, typed
-exact artifacts, UTC generation time, and empty
-clean-before/clean-after status digests. The detached GitHub attestation signs
-the complete receipt file, including its internal digest. Parent-commit,
-fork-repository, dirty-worktree, command-drift, ledger-row substitution,
-row-substitution, arbitrary-SHA-text, embedded trust claims, and
-tampered-receipt evidence fail closed.
+exact artifacts, UTC generation time, and empty clean-before/clean-after status
+digests. It also binds every external repository required by the envctl proof
+surface to the tracked `external-sources/requirement-proof-sources.json` pin:
+
+- `FlexNetOS/envctl` at
+  `b62669c4e32c8de0407aa51ca3add94d529b50b6` / tree
+  `f9ca54b6c7529ab1b690ab1f75c507d7ff54d6eb` from
+  `refs/heads/envctl-db-automation-2026-07-12`;
+- `FlexNetOS/loop_lib` at
+  `6e79836387d15ac5849e73e7bb869c6077953d90` / tree
+  `bb08ee9abf326bd6658655ae9222306ddaed743c` from `refs/heads/main`;
+- `FlexNetOS/meta_plugin_protocol` at
+  `7d65eeac3bba8e9702eb0590ba9476e4e420bfb3` / tree
+  `00b5119317c513385d675c6e33f653f6e4696530` from `refs/heads/main`.
+
+The verifier checks out those exact commits as siblings, supplies the tracked
+minimal Cargo workspace needed by the two path dependencies, and rejects an
+absent checkout, a non-FlexNetOS remote, wrong HEAD or tree, or any dirty state.
+Every proof command is surrounded by source and external-checkout snapshots;
+changing a commit, tree, tracked file, or untracked file fails receipt
+generation. Validation compares the receipt identities with the tracked pin
+without consulting a live external checkout, so deleting or swapping a sibling
+after generation cannot make a tampered receipt valid.
+
+Commands with output state are isolated: refactor/deploy targets use a fresh
+temporary directory, and the scan/watch proof operates on a temporary
+`git archive` of the pinned envctl tree. Cleanup is registered before command
+execution. Receipt generation also forces `CARGO_TARGET_DIR` to a fresh
+external `/tmp` directory shared across the selected commands and removes it
+afterward. The proof therefore exercises the pinned implementation without
+writing build output, `.envctl` state, or fixed-path output into any attested
+checkout.
+
+The detached GitHub attestation signs the complete receipt file, including its
+internal digest. Parent-commit, fork-repository, dirty-worktree,
+external-source drift, command-drift, ledger-row substitution, row-substitution,
+arbitrary-SHA-text, embedded trust claims, and tampered-receipt evidence fail
+closed.
 
 `proof_artifacts` is a strict semicolon-separated list:
 `stdout:<name>`, `stderr:<name>`, or
@@ -201,9 +246,9 @@ Release is blocked until these proofs exist:
 - redb backup/restore smoke passes;
 - envctl export JSON/NUON/CSV validates;
 - package manifest/checksums/link report validate.
-- `bidirectional_issue_212` runner proof row is `satisfied`, with CDB070-CDB090
-  complete or explicitly represented as GAP/QUESTION evidence, read-only
-  defaults proven, and hidden mutation forbidden.
+- `bidirectional_issue_212` runner proof row is `satisfied`, with every
+  CDB070-CDB090 row complete, read-only defaults proven, and hidden mutation
+  forbidden. GAP/QUESTION evidence does not substitute for completion.
 
 ## CDB090 Bidirectional Gate
 
@@ -217,10 +262,8 @@ with `gate_id = bidirectional_issue_212`, `status = satisfied`,
 
 Release is blocked by any unresolved compiler/Cargo/macro/build/generated-artifact/HIR/MIR/rustdoc/database-parity/reproduction GAP. CDB090 cannot be satisfied by documentation, refusal-only tests, or a GAP-compatible validation gate. Every completed task must identify a current-head executable test and provenance artifact.
 
-The same rule applies to REQ-061. The existing Nu bridge for envctl roots,
-query, and fail-closed refactor-plan display is only partial evidence. Release
-also requires the issue's engine-owned symbol and occurrence index, impact
-query, guarded refactor apply, hook discovery/deploy, widgets, persistence,
-managed-tool, GUI-shared-API, no-C, and wide-test requirements. Missing plugin
-commands or external envctl implementation cannot be represented as completed
-by a read-only three-command bridge.
+The same rule applies to REQ-061. Every atomic engine, command, guarded-apply,
+hook, widget, persistence, managed-tool, shared-API, no-C, documentation, and
+wide-test row must be verified and complete. External envctl documentation and
+tests are resolved as explicit sibling-repository evidence; classification as
+external never bypasses existence or direct-test checks.

@@ -2019,15 +2019,13 @@ fn scan_path(
     };
     let relative_path = relative_path_string(root, path)?;
     let symlink_target = if file_type.is_symlink() {
-        Some(
-            fs::read_link(path)
-                .map_err(|source| ScanError::SymlinkTarget {
-                    path: path.to_path_buf(),
-                    source,
-                })?
-                .to_string_lossy()
-                .into_owned(),
-        )
+        fs::read_link(path)
+            .map_err(|source| ScanError::SymlinkTarget {
+                path: path.to_path_buf(),
+                source,
+            })?
+            .to_str()
+            .map(str::to_owned)
     } else {
         None
     };

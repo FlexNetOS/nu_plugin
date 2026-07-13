@@ -207,3 +207,19 @@ none
   ]
 }
 CDB047 validation passed
+
+## Current-tree reseal gate — 2026-07-12T17:31:46-05:00
+
+The historical 2026-07-02 receipt above is preserved as history. The current
+direct gate is deterministic and non-recursive:
+
+- `python3 -m unittest tests.test_truth_surface`
+- `python3 scripts/truth_surface.py --check`
+- `python3 scripts/truth_surface.py --check-source`
+
+`scripts/truth_surface.py --write` is run only after all production, test,
+documentation, task-graph, proof-ledger, projection, and evidence-log changes
+are complete. The generated `PACK_MANIFEST.json`, `CHECKSUMS.sha256`, and
+`PACKAGE_VALIDATION.json` remain self-excluded while binding their complete
+declared source surface. No detached current-HEAD release receipt is claimed by
+this repository log.

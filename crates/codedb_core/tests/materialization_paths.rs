@@ -2,8 +2,8 @@ use std::path::Path;
 
 use codedb_core::store::{
     atomic_materialize_file, materialize_symlink, platform_symlink_materialization_status,
-    prepare_materialization_path, rollback_materialized_file, safe_materialization_path,
-    take_materialized_file_rollback,
+    prepare_materialization_path, rollback_materialized_file, rollback_materialized_symlink,
+    safe_materialization_path, take_materialized_file_rollback, take_materialized_symlink_rollback,
 };
 use codedb_core::{FilesystemEntryKind, SymlinkMaterializationStatus, scan_filesystem};
 use sha2::{Digest, Sha256};
@@ -160,6 +160,60 @@ fn linux_supported_symlink_materialization_restores_link_metadata_and_target() {
     assert_eq!(
         std::fs::read_link(&report.path).expect("original link remains"),
         Path::new("../targets/current")
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn identity_bound_symlink_rollback_removes_only_the_published_link() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory");
+    let output_root = temporary_directory.path().join("output-root");
+    let report = materialize_symlink(
+        &output_root,
+        "node_modules/.bin/tool",
+        "../tool/bin/tool.js",
+        SymlinkMaterializationStatus::Supported,
+    )
+    .expect("publish symlink");
+    let rollback = take_materialized_symlink_rollback(&report.path)
+        .expect("retain symlink rollback authority");
+
+    rollback_materialized_symlink(rollback).expect("rollback exact symlink publication");
+    assert!(
+        std::fs::symlink_metadata(&report.path).is_err(),
+        "identity-matched symlink remained after rollback"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn identity_bound_symlink_rollback_preserves_a_concurrent_replacement() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory");
+    let output_root = temporary_directory.path().join("output-root");
+    let report = materialize_symlink(
+        &output_root,
+        "node_modules/.bin/tool",
+        "../tool/bin/original.js",
+        SymlinkMaterializationStatus::Supported,
+    )
+    .expect("publish symlink");
+    let rollback = take_materialized_symlink_rollback(&report.path)
+        .expect("retain symlink rollback authority");
+    let displaced = report.path.with_extension("original-link");
+    std::fs::rename(&report.path, &displaced).expect("displace original publication");
+    std::os::unix::fs::symlink("../tool/bin/replacement.js", &report.path)
+        .expect("publish concurrent replacement");
+
+    let error = rollback_materialized_symlink(rollback)
+        .expect_err("rollback must preserve an inode-distinct replacement");
+    assert!(error.message().contains("identity conflict"));
+    assert_eq!(
+        std::fs::read_link(&report.path).expect("replacement remains"),
+        Path::new("../tool/bin/replacement.js")
+    );
+    assert_eq!(
+        std::fs::read_link(&displaced).expect("original remains displaced for audit"),
+        Path::new("../tool/bin/original.js")
     );
 }
 

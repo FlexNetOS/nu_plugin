@@ -1149,7 +1149,7 @@ def _validate_ledger(
             if not row.get("proof_artifacts", "").strip():
                 incomplete.append("proof_artifacts=<empty>")
             # proof_head_sha is intentionally deprecated. Exact revision
-            # identity is carried by the external schema-3 receipt and its
+            # identity is carried by the external schema-4 receipt and its
             # detached GitHub attestation; requiring a self-referential SHA in
             # the committed ledger would contradict that trust model.
             if row.get("proof_head_sha", "").strip():

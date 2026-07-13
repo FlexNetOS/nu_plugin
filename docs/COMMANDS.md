@@ -15,7 +15,8 @@ Source: PRD section 13.
 | `codedb archive` | archive manifest + checksums | read-only except declared archive output |
 | `codedb restore --verify` | restore validation report | refuses unsafe overwrite |
 | `codedb capture build <repo>` | compiler/build rows plus optional persisted receipt | refuses without the explicit execution flag |
-| `codedb reproduce --approval-id <sha256>` | verified OUT_DIR reproduction rows | writes only to a new declared artifact directory |
+| `codedb capture compiler <source.rs>` | bounded macro/HIR/MIR/rustdoc metadata + persisted full artifacts | refuses without the explicit execution flag |
+| `codedb reproduce --approval-id <sha256> [--package-id <id>] [--artifact-group <id>]` | verified OUT_DIR reproduction rows | writes only to a new declared artifact directory; ambiguous package or compilation-unit receipts require exact selectors |
 
 Approved dynamic capture is non-interactive and requires complete provenance:
 
@@ -46,7 +47,51 @@ codedb reproduce \
 
 The artifact directory must not already exist. CodeDB verifies every emitted
 file or symlink against the captured reproduction digest and does not mutate
-the source repository.
+the source repository. A receipt containing OUT_DIR artifacts from more than
+one package refuses reproduction until `--package-id <exact-captured-package-id>`
+selects one package. The exact IDs are present on the capture's
+`out_dir_artifacts` rows. This prevents identically named artifacts such as
+`generated.rs` from different build scripts from being flattened into one
+output tree. Each artifact row also carries a stable `artifact_group_id`,
+derived from its Cargo package identity and normalized isolated-target OUT_DIR
+execution path. If one package has artifacts from multiple compilation-unit
+OUT_DIRs, reproduction additionally requires
+`--artifact-group <exact-captured-artifact-group-id>`. Single-package,
+single-group receipts retain the command shape shown above.
+
+Compiler-observed expansion, resolution, hygiene, HIR, MIR, and rustdoc
+public-API evidence use the same named approval provenance:
+
+```bash
+codedb capture compiler /repo/src/lib.rs \
+  --repo-path /repo \
+  --unsafe-execute-build \
+  --approver operator-name \
+  --task-id CDB077,CDB085 \
+  --before-state source-sha256-recorded \
+  --cleanup-plan remove-isolated-compiler-sandbox \
+  --evidence-dir /evidence/compiler \
+  --store /evidence/compiler.redb \
+  --crate-name crate_name \
+  --edition 2024 \
+  --format json
+```
+
+Stdout contains bounded metadata, context hashes, toolchain hashes, semantic
+hashes, public-API hashes, and artifact paths. Full compiler artifacts and the
+raw summary log are written only beneath the new external evidence directory
+and persisted as content-addressed store blobs. This command is local CLI only;
+MCP has no dynamic execution path.
+
+Ordinary Rust tests send broker evidence to a temporary directory and never
+rewrite the checked proof tree. Regenerate `logs/compiler-observed/` only during
+an explicit final proof seal:
+
+```bash
+cargo test -p codedb-rust-static \
+  compiler_broker::regenerate_tracked_compiler_evidence \
+  -- --ignored --exact --nocapture
+```
 
 ## Nushell plugin commands
 

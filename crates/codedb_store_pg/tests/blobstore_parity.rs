@@ -1078,6 +1078,54 @@ fn redb_and_postgresql_have_identical_atomic_executable_and_no_replace_observati
 }
 
 #[test]
+fn redb_and_postgresql_preserve_checksum_bound_symlink_metadata_without_file_coercion() {
+    let tables = TestTables::new();
+    let redb_dir = tempfile::tempdir().expect("redb directory");
+    let redb_path = redb_dir.path().join("symlink-parity.redb");
+    initialize_store(
+        &redb_path,
+        &StoreInitContext {
+            codedb_version: "symlink-parity",
+            toolchain: "test",
+            rustc_version: "rustc test",
+            cargo_version: "cargo test",
+        },
+    )
+    .expect("initialize redb store");
+
+    let mut redb = CaptureBatcher::open(&redb_path).expect("open redb store");
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+    let relative_path = "node_modules/.bin/tool";
+    let target = "../tool/bin/tool.js";
+
+    let redb_row = redb
+        .persist_symlink(relative_path, target)
+        .expect("persist redb symlink");
+    let pg_row = pg
+        .persist_symlink(relative_path, target)
+        .expect("persist PostgreSQL symlink");
+    assert_eq!(pg_row, redb_row);
+    assert_eq!(pg.list_source_symlinks().unwrap(), vec![pg_row.clone()]);
+    assert_eq!(redb.list_source_symlinks().unwrap(), vec![redb_row]);
+    assert!(pg.list_source_files().unwrap().is_empty());
+    assert!(redb.list_source_files().unwrap().is_empty());
+    assert_eq!(pg.read_source_file_blob(relative_path).unwrap(), None);
+    assert_eq!(redb.read_source_file_blob(relative_path).unwrap(), None);
+    assert!(
+        pg.materialize_source_file(relative_path, Path::new("/tmp/pg-symlink-as-file"))
+            .expect_err("PostgreSQL symlink must not become a regular file")
+            .message()
+            .contains("symlink")
+    );
+    assert!(
+        redb.materialize_source_file(relative_path, Path::new("/tmp/redb-symlink-as-file"))
+            .expect_err("redb symlink must not become a regular file")
+            .message()
+            .contains("symlink")
+    );
+}
+
+#[test]
 fn postgresql_corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file() {
     let tables = TestTables::new();
     let captured = b"checksum-bound PostgreSQL bytes";
