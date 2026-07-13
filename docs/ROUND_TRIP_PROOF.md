@@ -53,6 +53,17 @@ no-replace. When link creation is unavailable, CodeDB deterministically
 preserves link metadata and target paths as a `metadata_only_fallback` instead
 of writing a regular file.
 
+Whole-tree capture persists each symlink path and exact target as a distinct
+`source_symlinks` row with a SHA-256 target digest in both redb and PostgreSQL.
+Regular-file reads explicitly exclude those rows. Materialization verifies all
+stored targets before publishing any output, safely recreates contained relative
+links such as Bun `node_modules/.bin` entries, and rejects absolute or escaping
+targets. Unix targets that are not valid UTF-8 are never lossily converted or
+reported as captured; they produce an explicit `non_utf8_symlink_target` gap and
+make the capture summary `complete_with_gaps`. Batch rollback retains bound parent descriptors plus symlink
+device/inode identities so a later link failure removes only links created by
+that attempt and never deletes a concurrent replacement.
+
 ## CDB074 Isolated Patch Proof
 
 Patch artifacts are generated only into isolated targets. The core helper

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "name": "envctl",
+      "repository": "FlexNetOS/envctl",
+      "source_ref": "refs/heads/envctl-db-automation-2026-07-12",
+      "commit_sha": "b62669c4e32c8de0407aa51ca3add94d529b50b6",
+      "tree_sha": "f9ca54b6c7529ab1b690ab1f75c507d7ff54d6eb",
+      "checkout_path": "../envctl"
+    },
+    {
+      "name": "loop_lib",
+      "repository": "FlexNetOS/loop_lib",
+      "source_ref": "refs/heads/main",
+      "commit_sha": "6e79836387d15ac5849e73e7bb869c6077953d90",
+      "tree_sha": "bb08ee9abf326bd6658655ae9222306ddaed743c",
+      "checkout_path": "../loop_lib"
+    },
+    {
+      "name": "meta_plugin_protocol",
+      "repository": "FlexNetOS/meta_plugin_protocol",
+      "source_ref": "refs/heads/main",
+      "commit_sha": "7d65eeac3bba8e9702eb0590ba9476e4e420bfb3",
+      "tree_sha": "00b5119317c513385d675c6e33f653f6e4696530",
+      "checkout_path": "../meta_plugin_protocol"
+    }
+  ]
+}

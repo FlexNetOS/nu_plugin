@@ -368,7 +368,8 @@ Implemented and directly exercised in this wave:
   backup/migrate/rollback;
 - verified-TLS-only PostgreSQL TCP transport and explicit Unix-socket-only
   plaintext transport;
-- schema-3 detached all-requirement proof receipts with typed subjects,
+- schema-4 detached all-requirement proof receipts with typed subjects and
+  exact external-source repository/commit/tree identities,
   read-only verification, and a separate protected signer.
 
 Verification at this stopping point:
@@ -515,8 +516,9 @@ Source provenance was rechecked against the primary npm registry without
 NotebookLM. The ten trusted first-party RuVector/Cognitum packages exactly match
 their Bun lock, direct imports succeed, the napi-rs Linux binary is checksum
 bound, and CodeDB captured 20,381 exact source blobs (81,182,690 bytes) from the
-fresh online Node distribution. The only 27 capture gaps are Bun-generated
-`node_modules/.bin` symlinks whose targets are present in the captured tree.
+fresh online Node distribution. A post-fix recapture additionally persisted all
+27 Bun-generated `node_modules/.bin` links as checksum-bound symlink metadata,
+with zero capture gaps, and replayed a representative link as a real symlink.
 
 The final direct proof matrix is green:
 

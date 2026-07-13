@@ -1550,7 +1550,10 @@ mod tests {
             .persist_symlink(relative_path, target)
             .expect("persist symlink metadata");
 
-        assert_eq!(store.list_source_symlinks().unwrap(), vec![persisted.clone()]);
+        assert_eq!(
+            store.list_source_symlinks().unwrap(),
+            vec![persisted.clone()]
+        );
         assert!(store.list_source_files().unwrap().is_empty());
         assert_eq!(store.read_source_file_blob(relative_path).unwrap(), None);
         assert!(
@@ -1567,9 +1570,14 @@ mod tests {
                 .begin_write()
                 .expect("begin corruption transaction");
             {
-                let mut blobs = write_txn.open_table(SOURCE_BLOBS_TABLE).expect("blob table");
+                let mut blobs = write_txn
+                    .open_table(SOURCE_BLOBS_TABLE)
+                    .expect("blob table");
                 blobs
-                    .insert(persisted.target_sha256.as_str(), b"../different/target".as_slice())
+                    .insert(
+                        persisted.target_sha256.as_str(),
+                        b"../different/target".as_slice(),
+                    )
                     .expect("corrupt target metadata blob");
             }
             write_txn.commit().expect("commit corrupt target fixture");
