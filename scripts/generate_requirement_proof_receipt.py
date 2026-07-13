@@ -171,6 +171,7 @@ RUNTIME_SIDE_EFFECT_PREFIXES = (
     # them as a side effect. The receipt binds the source commit/tree only.
     ".codex/",
     ".claude/",
+    ".helix/",
 )
 RUNTIME_SIDE_EFFECT_EXACT = (
     ".claude.tar.xz",
@@ -187,8 +188,23 @@ def _is_runtime_side_effect(status_line: str) -> bool:
 
 
 def worktree_status(root: Path) -> str:
-    raw = git_output(root, "status", "--porcelain=v1", "--untracked-files=all")
-    lines = [line for line in raw.splitlines() if line and not _is_runtime_side_effect(line)]
+    # NOTE: do not use git_output() here — its global .stdout.strip() would left-
+    # strip the FIRST porcelain line, dropping the leading X status char (e.g.
+    # " D path" -> "D path"). That shifts _is_runtime_side_effect's [3:] path slice
+    # by one and breaks prefix matching for the first entry only. Capture raw and
+    # strip trailing newlines only.
+    raw = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    lines = [
+        line
+        for line in raw.splitlines()
+        if line.strip() and not _is_runtime_side_effect(line)
+    ]
     return "\n".join(lines)
 
 
