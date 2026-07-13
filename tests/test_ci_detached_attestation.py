@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/ci.yml"
+FLAKE = ROOT / "flake.nix"
 PINNED_ACTION = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+@[0-9a-f]{40}$")
 
 
@@ -169,6 +170,21 @@ class DetachedRequirementProofWorkflowTest(unittest.TestCase):
                 source = (ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertIn("$env.CARGO_TARGET_DIR?", source)
                 self.assertNotIn("[$repo_root target debug", source)
+
+    def test_execution_lanes_provision_the_mandatory_bubblewrap_sandbox(self) -> None:
+        flake = FLAKE.read_text(encoding="utf-8")
+        mandatory_job = workflow_job(self.workflow, "mandatory_capabilities")
+        nu_job = workflow_job(self.workflow, "nu")
+        self.assertIn("pkgs.bubblewrap", flake)
+        for job in (mandatory_job, nu_job, self.verify_job):
+            self.assertIn("nix develop .#ci", job)
+            self.assertIn("command -v bwrap", job)
+            self.assertIn("bwrap --version", job)
+        self.assertIn(
+            "nix develop .#ci -c python3 "
+            "scripts/generate_requirement_proof_receipt.py",
+            self.verify_job,
+        )
 
 
 if __name__ == "__main__":

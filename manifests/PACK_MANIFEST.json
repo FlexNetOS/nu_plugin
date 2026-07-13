@@ -6,14 +6,14 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "95eb80ca684173a0870fec41680c310131d6ffbb9fe51606fab7baf9f3f6933e",
+  "checksum_scope_files_sha256": "f193f8e2e0def5778bf750a1fce382a419e65b41ddc102f781f9ffeddcc05e07",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 801,
   "files": [
     {
-      "bytes": 20897,
+      "bytes": 21564,
       "path": ".github/workflows/ci.yml",
-      "sha256": "f0594404297622f2c31ddc5f5e8b3cad22dc4185f756c6250564f955f7a1ecb3"
+      "sha256": "d51ac246b03ad5d56ca7103e896c0776484bbf86f74880ccedb06059bd6c452a"
     },
     {
       "bytes": 90,
@@ -1081,9 +1081,9 @@
       "sha256": "33150ce2f846aef01539145f74a8eb1a04d45df5d960494ce188111a80e170e3"
     },
     {
-      "bytes": 4681,
+      "bytes": 4781,
       "path": "flake.nix",
-      "sha256": "7148acb9753c7bae35ddafcb044b4c3b9ea84fb8ba53833a7a3d83ce58955ade"
+      "sha256": "e50a4b17f24bbbe50bf7a0dfbb83330ecb46aaf11466b494357f964b911669e0"
     },
     {
       "bytes": 1090,
@@ -3866,9 +3866,9 @@
       "sha256": "0a8b50a15598d4fa148e370c39eb0c212d1933613b95f390dc46f7d31773d5d6"
     },
     {
-      "bytes": 7383,
+      "bytes": 8104,
       "path": "tests/test_ci_detached_attestation.py",
-      "sha256": "fa562c928d8ab95b1f04270e9d7f479eec0e11132e96d74419d139a9f29555a9"
+      "sha256": "2c70f7d8a20b370240a0a20ea4feaa405a820f3ece858cbcbd8f89eec742d030"
     },
     {
       "bytes": 1557,
@@ -4016,7 +4016,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-13T01:34:08+00:00",
+  "generated_at_utc": "2026-07-13T01:41:12+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
