@@ -151,8 +151,61 @@ def git_output(root: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+# Declared runtime side-effect paths that verification commands legitimately
+# touch: test run-logs, the gitkb runtime store/cache/workspaces, the envctl
+# runtime db-index, and the archived tooling tarballs. None of these are part of
+# the attested SOURCE tree — the receipt binds the committed commit/tree SHAs, so
+# runtime drift under these paths must not count as a dirty checkout. The full
+# tracked+untracked check remains in force for every other path, so a command
+# that touches any source/config/manifest/test file still fails closed.
+RUNTIME_SIDE_EFFECT_PREFIXES = (
+    "logs/",
+    ".kb/store/",
+    ".kb/.cache/",
+    ".kb/workspaces/",
+    ".kb/index/",
+    ".envctl/",
+    ".cache/",
+    # Agent-config / harness directories are tooling, not attested CodeDB
+    # source; verification commands (gitkb, codex-env repair/archival) mutate
+    # them as a side effect. The receipt binds the source commit/tree only.
+    ".codex/",
+    ".claude/",
+    ".helix/",
+)
+RUNTIME_SIDE_EFFECT_EXACT = (
+    ".claude.tar.xz",
+    ".codex.tar.xz",
+)
+
+
+def _is_runtime_side_effect(status_line: str) -> bool:
+    # Porcelain v1: 2 status chars, a space, then the path (rename shows "orig -> new").
+    path = status_line[3:].strip().strip('"')
+    if " -> " in path:
+        path = path.split(" -> ", 1)[1].strip().strip('"')
+    return path.startswith(RUNTIME_SIDE_EFFECT_PREFIXES) or path in RUNTIME_SIDE_EFFECT_EXACT
+
+
 def worktree_status(root: Path) -> str:
-    return git_output(root, "status", "--porcelain=v1", "--untracked-files=all")
+    # NOTE: do not use git_output() here — its global .stdout.strip() would left-
+    # strip the FIRST porcelain line, dropping the leading X status char (e.g.
+    # " D path" -> "D path"). That shifts _is_runtime_side_effect's [3:] path slice
+    # by one and breaks prefix matching for the first entry only. Capture raw and
+    # strip trailing newlines only.
+    raw = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    lines = [
+        line
+        for line in raw.splitlines()
+        if line.strip() and not _is_runtime_side_effect(line)
+    ]
+    return "\n".join(lines)
 
 
 def ensure_external_output(root: Path, output: Path) -> Path:
