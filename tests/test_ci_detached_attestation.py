@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/ci.yml"
 FLAKE = ROOT / "flake.nix"
+SANDBOX_SETUP = ROOT / "scripts/ci/require_bwrap_userns.sh"
 PINNED_ACTION = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+@[0-9a-f]{40}$")
 
 
@@ -173,13 +174,32 @@ class DetachedRequirementProofWorkflowTest(unittest.TestCase):
 
     def test_execution_lanes_provision_the_mandatory_bubblewrap_sandbox(self) -> None:
         flake = FLAKE.read_text(encoding="utf-8")
-        mandatory_job = workflow_job(self.workflow, "mandatory_capabilities")
-        nu_job = workflow_job(self.workflow, "nu")
+        sandbox_setup = SANDBOX_SETUP.read_text(encoding="utf-8")
         self.assertIn("pkgs.bubblewrap", flake)
-        for job in (mandatory_job, nu_job, self.verify_job):
-            self.assertIn("nix develop .#ci", job)
-            self.assertIn("command -v bwrap", job)
-            self.assertIn("bwrap --version", job)
+        self.assertIn("pkgs.lib.optionals pkgs.stdenv.isLinux", flake)
+        for job_name in (
+            "mandatory_capabilities",
+            "postgres_parity",
+            "rust",
+            "nu",
+            "requirement_proof_verification",
+        ):
+            with self.subTest(job=job_name):
+                self.assertIn(
+                    "bash scripts/ci/require_bwrap_userns.sh",
+                    workflow_job(self.workflow, job_name),
+                )
+        for expected in (
+            "kernel/apparmor_restrict_unprivileged_userns",
+            'sudo tee "$restriction"',
+            "/nix/store/*/bin/bwrap",
+            "--unshare-all",
+            "--ro-bind / /",
+            "--proc /proc",
+            "--dev /dev",
+            'dirname "$bwrap_path" >>"$GITHUB_PATH"',
+        ):
+            self.assertIn(expected, sandbox_setup)
         self.assertIn(
             "nix develop .#ci -c python3 "
             "scripts/generate_requirement_proof_receipt.py",

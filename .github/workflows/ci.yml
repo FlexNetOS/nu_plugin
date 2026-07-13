@@ -21,8 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
-      - name: Require the trusted Bubblewrap sandbox
-        run: nix develop .#ci -c bash -lc 'command -v bwrap && bwrap --version'
+      - name: Enable and prove the trusted Bubblewrap sandbox
+        run: bash scripts/ci/require_bwrap_userns.sh
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
       - name: Validate executable task graph, maps, receipts, and manifests
@@ -130,6 +130,8 @@ jobs:
       - name: Run non-skipping differential backend contract
         run: cargo test -p codedb-store-pg --features pg-integration --test blobstore_parity -- --nocapture
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+      - name: Enable and prove the trusted Bubblewrap sandbox
+        run: bash scripts/ci/require_bwrap_userns.sh
       - name: Prove the dynamic redb/PostgreSQL Nu frontdoor over verified TLS
         run: nix develop .#ci -c nu tests/test_dynamic_store_plugin.nu
 
@@ -150,6 +152,12 @@ jobs:
     runs-on: ${{ vars.CI_FORCE_HOSTED == '1' && 'ubuntu-latest' || ((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","local","flexnetos"]') || 'ubuntu-latest') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Install Nix on GitHub-hosted fallback runners
+        if: runner.environment == 'github-hosted'
+        uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+      - name: Enable and prove Bubblewrap on GitHub-hosted fallback runners
+        if: runner.environment == 'github-hosted'
+        run: bash scripts/ci/require_bwrap_userns.sh
       - name: Install Rust toolchain on GitHub-hosted runners
         if: runner.environment == 'github-hosted'
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
@@ -176,14 +184,14 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+      - name: Enable and prove the trusted Bubblewrap sandbox
+        run: bash scripts/ci/require_bwrap_userns.sh
       - name: Run every mandatory Nu behavior gate
         run: |
           # Variables expand in the inner bash process.
           # shellcheck disable=SC2016
           nix develop .#ci -c bash -lc '
             set -euo pipefail
-            command -v bwrap
-            bwrap --version
             for test in tests/*.nu; do
               echo "=== $test ==="
               nu "$test"
@@ -237,11 +245,13 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
 
-      - name: Require the complete proof toolchain and trusted sandbox
+      - name: Enable and prove the trusted Bubblewrap sandbox
+        run: bash scripts/ci/require_bwrap_userns.sh
+
+      - name: Require the complete proof toolchain
         run: >-
           nix develop .#ci -c bash -lc
-          'command -v bwrap && bwrap --version &&
-          cargo --version && nu --version && python3 --version'
+          'cargo --version && nu --version && python3 --version'
 
       - name: Check out exact external proof sources without credentials
         shell: bash

@@ -6,14 +6,14 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "f193f8e2e0def5778bf750a1fce382a419e65b41ddc102f781f9ffeddcc05e07",
+  "checksum_scope_files_sha256": "15ec620d7942bcb9f478233f605db3b8f2f8cf1b169325afb852ad57affdd483",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 801,
+  "file_count_in_checksum_scope": 802,
   "files": [
     {
-      "bytes": 21564,
+      "bytes": 22150,
       "path": ".github/workflows/ci.yml",
-      "sha256": "d51ac246b03ad5d56ca7103e896c0776484bbf86f74880ccedb06059bd6c452a"
+      "sha256": "1a07d88d1e8ff1e8a13e56f5f87321338b25b4bef1b50ceac7fee8e8c53009ca"
     },
     {
       "bytes": 90,
@@ -3806,6 +3806,11 @@
       "sha256": "ff6d87e64836aa7983a1ae604f050fe63b425462b1cced331bfc5130602888ed"
     },
     {
+      "bytes": 805,
+      "path": "scripts/ci/require_bwrap_userns.sh",
+      "sha256": "b248718a4d01360eac6dc610f3e87d4e7d7db748d6f4ab5e714d4dced4385fa6"
+    },
+    {
       "bytes": 25043,
       "path": "scripts/generate_requirement_proof_receipt.py",
       "sha256": "024f2903ac49bd83e96023c71ab1a908a4783812e8cc940cbfeabd583dc19f5c"
@@ -3866,9 +3871,9 @@
       "sha256": "0a8b50a15598d4fa148e370c39eb0c212d1933613b95f390dc46f7d31773d5d6"
     },
     {
-      "bytes": 8104,
+      "bytes": 8756,
       "path": "tests/test_ci_detached_attestation.py",
-      "sha256": "2c70f7d8a20b370240a0a20ea4feaa405a820f3ece858cbcbd8f89eec742d030"
+      "sha256": "b9fee935519a7761520f173a19b037f0db4f49097d22679bd2a0b4d30a568941"
     },
     {
       "bytes": 1557,
@@ -4016,7 +4021,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-13T01:41:12+00:00",
+  "generated_at_utc": "2026-07-13T01:53:32+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
