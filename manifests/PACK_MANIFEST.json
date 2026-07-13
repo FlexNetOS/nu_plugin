@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "2108857ed13fc4f90a83e49862a1307d93e2f87ed0a958c3e82fee367fd01ea6",
+  "checksum_scope_files_sha256": "e61fafa3b26afd76899b7323bbd6b00a8dd62d1c3e3d8369117e153332c44224",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 802,
   "files": [
@@ -596,9 +596,9 @@
       "sha256": "2427617f112eb23b02c0cb8faaef9ae9b632af13d35b5e1c01db68ff05e2ea6a"
     },
     {
-      "bytes": 2022,
+      "bytes": 2077,
       "path": "docs/CODEDB_YAZELIX_RUNTIME_TOOL.md",
-      "sha256": "534f8242aeb84d94ec614959f08a3f6fb4ea498ea979c9520da707ff607d262c"
+      "sha256": "dce8e05024b177c45b17b402f89e08489744c6e7ec7abda1a2d5549fbf80407c"
     },
     {
       "bytes": 2528,
@@ -806,9 +806,9 @@
       "sha256": "2c3e992a7bf68fcb12bc8a006568c29c38b89ee410807e3791a85bea2d21679b"
     },
     {
-      "bytes": 76604,
+      "bytes": 76732,
       "path": "execution/REQUIREMENT_PROOF_LEDGER.csv",
-      "sha256": "e1c0018acc8fc82f9845f9b93ccb5ce37d35b63e0c7c9c3a332696bec0dbca2d"
+      "sha256": "a233412242c26d08cc9d99e3b9d321c015f68a878ab0f4d0ef41d828c0998232"
     },
     {
       "bytes": 807,
@@ -3971,9 +3971,9 @@
       "sha256": "da7dea06bf5a58d6901c831e3a920ddc4ceebc2cf1a621f536bd715942fe89b6"
     },
     {
-      "bytes": 28077,
+      "bytes": 28658,
       "path": "tests/test_requirement_proof_ledger.py",
-      "sha256": "ed10d5ace5d34c9c4896edb8df950f7f569acc9452a2803be2cc31f79ecfca27"
+      "sha256": "cad917cc1406dfc32c00defa6a2886cb305b1abfd9144611db773884ed86fc4c"
     },
     {
       "bytes": 9469,
@@ -4021,7 +4021,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-13T02:21:24+00:00",
+  "generated_at_utc": "2026-07-13T02:53:34+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
