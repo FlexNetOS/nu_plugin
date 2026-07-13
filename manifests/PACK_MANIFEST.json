@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "f42ea94e8fc10e6cbd2ae21485f28ecbad97da798ed02711b7c07d0a48271dfd",
+  "checksum_scope_files_sha256": "28641d0fb4a731c8bb5b04896b0e3a147f70433b06d9394a91bb8943fb81d356",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 801,
   "files": [
@@ -326,9 +326,9 @@
       "sha256": "cb159f4f64ff0cbef15800ab92ebd9687dc11ed5b200b408cce06f71806800fc"
     },
     {
-      "bytes": 21473,
+      "bytes": 22078,
       "path": "crates/codedb/tests/build_capture_cli.rs",
-      "sha256": "d3e30ce1da1a3e9dd2937a8b9feb2250535c91fe6cbf04ff63ef963077f3624e"
+      "sha256": "d85093057ca23ef0f4a92ccf6cf735ad56cd2ca5c726b27b1354332d04680f5d"
     },
     {
       "bytes": 15356,
@@ -356,9 +356,9 @@
       "sha256": "53ec9e542c69eaf51b7808ce8421f77d178759f8c4e8098231eaacd3cda25a51"
     },
     {
-      "bytes": 4634,
+      "bytes": 5065,
       "path": "crates/codedb_build_capture/tests/approved_build_frontdoor.rs",
-      "sha256": "97d3d8df4e731a4546c3c2e8ec25a7306b292a5a5b9a73ea59226b2ef5aa2628"
+      "sha256": "b7b3924cf95ae8a5d692201875f9f0216087775796bd807031df8439da069828"
     },
     {
       "bytes": 292,
@@ -386,9 +386,9 @@
       "sha256": "7667f4b1800e236083bee91e7cfae465eeac4c9e50ca5f0f7bad19d2312f23f5"
     },
     {
-      "bytes": 9402,
+      "bytes": 9816,
       "path": "crates/codedb_context/tests/runtime_context.rs",
-      "sha256": "5b89177b2de961beedaa2b31265ac4daa3e7f231f32d6de4c25436fa9b854042"
+      "sha256": "b9186d50120be897242404bf68dc6d2b045c96e823cd4024d562b37d33f52562"
     },
     {
       "bytes": 278,
@@ -446,9 +446,9 @@
       "sha256": "9ec727107c8ee79d651c4384a7e8eaa547202a04e4f69e595d03fd61648ce76a"
     },
     {
-      "bytes": 3880,
+      "bytes": 4049,
       "path": "crates/codedb_core/tests/store_spec.rs",
-      "sha256": "0023a43fdee3ff6e44e7ae30a1525b3aa73f4322c61a54b20e30d85aac66b0bd"
+      "sha256": "142226c0b708fd38b748ab309652eb8c1b6a61f5ea5045b02f13c01f96c80415"
     },
     {
       "bytes": 167,
@@ -476,9 +476,9 @@
       "sha256": "d7b46f511954c3469b5301001e465e93d7b74d2d99cfb10e345279339d47e5ab"
     },
     {
-      "bytes": 44161,
+      "bytes": 44580,
       "path": "crates/codedb_mcp/tests/policy_and_stdio.rs",
-      "sha256": "e1b47f492e80b4382859f12ff5e3128e5f2a3b774f9e681dde6aae7c619c4a23"
+      "sha256": "16e466c548483c99579a7b3645b16e34ff9e603ab7f44e53a75fadc0ac46e62c"
     },
     {
       "bytes": 256,
@@ -501,24 +501,24 @@
       "sha256": "53a201b161c4b3d9e2961a449862acce0d99e9a5c12eb5d93351f5b1310c5866"
     },
     {
-      "bytes": 32768,
+      "bytes": 33453,
       "path": "crates/codedb_rust_static/src/compiler_broker.rs",
-      "sha256": "4b4319089a90fd37eaff98a42dc2ce0e9e75be9a746145de4032c3a073c2ea33"
+      "sha256": "90a42803afa2e220afe8336b836faffa5416f3fb11301f18bdda858af1d31b08"
     },
     {
-      "bytes": 7142,
+      "bytes": 7556,
       "path": "crates/codedb_rust_static/src/compiler_execution_gate_tests.rs",
-      "sha256": "bd0fd109b03727fee3880e2f83ae63d2a55e1fdb86ff824e284e6ca42092ba4f"
+      "sha256": "991f536ebd57e83233c8f4b64c0f4200f514f136e82b9adc3357ca14dd8a2d2a"
     },
     {
-      "bytes": 11226,
+      "bytes": 11640,
       "path": "crates/codedb_rust_static/src/compiler_observed_tests.rs",
-      "sha256": "f15f0f2e317607d5c1791e11f3c6fbe1b4bf9cde60831e88c6538ff8fcfa2118"
+      "sha256": "ea5c2ea218a37f823f7a4bfc05cb7a43d7e6d0610cd5dede4b344c1b4164e0e7"
     },
     {
-      "bytes": 171602,
+      "bytes": 172180,
       "path": "crates/codedb_rust_static/src/lib.rs",
-      "sha256": "9fe6837b9fbec9ac2060f03296afe4a465d943194a328021c2b4163d757f7a99"
+      "sha256": "17cdc5cf0c51797413ba6f99ae6edf1eebf91f22d9c38313dd32c594a3047db4"
     },
     {
       "bytes": 480,
@@ -4016,7 +4016,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-13T02:34:04+00:00",
+  "generated_at_utc": "2026-07-13T02:57:30+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
