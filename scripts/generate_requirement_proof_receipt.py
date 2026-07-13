@@ -151,13 +151,11 @@ def git_output(root: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-# Declared runtime side-effect paths that verification commands legitimately
-# touch: test run-logs, the gitkb runtime store/cache/workspaces, the envctl
-# runtime db-index, and the archived tooling tarballs. None of these are part of
-# the attested SOURCE tree — the receipt binds the committed commit/tree SHAs, so
-# runtime drift under these paths must not count as a dirty checkout. The full
-# tracked+untracked check remains in force for every other path, so a command
-# that touches any source/config/manifest/test file still fails closed.
+# Declared untracked runtime side-effect paths that verification commands
+# legitimately touch: test run-logs, the gitkb runtime store/cache/workspaces,
+# the envctl runtime db-index, and archived tooling tarballs. A tracked change
+# under any of these paths still fails closed because it changes the attested
+# checkout; only untracked runtime artifacts may be ignored.
 RUNTIME_SIDE_EFFECT_PREFIXES = (
     "logs/",
     ".kb/store/",
@@ -179,33 +177,38 @@ RUNTIME_SIDE_EFFECT_EXACT = (
 )
 
 
-def _is_runtime_side_effect(status_line: str) -> bool:
-    # Porcelain v1: 2 status chars, a space, then the path (rename shows "orig -> new").
-    path = status_line[3:].strip().strip('"')
-    if " -> " in path:
-        path = path.split(" -> ", 1)[1].strip().strip('"')
-    return path.startswith(RUNTIME_SIDE_EFFECT_PREFIXES) or path in RUNTIME_SIDE_EFFECT_EXACT
+def _is_runtime_side_effect(path: str) -> bool:
+    return (
+        path.startswith(RUNTIME_SIDE_EFFECT_PREFIXES)
+        or path in RUNTIME_SIDE_EFFECT_EXACT
+    )
 
 
 def worktree_status(root: Path) -> str:
-    # NOTE: do not use git_output() here — its global .stdout.strip() would left-
-    # strip the FIRST porcelain line, dropping the leading X status char (e.g.
-    # " D path" -> "D path"). That shifts _is_runtime_side_effect's [3:] path slice
-    # by one and breaks prefix matching for the first entry only. Capture raw and
-    # strip trailing newlines only.
-    raw = subprocess.run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+    # Keep tracked and untracked checks separate. This avoids parsing porcelain
+    # rename quoting and guarantees that an allowlisted path can never hide a
+    # tracked modification, deletion, or rename.
+    tracked = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=no"],
         cwd=root,
         check=True,
         capture_output=True,
         text=True,
+    ).stdout.rstrip("\n")
+    untracked_raw = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
     ).stdout
-    lines = [
-        line
-        for line in raw.splitlines()
-        if line.strip() and not _is_runtime_side_effect(line)
+    dirty_untracked = [
+        os.fsdecode(item)
+        for item in untracked_raw.split(b"\0")
+        if item and not _is_runtime_side_effect(os.fsdecode(item))
     ]
-    return "\n".join(lines)
+    status_parts = [tracked] if tracked else []
+    status_parts.extend(f"?? {path}" for path in dirty_untracked)
+    return "\n".join(status_parts)
 
 
 def ensure_external_output(root: Path, output: Path) -> Path:
