@@ -679,6 +679,19 @@ class RepositoryRequirementProofLedgerTest(unittest.TestCase):
             rows["REQ-061-ARCH18"]["verification_command"],
         )
 
+        runtime_command = rows["CDB050"]["verification_command"]
+        self.assertIn(
+            'runtime_out="$(nix build .#codedb_runtime_tools --no-link '
+            '--print-out-paths --no-write-lock-file)"',
+            runtime_command,
+        )
+        self.assertIn('"$runtime_out/bin/codedb" --version', runtime_command)
+        self.assertIn(
+            'test -x "$runtime_out/bin/nu_plugin_codedb"', runtime_command
+        )
+        self.assertNotIn("&& codedb --version", runtime_command)
+        self.assertNotIn("command -v nu_plugin_codedb", runtime_command)
+
         completed = {
             "CDB013",
             "CDB040",

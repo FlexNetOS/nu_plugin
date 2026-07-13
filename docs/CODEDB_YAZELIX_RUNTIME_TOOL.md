@@ -51,9 +51,10 @@ The check verifies:
 Direct package proof:
 
 ```bash
-nix build .#codedb_runtime_tools --no-link --no-write-lock-file
-result/bin/codedb --version
-test -x result/bin/nu_plugin_codedb
+runtime_out="$(nix build .#codedb_runtime_tools \
+  --no-link --print-out-paths --no-write-lock-file)"
+"$runtime_out/bin/codedb" --version
+test -x "$runtime_out/bin/nu_plugin_codedb"
 ```
 
 The Nu plugin protocol smoke belongs to CDB051/CDB052. Running `nu_plugin_codedb` directly outside Nushell is not a valid protocol test.
