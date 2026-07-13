@@ -37,6 +37,16 @@ class CiToolchainOwnershipTests(unittest.TestCase):
         self.assertIn("/home/flexnetos/.nix-profile/toolbin", rust_job)
         self.assertIn('"$toolbin/rustc" -Vv', rust_job)
 
+    def test_hosted_rust_job_uses_the_flake_locked_nightly_toolchain(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        rust_job = workflow.split("\n  rust:\n", 1)[1].split("\n  nu:\n", 1)[0]
+
+        self.assertIn("nix develop .#ci", rust_job)
+        self.assertIn("/nix/store/*/bin", rust_job)
+        self.assertIn('"$toolbin/rustc" -Vv', rust_job)
+        self.assertIn('"$toolbin/rustdoc" -Vv', rust_job)
+        self.assertNotIn("dtolnay/rust-toolchain", rust_job)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1244,7 +1244,10 @@ mod tests {
             .expect("time monotonic")
             .as_nanos();
         let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        std::env::temp_dir().join(format!("codedb_store_redb_{stamp}_{seq}.redb"))
+        std::env::temp_dir().join(format!(
+            "codedb_store_redb_{}_{stamp}_{seq}.redb",
+            std::process::id()
+        ))
     }
 
     // Test lane: default

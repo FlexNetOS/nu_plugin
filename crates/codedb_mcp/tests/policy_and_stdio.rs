@@ -3,8 +3,8 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use codedb_mcp::{
     ALLOWED_TOOLS, BLOCKED_TOOLS, DEFAULT_MAX_BYTES, MAX_REDB_STORE_BYTES, MAX_RESPONSE_BYTES,
@@ -1200,10 +1200,8 @@ fn remove_dir(path: PathBuf) {
 }
 
 fn unique_suffix() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time")
-        .as_nanos()
+    static NEXT_SUFFIX: AtomicU64 = AtomicU64::new(0);
+    ((std::process::id() as u128) << 64) | (NEXT_SUFFIX.fetch_add(1, Ordering::Relaxed) as u128)
 }
 
 fn workspace_root() -> PathBuf {
