@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "e5783975ba0081a6cd0ea2bb55e05c5c24e9f0dfcce89b906ab964ba4794650c",
+  "checksum_scope_files_sha256": "3da88bf1e00d479590c434fcd58481fadfb701dae26507013b13c37d0819ea4d",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 795,
+  "file_count_in_checksum_scope": 801,
   "files": [
     {
       "bytes": 20897,
@@ -836,6 +836,16 @@
       "sha256": "4c209d74e916e881b49c4a474cde45d255568450fb1063a2844f2c7741af0ff6"
     },
     {
+      "bytes": 196,
+      "path": "external-sources/Cargo.toml",
+      "sha256": "7980fd514b15c9a2f23354b8540261b740658d2cc525e6f77d4606bf9d9b4b3e"
+    },
+    {
+      "bytes": 951,
+      "path": "external-sources/requirement-proof-sources.json",
+      "sha256": "746563ed459009e27315a91085096870eecda0a6d3f0f020d26f1fa352a80b8d"
+    },
+    {
       "bytes": 2076,
       "path": "fixtures/README.md",
       "sha256": "a520ebd5b120e9982168d267b1c1fd0a09d1b2dc72c8e12215e28fe8d4e9e36d"
@@ -1591,6 +1601,16 @@
       "sha256": "4e0a883a18b9ff8cb74ae4aeede93b577e3cd333ae357968fdec78114aab89a7"
     },
     {
+      "bytes": 2981,
+      "path": "logs/compiler-observed/macro_rules/macro_resolution.rmeta",
+      "sha256": "29fcc7620c3423f4d2339b9154e06a5c4502b9e92be6443500bca089e400408e"
+    },
+    {
+      "bytes": 65,
+      "path": "logs/compiler-observed/macro_rules/macro_resolution.rmeta.sha256",
+      "sha256": "36c162de671cc1d585bf3bcc277f9f96031fc965b85918c68a8fa24337eb6804"
+    },
+    {
       "bytes": 7113,
       "path": "logs/compiler-observed/macro_rules/manifest.json",
       "sha256": "3a767ff43a011e339f8db93ed253814d9b2661c9fd5076a11d4335b872f4f677"
@@ -1654,6 +1674,16 @@
       "bytes": 65,
       "path": "logs/compiler-observed/proc_macro/macro_hygiene.txt.sha256",
       "sha256": "a694b6ff4ee02134285f9967a05121bbe5280b02ae29517d3385b2d56d0d916f"
+    },
+    {
+      "bytes": 3407,
+      "path": "logs/compiler-observed/proc_macro/macro_resolution.rmeta",
+      "sha256": "2a4e274dad34c4ef98dde72006b1bba99290950d61f1bd22c9e3cffabb2c50d5"
+    },
+    {
+      "bytes": 65,
+      "path": "logs/compiler-observed/proc_macro/macro_resolution.rmeta.sha256",
+      "sha256": "4ff9de414225e4519c1f615bdafdcace895345f0dc07e21b5691710b04ce0ffb"
     },
     {
       "bytes": 7813,
@@ -3986,7 +4016,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-13T00:06:40+00:00",
+  "generated_at_utc": "2026-07-13T00:14:08+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
