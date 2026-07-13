@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "5b4116bb309050029dd672660f80f0c4b4e1bc50dfd4ba5374adceafcdcb127d",
+  "checksum_scope_files_sha256": "187a159d935baccc515540dc122391bd5efe63cf5d550f13a52fbeeaeab87581",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 802,
+  "file_count_in_checksum_scope": 803,
   "files": [
     {
       "bytes": 22712,
@@ -256,9 +256,9 @@
       "sha256": "873a3b25f9298b28d2475468929b0c30cb18c988972554da926f403cd3583311"
     },
     {
-      "bytes": 82710,
+      "bytes": 82719,
       "path": "Cargo.lock",
-      "sha256": "f4237837c64cef5e0d9b48a148a18e3dee36adb85d9e96512559368c74980ba2"
+      "sha256": "1f75b70b7e3bc0ae7b2bdd0f2a70be3deaf09b668c49921e001601b1f4a4dc21"
     },
     {
       "bytes": 604,
@@ -321,9 +321,9 @@
       "sha256": "01dbca2f358b75ea10059c71d5faa523b8a51034a4efeb13518539d599ccf7b2"
     },
     {
-      "bytes": 227092,
+      "bytes": 230618,
       "path": "crates/codedb/src/main.rs",
-      "sha256": "188ce9be3fbaef575c746152959ff768bcb756f03175fdd5ede06b33a561f462"
+      "sha256": "ec6061e5a098feed3c006798532f7453d77426097358ff9d3d2862a0371ca5fd"
     },
     {
       "bytes": 22066,
@@ -391,9 +391,14 @@
       "sha256": "b1e99795052cd23eca148f7a0860a4c83d7804bdc98e6924ad756929f15011c1"
     },
     {
-      "bytes": 278,
+      "bytes": 313,
       "path": "crates/codedb_core/Cargo.toml",
-      "sha256": "5b6dca6cdd0c34527e1f5ebb64ea5770c6998dde7cd612c2fbe5a85070c560ce"
+      "sha256": "18ac48183dc99d6a40c0090013edd30c2926110750816c5b2ae17d4806d50050"
+    },
+    {
+      "bytes": 3184,
+      "path": "crates/codedb_core/build.rs",
+      "sha256": "38f342c94db1cef222761edea854430dbe7b131efa61bddd90ec22bce0513eff"
     },
     {
       "bytes": 36712,
@@ -401,9 +406,9 @@
       "sha256": "bf0caaea0c83207e7b62bdbf96e416e96c1bb032bac4798a1f504ddd6c5a1265"
     },
     {
-      "bytes": 98948,
+      "bytes": 99493,
       "path": "crates/codedb_core/src/lib.rs",
-      "sha256": "73e7fac7b4de8204345d87db4d55590e8852a04474510db5bbdd35e7a3d73b3f"
+      "sha256": "4a4fc55d825cce6ddf946ed4a84b6447ffa5915b048cb7b430c569c255681e86"
     },
     {
       "bytes": 9838,
@@ -4021,7 +4026,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-13T05:21:18+00:00",
+  "generated_at_utc": "2026-07-13T19:17:28+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

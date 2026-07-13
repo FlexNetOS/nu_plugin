@@ -823,6 +823,8 @@ impl From<TableSpec> for TableRow {
 }
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const NU_PLUGIN_PROTOCOL_VERSION: &str = env!("CODEDB_NU_PLUGIN_PROTOCOL_VERSION");
+const NU_PLUGIN_PROTOCOL_NOTE: &str = env!("CODEDB_NU_PLUGIN_PROTOCOL_NOTE");
 pub const SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(1, 0, 0);
 
 pub fn workspace_identity() -> IdentityKey {
@@ -1136,7 +1138,7 @@ pub fn doctor_rows() -> Vec<TableRow> {
             table: "host_nu",
             status: RowState::Observed.as_str(),
             rows: 1,
-            note: "package skeleton targets nu-plugin/nu-protocol 0.112.2",
+            note: NU_PLUGIN_PROTOCOL_NOTE,
         },
         TableRow {
             table: "codedb_store",
@@ -2255,6 +2257,18 @@ fn collect_manifest_hash_entries(
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn doctor_rows_use_the_locked_plugin_handshake_version() {
+        let host_nu = doctor_rows()
+            .into_iter()
+            .find(|row| row.table == "host_nu")
+            .expect("host Nu doctor row");
+        let expected =
+            format!("package targets nu-plugin/nu-protocol handshake {NU_PLUGIN_PROTOCOL_VERSION}");
+
+        assert_eq!(host_nu.note, expected.as_str());
+    }
 
     // Test lane: default
     // Defends: the core schema models stay structured and stable for the package workspace.
