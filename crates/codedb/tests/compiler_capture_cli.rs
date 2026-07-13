@@ -1,17 +1,26 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
+
+static NEXT_TEMP_ROOT: AtomicU64 = AtomicU64::new(0);
 
 fn temp_root() -> PathBuf {
     let suffix = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    std::env::temp_dir().join(format!("codedb-compiler-cli-{suffix}"))
+    let sequence = NEXT_TEMP_ROOT.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "codedb-compiler-cli-{}-{suffix}-{sequence}",
+        std::process::id()
+    ));
+    fs::create_dir(&root).expect("create unique compiler CLI fixture root");
+    root
 }
 
 fn snapshot_source_tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -112,6 +121,19 @@ fn artifact_pin_hashes(rows: &[BTreeMap<String, String>]) -> BTreeMap<String, St
             )
         })
         .collect()
+}
+
+#[test]
+fn compiler_cli_temp_roots_are_atomically_unique() {
+    let roots = (0..64)
+        .map(|_| std::thread::spawn(temp_root))
+        .map(|thread| thread.join().expect("create fixture root"))
+        .collect::<Vec<_>>();
+    let unique = roots.iter().collect::<BTreeSet<_>>();
+    assert_eq!(unique.len(), roots.len());
+    for root in roots {
+        fs::remove_dir(root).expect("remove fixture root");
+    }
 }
 
 fn compiler_hashes(rows: &[BTreeMap<String, String>]) -> (String, String) {
