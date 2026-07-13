@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "ef7d6027766bde5682c45c4b14729c6a30dab25251b907a9912c6476bde0056b",
+  "checksum_scope_files_sha256": "e1893d003c0f6bc056ecf174c6acb527f2f4c02d78389d47d208f26a9d34fa0b",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 802,
   "files": [
@@ -233,7 +233,7 @@
     {
       "bytes": 4266,
       "path": "AGENTS.md",
-      "sha256": "54e2733cdb9a56c308674fc603fddeea096ffffa5863c10ed2d2e3cdfbb10e73"
+      "sha256": "020d716729cde48e6969438f1133ec91f9d85de4dc58b7691a6e600f1b2d6e1a"
     },
     {
       "bytes": 2228,
@@ -248,7 +248,7 @@
     {
       "bytes": 3522,
       "path": "CLAUDE.md",
-      "sha256": "962c83320ece4f8316fc8932a7a812526cc87d92384c8f1b43b514bbd5103773"
+      "sha256": "5180f7f00d685d65c10bca059a1fff575097c5e855f8de7008bf31a9497036a3"
     },
     {
       "bytes": 1383,
@@ -3811,9 +3811,9 @@
       "sha256": "b248718a4d01360eac6dc610f3e87d4e7d7db748d6f4ab5e714d4dced4385fa6"
     },
     {
-      "bytes": 27106,
+      "bytes": 26931,
       "path": "scripts/generate_requirement_proof_receipt.py",
-      "sha256": "2aaac85785573c8a9ddac86c64a42e8f91d70bacadd4dc1fd5a18ed94ce96c46"
+      "sha256": "b2a80f5385a04d50c905a0be6a581629f0869091f3824b32dd006fe175ccc3a2"
     },
     {
       "bytes": 7216,
@@ -3966,9 +3966,9 @@
       "sha256": "beed398d63522aaa8a29b4a666a9c8121b4d5ff50401fbfea002ab8260f5942d"
     },
     {
-      "bytes": 46558,
+      "bytes": 48574,
       "path": "tests/test_requirement_proof_attestation.py",
-      "sha256": "da7dea06bf5a58d6901c831e3a920ddc4ceebc2cf1a621f536bd715942fe89b6"
+      "sha256": "3e40f43f649d62f8a7fb5a7823bdb1f8053b31b48b2ec3b75c629b20bbe6f48f"
     },
     {
       "bytes": 28658,
@@ -4021,7 +4021,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-13T04:34:52+00:00",
+  "generated_at_utc": "2026-07-13T04:40:09+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
