@@ -152,26 +152,33 @@ def git_output(root: Path, *args: str) -> str:
 
 
 # Declared runtime side-effect paths that verification commands legitimately
-# write (test run-logs, gitkb runtime store/cache/workspaces). These are never
-# part of the attested tracked tree (the receipt binds commit/tree SHAs), so an
-# UNTRACKED file under one of these prefixes must not count as a dirty checkout.
-# The full untracked-file check remains in force for every other path — a
-# command that generates an unexpected source/config/manifest file still fails.
+# touch: test run-logs, the gitkb runtime store/cache/workspaces, the envctl
+# runtime db-index, and the archived tooling tarballs. None of these are part of
+# the attested SOURCE tree — the receipt binds the committed commit/tree SHAs, so
+# runtime drift under these paths must not count as a dirty checkout. The full
+# tracked+untracked check remains in force for every other path, so a command
+# that touches any source/config/manifest/test file still fails closed.
 RUNTIME_SIDE_EFFECT_PREFIXES = (
     "logs/",
     ".kb/store/",
     ".kb/.cache/",
     ".kb/workspaces/",
+    ".kb/index/",
+    ".envctl/",
+    ".cache/",
+)
+RUNTIME_SIDE_EFFECT_EXACT = (
+    ".claude.tar.xz",
+    ".codex.tar.xz",
 )
 
 
 def _is_runtime_side_effect(status_line: str) -> bool:
-    # Only untracked entries ("?? path") are tolerated; any tracked-file change
-    # (M/A/D/R) under these prefixes is still reported so nothing attested drifts.
-    if not status_line.startswith("?? "):
-        return False
+    # Porcelain v1: 2 status chars, a space, then the path (rename shows "orig -> new").
     path = status_line[3:].strip().strip('"')
-    return path.startswith(RUNTIME_SIDE_EFFECT_PREFIXES)
+    if " -> " in path:
+        path = path.split(" -> ", 1)[1].strip().strip('"')
+    return path.startswith(RUNTIME_SIDE_EFFECT_PREFIXES) or path in RUNTIME_SIDE_EFFECT_EXACT
 
 
 def worktree_status(root: Path) -> str:
