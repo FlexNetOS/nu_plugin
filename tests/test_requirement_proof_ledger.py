@@ -280,6 +280,42 @@ class RequirementProofLedgerUnitTest(unittest.TestCase):
         )
         self.assertTrue(any(v.rule == "task complete without verified proof" for v in violations))
 
+    def test_verified_completion_note_cannot_deny_current_head_proof(self) -> None:
+        for notes in ledger_validator.CONTRADICTORY_COMPLETION_NOTES:
+            with self.subTest(notes=notes):
+                row = complete_row("CDB013", "")
+                row["notes"] = notes
+                violations = validate_rows(
+                    Path("."),
+                    [row],
+                    expected_ids={"CDB013"},
+                    current_head="a" * 40,
+                    require_all_verified=False,
+                )
+                self.assertTrue(
+                    any(
+                        v.rule == "verified completion note denies current-head proof"
+                        for v in violations
+                    )
+                )
+
+    def test_verified_completion_note_can_limit_proof_scope(self) -> None:
+        row = complete_row("CDB013", "")
+        row["notes"] = "Static coverage is not compiler-observed completion"
+        violations = validate_rows(
+            Path("."),
+            [row],
+            expected_ids={"CDB013"},
+            current_head="a" * 40,
+            require_all_verified=False,
+        )
+        self.assertFalse(
+            any(
+                v.rule == "verified completion note denies current-head proof"
+                for v in violations
+            )
+        )
+
     def test_receipt_evidence_is_bound_to_the_specific_requirement_row(self) -> None:
         head = "a" * 40
         row = complete_row("CDB013")

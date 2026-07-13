@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "3da88bf1e00d479590c434fcd58481fadfb701dae26507013b13c37d0819ea4d",
+  "checksum_scope_files_sha256": "9b657ce29758dfa1387b50b89f6fb579b2ff2a3ec76356e5af9111095e55ab29",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 801,
   "files": [
@@ -806,9 +806,9 @@
       "sha256": "2c3e992a7bf68fcb12bc8a006568c29c38b89ee410807e3791a85bea2d21679b"
     },
     {
-      "bytes": 76334,
+      "bytes": 76604,
       "path": "execution/REQUIREMENT_PROOF_LEDGER.csv",
-      "sha256": "317af83b353dd121d502868e693d4e902b0132cac7d59e4169f8a55be3393cd2"
+      "sha256": "e1c0018acc8fc82f9845f9b93ccb5ce37d35b63e0c7c9c3a332696bec0dbca2d"
     },
     {
       "bytes": 807,
@@ -3846,9 +3846,9 @@
       "sha256": "c1fe5247e8d6a3e58d6a27c6080ff620046e6d065ee7a7ea99f6821df71e62ac"
     },
     {
-      "bytes": 23365,
+      "bytes": 24266,
       "path": "scripts/validate_requirement_proof_ledger.py",
-      "sha256": "94c4dd857fba9018fef7a26a575bf476e106e55b31b2258b43ced81db1141642"
+      "sha256": "76bcb93a884dd75dd228814ce6dc6cda4768efc328de751242b3da49343be722"
     },
     {
       "bytes": 48465,
@@ -3966,9 +3966,9 @@
       "sha256": "da7dea06bf5a58d6901c831e3a920ddc4ceebc2cf1a621f536bd715942fe89b6"
     },
     {
-      "bytes": 26199,
+      "bytes": 27545,
       "path": "tests/test_requirement_proof_ledger.py",
-      "sha256": "2df0fbb6fceffb3c8d1d4b386a29b89db999322df8d70924449ffd647f67da34"
+      "sha256": "9daaeb2f311d3a307dc41b4709e612500ccaed6318406756aebfd7dbea1f042b"
     },
     {
       "bytes": 9469,
@@ -4016,7 +4016,7 @@
       "sha256": "8c4b02cc1f9debad959d0193d883d558a70c2bef2b991bd0355a6af41aca0a67"
     }
   ],
-  "generated_at_utc": "2026-07-13T00:14:08+00:00",
+  "generated_at_utc": "2026-07-13T00:19:08+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
