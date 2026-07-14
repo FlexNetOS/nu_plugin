@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use codedb_context::{
     CargoContextRequest, CommandOutput, CommandRunner, ContextError, capture_context_with_runner,
@@ -246,22 +246,41 @@ fn workspace_member_uses_nearest_ancestor_lockfile() {
     assert_eq!(capture.cargo_lock_sha256.len(), 64);
 }
 
+#[test]
+fn fixture_roots_are_reserved_and_collision_free() {
+    let handles: Vec<_> = (0..8)
+        .map(|_| std::thread::spawn(|| (0..16).map(|_| Fixture::new()).collect::<Vec<_>>()))
+        .collect();
+    let fixtures: Vec<Fixture> = handles
+        .into_iter()
+        .flat_map(|handle| handle.join().expect("fixture thread"))
+        .collect();
+    let roots = fixtures
+        .iter()
+        .map(|fixture| fixture.root.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        roots.len(),
+        fixtures.len(),
+        "fixture roots must be unique so one Drop can never delete a live sibling"
+    );
+}
+
 struct Fixture {
     root: PathBuf,
 }
 
 impl Fixture {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
             "codedb_context_fixture_{}_{}",
             std::process::id(),
-            nonce
+            sequence
         ));
-        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(root.join("src")).unwrap();
         fs::write(
             root.join("Cargo.toml"),
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",

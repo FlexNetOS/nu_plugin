@@ -151,8 +151,64 @@ def git_output(root: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+# Declared untracked runtime side-effect paths that verification commands
+# legitimately touch: test run-logs, the gitkb runtime store/cache/workspaces,
+# the envctl runtime db-index, and archived tooling tarballs. A tracked change
+# under any of these paths still fails closed because it changes the attested
+# checkout; only untracked runtime artifacts may be ignored.
+RUNTIME_SIDE_EFFECT_PREFIXES = (
+    "logs/",
+    ".kb/store/",
+    ".kb/.cache/",
+    ".kb/workspaces/",
+    ".kb/index/",
+    ".envctl/",
+    ".cache/",
+    # Agent-config / harness directories are tooling, not attested CodeDB
+    # source; verification commands (gitkb, codex-env repair/archival) mutate
+    # them as a side effect. The receipt binds the source commit/tree only.
+    ".codex/",
+    ".claude/",
+    ".helix/",
+)
+RUNTIME_SIDE_EFFECT_EXACT = (
+    ".claude.tar.xz",
+    ".codex.tar.xz",
+)
+
+
+def _is_runtime_side_effect(path: str) -> bool:
+    return (
+        path.startswith(RUNTIME_SIDE_EFFECT_PREFIXES)
+        or path in RUNTIME_SIDE_EFFECT_EXACT
+    )
+
+
 def worktree_status(root: Path) -> str:
-    return git_output(root, "status", "--porcelain=v1", "--untracked-files=all")
+    # Keep tracked and untracked checks separate. This avoids parsing porcelain
+    # rename quoting and guarantees that an allowlisted path can never hide a
+    # tracked modification, deletion, or rename.
+    tracked = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=no"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.rstrip("\n")
+    untracked_raw = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout
+    dirty_untracked = [
+        os.fsdecode(item)
+        for item in untracked_raw.split(b"\0")
+        if item and not _is_runtime_side_effect(os.fsdecode(item))
+    ]
+    status_parts = [tracked] if tracked else []
+    status_parts.extend(f"?? {path}" for path in dirty_untracked)
+    return "\n".join(status_parts)
 
 
 def ensure_external_output(root: Path, output: Path) -> Path:

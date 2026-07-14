@@ -60,8 +60,9 @@ def main [] {
     run_checked cargo [build --quiet -p codedb -p nu_plugin_codedb] | ignore
 
     let nu_bin = (which nu | first | get path)
-    let codedb = ([$repo_root target debug codedb] | path join)
-    let plugin = ([$repo_root target debug nu_plugin_codedb] | path join)
+    let target_dir = ($env.CARGO_TARGET_DIR? | default ([$repo_root target] | path join))
+    let codedb = ([$target_dir debug codedb] | path join)
+    let plugin = ([$target_dir debug nu_plugin_codedb] | path join)
     let root = (mktemp -d)
     let home = ([$root home] | path join)
     let repo = ([$root repo] | path join)

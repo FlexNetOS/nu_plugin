@@ -2254,7 +2254,9 @@ fn hex_decode(value: &str) -> io::Result<Vec<u8>> {
     }
     value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let digits = std::str::from_utf8(pair)
                 .map_err(|_| invalid_artifact("hex payload is not UTF-8"))?;
@@ -3163,7 +3165,7 @@ fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
     message.extend_from_slice(&bit_length.to_be_bytes());
 
     let mut hash = INITIAL;
-    for chunk in message.chunks_exact(64) {
+    for chunk in message.as_chunks::<64>().0 {
         let mut schedule = [0_u32; 64];
         for (index, word) in schedule.iter_mut().take(16).enumerate() {
             *word = u32::from_be_bytes(chunk[index * 4..index * 4 + 4].try_into().expect("word"));
@@ -3849,7 +3851,7 @@ fn sanitize_row_values(row: &mut Row) {
 mod tests {
     use super::*;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     fn capture_approved_fixture_build(
         request: BuildCaptureRequest,
@@ -5769,11 +5771,13 @@ edition = "2024"
     }
 
     fn temp_dir(prefix: &str) -> PathBuf {
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("{prefix}_{suffix}"))
+        static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("{prefix}_{}_{sequence}", std::process::id()))
+    }
+
+    fn external_raw_log(repo: &Path, name: &str) -> PathBuf {
+        repo.with_extension("codedb-evidence").join(name)
     }
 
     fn external_raw_log(repo: &Path, name: &str) -> PathBuf {

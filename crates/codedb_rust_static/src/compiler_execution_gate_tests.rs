@@ -1,7 +1,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
     CompilerEvidenceCollectionStatus, CompilerEvidenceOptions, CompilerExecutionApprovalAuthority,
@@ -177,16 +177,14 @@ struct FixtureDirectory {
 
 impl FixtureDirectory {
     fn new(label: &str) -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock before unix epoch")
-            .as_nanos();
+        static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
             "codedb_rust_static_{label}_{}_{}",
             std::process::id(),
-            nonce
+            sequence
         ));
-        fs::create_dir(&path).expect("create fixture directory");
+        fs::create_dir(&path).expect("reserve fixture directory");
         Self { path }
     }
 
