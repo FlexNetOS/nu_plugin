@@ -50,7 +50,7 @@ def external_identities() -> dict[str, ExternalSourceIdentity]:
         "envctl": ExternalSourceIdentity(
             name="envctl",
             repository="FlexNetOS/envctl",
-            source_ref="refs/heads/envctl-db-automation-2026-07-12",
+            source_ref="refs/heads/master",
             commit_sha="c" * 40,
             tree_sha="d" * 40,
             checkout_path="../envctl",
@@ -312,7 +312,7 @@ class RequirementProofAttestationTest(unittest.TestCase):
             {"envctl", "loop_lib", "meta_plugin_protocol"}, set(sources)
         )
         self.assertEqual(
-            "b62669c4e32c8de0407aa51ca3add94d529b50b6",
+            "58fd32c9b756251d4a9c8989e0235086c0de54e0",
             sources["envctl"].commit_sha,
         )
         self.assertEqual(
@@ -328,7 +328,7 @@ class RequirementProofAttestationTest(unittest.TestCase):
             pin_text = (ROOT / EXTERNAL_SOURCE_PIN_PATH).read_text(encoding="utf-8")
             tampered_pin.write_text(
                 pin_text.replace(
-                    "b62669c4e32c8de0407aa51ca3add94d529b50b6",
+                    "58fd32c9b756251d4a9c8989e0235086c0de54e0",
                     "9" * 40,
                 ),
                 encoding="utf-8",
