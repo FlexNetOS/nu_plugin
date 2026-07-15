@@ -105,9 +105,9 @@ digests. It also binds every external repository required by the envctl proof
 surface to the tracked `external-sources/requirement-proof-sources.json` pin:
 
 - `FlexNetOS/envctl` at
-  `b62669c4e32c8de0407aa51ca3add94d529b50b6` / tree
-  `f9ca54b6c7529ab1b690ab1f75c507d7ff54d6eb` from
-  `refs/heads/envctl-db-automation-2026-07-12`;
+  `58fd32c9b756251d4a9c8989e0235086c0de54e0` / tree
+  `0bf5a018648ed41fdb3ea8fc11ae56a463e658e3` from
+  `refs/heads/master`;
 - `FlexNetOS/loop_lib` at
   `6e79836387d15ac5849e73e7bb869c6077953d90` / tree
   `bb08ee9abf326bd6658655ae9222306ddaed743c` from `refs/heads/main`;
