@@ -6,6 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
+  "checksum_scope_files_sha256": "5b4116bb309050029dd672660f80f0c4b4e1bc50dfd4ba5374adceafcdcb127d",
   "checksum_scope_files_sha256": "187a159d935baccc515540dc122391bd5efe63cf5d550f13a52fbeeaeab87581",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 803,
@@ -4026,6 +4027,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
+  "generated_at_utc": "2026-07-13T05:21:18+00:00",
   "generated_at_utc": "2026-07-13T19:17:28+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
