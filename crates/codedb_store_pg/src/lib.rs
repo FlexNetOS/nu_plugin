@@ -1259,6 +1259,52 @@ fn parse_unix_mode(metadata_text: &str) -> Option<u32> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Outbox export contract (ARCHBP-002): the versioned PostgreSQL landing table
+// for ordered embedding work drained from the redb outbox. This table is an
+// export contract only — envctl remains the sole authoritative committer and
+// consumes these rows; nothing here mutates authoritative LifeOS state.
+// ---------------------------------------------------------------------------
+
+/// Fixed name of the versioned export contract table.
+pub const OUTBOX_EXPORT_TABLE: &str = "codedb_outbox_export";
+/// Version stamped on every exported row.
+pub const OUTBOX_EXPORT_CONTRACT_VERSION: &str = "codedb.outbox-export.v0";
+
+#[derive(Debug, Clone)]
+pub struct OutboxExportRowInput {
+    pub seq: u64,
+    pub blob_sha256: String,
+    pub job_json: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OutboxExportOutcome {
+    pub inserted: Vec<u64>,
+    pub skipped_existing: Vec<u64>,
+}
+
+/// Idempotently land export rows keyed by outbox sequence. Creates the
+/// contract table when absent; every insert is `ON CONFLICT (seq) DO
+/// NOTHING`, and the whole batch commits in one transaction so a crash can
+/// never leave a partially visible batch.
+pub fn outbox_export_flush(
+    conn: &str,
+    rows: &[OutboxExportRowInput],
+) -> Result<OutboxExportOutcome, StoreError> {
+    let _ = (conn, rows);
+    Err(StoreError::new("outbox_export_flush is not implemented"))
+}
+
+/// Read back every exported row ordered by sequence: (seq, contract_version,
+/// blob_sha256, job_json).
+pub fn outbox_export_rows(
+    conn: &str,
+) -> Result<Vec<(i64, String, String, String)>, StoreError> {
+    let _ = conn;
+    Err(StoreError::new("outbox_export_rows is not implemented"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -141,6 +141,9 @@ pub enum StoreError {
         table: &'static str,
         key: &'static str,
     },
+    OutboxContract {
+        message: String,
+    },
 }
 
 impl Display for StoreError {
@@ -159,6 +162,9 @@ impl Display for StoreError {
             }
             Self::MissingValue { table, key } => {
                 write!(f, "missing metadata value {key} in table {table}")
+            }
+            Self::OutboxContract { message } => {
+                write!(f, "outbox contract violation: {message}")
             }
         }
     }
@@ -1357,6 +1363,88 @@ impl BlobStore for ReadOnlyStore {
                     .collect()
             })
     }
+}
+
+// ---------------------------------------------------------------------------
+// Outbox: restartable local buffer + explicit application outbox (ARCHBP-002).
+// Entries are append-only with contiguous monotonic sequences; the single
+// acknowledge cursor is the only mutable state. Entries are never deleted, so
+// the outbox remains replayable and lossless after any crash.
+// ---------------------------------------------------------------------------
+
+const OUTBOX_ENTRIES_TABLE: TableDefinition<u64, &str> = TableDefinition::new("outbox_entries");
+const OUTBOX_CURSOR_TABLE: TableDefinition<&str, u64> = TableDefinition::new("outbox_cursor");
+const OUTBOX_ACK_KEY: &str = "acknowledged";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutboxEntryRow {
+    pub seq: u64,
+    pub entry_json: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutboxStatusRow {
+    pub enqueued: u64,
+    pub acknowledged: u64,
+    pub pending: u64,
+}
+
+/// Append one entry; returns its assigned sequence (contiguous from 1).
+#[allow(clippy::result_large_err)]
+pub fn outbox_enqueue(
+    store_path: impl AsRef<Path>,
+    entry_json: &str,
+) -> Result<u64, StoreError> {
+    let _ = (store_path.as_ref(), entry_json);
+    Err(StoreError::OutboxContract {
+        message: "outbox_enqueue is not implemented".into(),
+    })
+}
+
+/// Entries strictly after the acknowledge cursor, in sequence order.
+#[allow(clippy::result_large_err)]
+pub fn outbox_pending(
+    store_path: impl AsRef<Path>,
+    limit: usize,
+) -> Result<Vec<OutboxEntryRow>, StoreError> {
+    let _ = (store_path.as_ref(), limit);
+    Err(StoreError::OutboxContract {
+        message: "outbox_pending is not implemented".into(),
+    })
+}
+
+/// Advance the acknowledge cursor. The cursor is monotonic and can never
+/// pass the last enqueued sequence; violations fail closed.
+#[allow(clippy::result_large_err)]
+pub fn outbox_acknowledge(
+    store_path: impl AsRef<Path>,
+    up_to: u64,
+) -> Result<u64, StoreError> {
+    let _ = (store_path.as_ref(), up_to);
+    Err(StoreError::OutboxContract {
+        message: "outbox_acknowledge is not implemented".into(),
+    })
+}
+
+/// Observable outbox state: last enqueued seq, acknowledge cursor, pending.
+#[allow(clippy::result_large_err)]
+pub fn outbox_status(store_path: impl AsRef<Path>) -> Result<OutboxStatusRow, StoreError> {
+    let _ = store_path.as_ref();
+    Err(StoreError::OutboxContract {
+        message: "outbox_status is not implemented".into(),
+    })
+}
+
+/// Whether the content-addressed source blob is present in this store.
+#[allow(clippy::result_large_err)]
+pub fn source_blob_exists(
+    store_path: impl AsRef<Path>,
+    sha256: &str,
+) -> Result<bool, StoreError> {
+    let _ = (store_path.as_ref(), sha256);
+    Err(StoreError::OutboxContract {
+        message: "source_blob_exists is not implemented".into(),
+    })
 }
 
 #[cfg(test)]
