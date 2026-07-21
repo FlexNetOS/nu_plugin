@@ -114,8 +114,9 @@ pub struct MaterializedSymlink {
 /// Exact authority to roll back one successful atomic publication.
 ///
 /// The destination parent descriptor remains bound even if its pathname is
-/// renamed, while the device/inode pair identifies only the entry published by
-/// this attempt. Fields are private so callers cannot forge rollback authority.
+/// renamed, while an open descriptor pins the entry published by this attempt
+/// so its inode cannot be recycled after an unlink/replacement ABA. Fields are
+/// private so callers cannot forge rollback authority.
 pub struct MaterializedFileRollback {
     path: PathBuf,
     #[cfg(target_os = "linux")]
@@ -127,16 +128,14 @@ pub struct MaterializedFileRollback {
     #[cfg(target_os = "linux")]
     parent_inode: u64,
     #[cfg(target_os = "linux")]
-    file_device: u64,
-    #[cfg(target_os = "linux")]
-    file_inode: u64,
+    publication: rustix::fd::OwnedFd,
 }
 
 /// Unforgeable rollback authority for one native symlink publication.
 ///
-/// The inner publication identity uses the same bound-parent and device/inode
-/// checks as regular-file rollback, so a concurrent replacement is preserved
-/// and reported instead of being deleted.
+/// The inner publication identity uses the same bound parent and pinned
+/// publication descriptor as regular-file rollback, so a concurrent
+/// replacement is preserved and reported instead of being deleted.
 pub struct MaterializedSymlinkRollback(MaterializedFileRollback);
 
 impl std::fmt::Debug for MaterializedFileRollback {
@@ -146,7 +145,7 @@ impl std::fmt::Debug for MaterializedFileRollback {
             .field("path", &self.path)
             .field(
                 "identity",
-                &"<bound destination parent and file device/inode>",
+                &"<bound destination parent and pinned publication descriptors>",
             )
             .finish()
     }
@@ -604,7 +603,7 @@ fn materialize_symlink_impl(
     output_path: &Path,
     target: &str,
 ) -> Result<MaterializedFileRollback, StoreError> {
-    use rustix::fs::AtFlags;
+    use rustix::fs::{AtFlags, Mode, OFlags};
 
     let parent_path = output_path
         .parent()
@@ -635,6 +634,32 @@ fn materialize_symlink_impl(
                 "inspect symlink materialization publication identity failed: {error}"
             ))
         })?;
+    let publication = rustix::fs::openat(
+        &parent,
+        final_name,
+        OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|error| {
+        let _ = rustix::fs::unlinkat(&parent, final_name, AtFlags::empty());
+        StoreError::new(format!(
+            "retain symlink materialization publication descriptor failed: {error}"
+        ))
+    })?;
+    let publication_identity = rustix::fs::fstat(&publication).map_err(|error| {
+        let _ = rustix::fs::unlinkat(&parent, final_name, AtFlags::empty());
+        StoreError::new(format!(
+            "inspect retained symlink materialization publication failed: {error}"
+        ))
+    })?;
+    if publication_identity.st_dev != link_identity.st_dev
+        || publication_identity.st_ino != link_identity.st_ino
+    {
+        let _ = rustix::fs::unlinkat(&parent, final_name, AtFlags::empty());
+        return Err(StoreError::new(
+            "symlink materialization publication changed while retaining its descriptor",
+        ));
+    }
     let parent_identity = rustix::fs::fstat(&parent).map_err(|error| {
         let _ = rustix::fs::unlinkat(&parent, final_name, AtFlags::empty());
         StoreError::new(format!(
@@ -652,8 +677,7 @@ fn materialize_symlink_impl(
         final_name: final_name.to_os_string(),
         parent_device: parent_identity.st_dev,
         parent_inode: parent_identity.st_ino,
-        file_device: link_identity.st_dev,
-        file_inode: link_identity.st_ino,
+        publication,
     };
 
     if let Err(error) = rustix::fs::fsync(&parent) {
@@ -810,6 +834,12 @@ fn rollback_materialized_file_impl(rollback: MaterializedFileRollback) -> Result
             rollback.path.display()
         )));
     }
+    let publication_identity = rustix::fs::fstat(&rollback.publication).map_err(|error| {
+        StoreError::new(format!(
+            "inspect retained materialization publication failed for {}: {error}",
+            rollback.path.display()
+        ))
+    })?;
 
     static ROLLBACK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let quarantine = loop {
@@ -849,7 +879,9 @@ fn rollback_materialized_file_impl(rollback: MaterializedFileRollback) -> Result
                 quarantine.to_string_lossy()
             ))
         })?;
-    if observed.st_dev == rollback.file_device && observed.st_ino == rollback.file_inode {
+    if observed.st_dev == publication_identity.st_dev
+        && observed.st_ino == publication_identity.st_ino
+    {
         rustix::fs::unlinkat(&rollback.parent, &quarantine, AtFlags::empty()).map_err(
             |error| {
                 StoreError::new(format!(
@@ -878,8 +910,8 @@ fn rollback_materialized_file_impl(rollback: MaterializedFileRollback) -> Result
             Err(StoreError::new(format!(
                 "materialization rollback identity conflict for {}: expected device/inode {}/{}, observed {}/{}; replacement preserved and residual requires audit",
                 rollback.path.display(),
-                rollback.file_device,
-                rollback.file_inode,
+                publication_identity.st_dev,
+                publication_identity.st_ino,
                 observed.st_dev,
                 observed.st_ino
             )))
@@ -1026,11 +1058,6 @@ fn atomic_materialize_file_impl(
         }
         #[cfg(target_os = "linux")]
         {
-            let file_identity = rustix::fs::fstat(&file).map_err(|error| {
-                StoreError::new(format!(
-                    "inspect materialization publication identity failed: {error}"
-                ))
-            })?;
             let parent_identity = rustix::fs::fstat(&parent).map_err(|error| {
                 StoreError::new(format!(
                     "inspect materialization destination parent identity failed: {error}"
@@ -1046,8 +1073,11 @@ fn atomic_materialize_file_impl(
                 final_name: final_name.to_os_string(),
                 parent_device: parent_identity.st_dev,
                 parent_inode: parent_identity.st_ino,
-                file_device: file_identity.st_dev,
-                file_inode: file_identity.st_ino,
+                publication: rustix::io::dup(&file).map_err(|error| {
+                    StoreError::new(format!(
+                        "retain materialization publication descriptor failed: {error}"
+                    ))
+                })?,
             });
         }
         drop(file);
