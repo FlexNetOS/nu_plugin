@@ -19,6 +19,7 @@ def run_checked [command: string, args: list<string>] {
 # Nushell AST rows for one source string, normalized to a stable shape.
 def nu_ast_rows [source: string] {
     ast $source --json --flatten
+    | from json
     | each {|row|
         {
             content: $row.content,
@@ -34,7 +35,8 @@ def fixture_entry [fixture_root: string, relative_path: string] {
     let bytes = (open --raw $absolute)
     let is_nu = ($relative_path | str ends-with ".nu")
     let ast_rows = if $is_nu {
-        nu_ast_rows ($bytes | decode utf-8)
+        let text = if ($bytes | describe) == "binary" { $bytes | decode utf-8 } else { $bytes }
+        nu_ast_rows $text
     } else {
         []
     }
@@ -164,7 +166,12 @@ def main [] {
         if $stored.unix_mode != $submitted.unix_mode {
             fail $"unix_mode did not round-trip for ($submitted.path): ($stored.unix_mode) != ($submitted.unix_mode)"
         }
-        if ($stored.ast | to json --raw) != ($submitted.ast | to json --raw) {
+        # Field order over the plugin boundary is cosmetic (serde maps sort
+        # keys); compare rows with a normalized column order.
+        let stored_ast = ($stored.ast | each {|r|
+            {content: $r.content, shape: $r.shape, span_start: $r.span_start, span_end: $r.span_end}
+        })
+        if ($stored_ast | to json --raw) != ($submitted.ast | to json --raw) {
             fail $"AST metadata did not round-trip for ($submitted.path)"
         }
     }

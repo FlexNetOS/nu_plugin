@@ -24,10 +24,6 @@ impl IngestError {
     pub fn new(message: impl Into<String>) -> Self {
         Self(message.into())
     }
-
-    pub fn message(&self) -> &str {
-        &self.0
-    }
 }
 
 impl Display for IngestError {
@@ -118,8 +114,106 @@ pub struct IngestReportRow {
 /// blake3 must equal the recomputed identity; unix modes are 3-4 octal
 /// digits.
 pub fn validate_envelope(json: &str) -> Result<Vec<ValidatedFile>, IngestError> {
-    let _ = json;
-    Err(IngestError::new("not implemented"))
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use sha2::{Digest, Sha256};
+
+    let envelope: IngestEnvelope = serde_json::from_str(json)
+        .map_err(|error| IngestError::new(format!("invalid envelope JSON: {error}")))?;
+    if envelope.schema_version != ENVELOPE_SCHEMA_VERSION {
+        return Err(IngestError::new(format!(
+            "unsupported schema_version {:?}; expected {ENVELOPE_SCHEMA_VERSION:?}",
+            envelope.schema_version
+        )));
+    }
+    if envelope.files.is_empty() {
+        return Err(IngestError::new("envelope contains no files"));
+    }
+    if envelope.files.len() > MAX_ENVELOPE_FILES {
+        return Err(IngestError::new(format!(
+            "envelope exceeds the {MAX_ENVELOPE_FILES}-file bound: {}",
+            envelope.files.len()
+        )));
+    }
+
+    let mut seen_paths = std::collections::BTreeSet::new();
+    let mut validated = Vec::with_capacity(envelope.files.len());
+    for file in envelope.files {
+        validate_relative_path(&file.path)?;
+        if !seen_paths.insert(file.path.clone()) {
+            return Err(IngestError::new(format!(
+                "duplicate path in envelope: {:?}",
+                file.path
+            )));
+        }
+        if !(3..=4).contains(&file.unix_mode.len())
+            || !file.unix_mode.bytes().all(|b| (b'0'..=b'7').contains(&b))
+        {
+            return Err(IngestError::new(format!(
+                "{}: unix_mode must be 3-4 octal digits, got {:?}",
+                file.path, file.unix_mode
+            )));
+        }
+        if file.ast.len() > MAX_AST_ROWS_PER_FILE {
+            return Err(IngestError::new(format!(
+                "{}: AST rows exceed the {MAX_AST_ROWS_PER_FILE}-row bound: {}",
+                file.path,
+                file.ast.len()
+            )));
+        }
+        let bytes = BASE64.decode(&file.content_base64).map_err(|error| {
+            IngestError::new(format!("{}: invalid content base64: {error}", file.path))
+        })?;
+        if bytes.len() > MAX_FILE_BYTES {
+            return Err(IngestError::new(format!(
+                "{}: decoded content exceeds the {MAX_FILE_BYTES}-byte bound: {} bytes",
+                file.path,
+                bytes.len()
+            )));
+        }
+        let sha256 = format!("{:x}", Sha256::digest(&bytes));
+        if sha256 != file.sha256 {
+            return Err(IngestError::new(format!(
+                "{}: declared sha256 {} does not match decoded bytes ({sha256})",
+                file.path, file.sha256
+            )));
+        }
+        let blake3 = blake3::hash(&bytes).to_hex().to_string();
+        if let Some(declared) = &file.blake3 {
+            if declared != &blake3 {
+                return Err(IngestError::new(format!(
+                    "{}: declared blake3 {declared} does not match decoded bytes ({blake3})",
+                    file.path
+                )));
+            }
+        }
+        validated.push(ValidatedFile { file, bytes, blake3 });
+    }
+    Ok(validated)
+}
+
+fn validate_relative_path(path: &str) -> Result<(), IngestError> {
+    if path.is_empty() {
+        return Err(IngestError::new("empty path in envelope"));
+    }
+    if path.contains('\\') {
+        return Err(IngestError::new(format!(
+            "path {path:?} must use forward slashes"
+        )));
+    }
+    if path.starts_with('/') {
+        return Err(IngestError::new(format!(
+            "path {path:?} must be relative"
+        )));
+    }
+    for component in path.split('/') {
+        if component.is_empty() || component == "." || component == ".." {
+            return Err(IngestError::new(format!(
+                "path {path:?} contains a forbidden component {component:?}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Persist validated files into the redb store at `store_path`,
@@ -129,15 +223,76 @@ pub fn run_ingest(
     store_path: &std::path::Path,
     files: &[ValidatedFile],
 ) -> Result<IngestReceipt, IngestError> {
-    let _ = (store_path, files);
-    Err(IngestError::new("not implemented"))
+    let mut receipt_files = Vec::with_capacity(files.len());
+    let mut dedup_hit_count = 0u64;
+    for validated in files {
+        let ast_json = serde_json::to_string(&validated.file.ast)
+            .map_err(|error| IngestError::new(format!("serialize AST rows: {error}")))?;
+        let row = codedb_store_redb::persist_ingest_file(
+            store_path,
+            validated.file.path.as_str(),
+            &validated.bytes,
+            &validated.blake3,
+            &validated.file.unix_mode,
+            &validated.file.module_path,
+            &ast_json,
+        )
+        .map_err(|error| {
+            IngestError::new(format!("{}: store write failed: {error}", validated.file.path))
+        })?;
+        if row.deduplicated {
+            dedup_hit_count += 1;
+        }
+        receipt_files.push(ReceiptFile {
+            path: row.relative_path,
+            sha256: row.sha256,
+            blake3: validated.blake3.clone(),
+            blob_ref: row.blob_ref,
+            bytes: row.bytes,
+            deduplicated: row.deduplicated,
+            ast_rows: validated.file.ast.len() as u64,
+        });
+    }
+    let file_count = receipt_files.len() as u64;
+    Ok(IngestReceipt {
+        schema_version: RECEIPT_SCHEMA_VERSION.to_string(),
+        files: receipt_files,
+        summary: ReceiptSummary {
+            file_count,
+            unique_blob_count: file_count - dedup_hit_count,
+            dedup_hit_count,
+        },
+    })
 }
 
 /// Read back every ingested file's stored metadata (module path, unix mode,
 /// hashes, AST rows) from the redb store.
 pub fn ingest_report(store_path: &std::path::Path) -> Result<Vec<IngestReportRow>, IngestError> {
-    let _ = store_path;
-    Err(IngestError::new("not implemented"))
+    let rows = codedb_store_redb::list_ingest_files(store_path)
+        .map_err(|error| IngestError::new(format!("store read failed: {error}")))?;
+    rows.into_iter()
+        .map(|row| {
+            let ast: Vec<AstRow> = if row.ast_json.is_empty() {
+                Vec::new()
+            } else {
+                serde_json::from_str(&row.ast_json).map_err(|error| {
+                    IngestError::new(format!(
+                        "{}: stored AST rows are not valid JSON: {error}",
+                        row.relative_path
+                    ))
+                })?
+            };
+            Ok(IngestReportRow {
+                path: row.relative_path,
+                module_path: row.module_path,
+                unix_mode: row.unix_mode,
+                sha256: row.sha256,
+                blake3: row.blake3,
+                bytes: row.bytes,
+                ast,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -209,7 +364,7 @@ mod tests {
         let json = envelope_json(&[file_entry("mod.nu", b"x")])
             .replace(ENVELOPE_SCHEMA_VERSION, "codedb.ingest-envelope.v999");
         let error = validate_envelope(&json).expect_err("wrong schema must fail");
-        assert!(error.message().contains("schema_version"), "{error}");
+        assert!(error.to_string().contains("schema_version"), "{error}");
     }
 
     #[test]
@@ -217,7 +372,7 @@ mod tests {
         for bad in ["../escape.nu", "/etc/passwd", "a/../b.nu", "a\\b.nu", ""] {
             let json = envelope_json(&[file_entry(bad, b"x")]);
             let error = validate_envelope(&json).expect_err(&format!("{bad:?} must fail"));
-            assert!(error.message().contains("path"), "{bad:?}: {error}");
+            assert!(error.to_string().contains("path"), "{bad:?}: {error}");
         }
     }
 
@@ -226,7 +381,7 @@ mod tests {
         let mut entry = file_entry("mod.nu", b"real bytes");
         entry.sha256 = sha256_hex(b"other bytes");
         let error = validate_envelope(&envelope_json(&[entry])).expect_err("sha mismatch");
-        assert!(error.message().contains("sha256"), "{error}");
+        assert!(error.to_string().contains("sha256"), "{error}");
     }
 
     #[test]
@@ -234,7 +389,7 @@ mod tests {
         let mut entry = file_entry("mod.nu", b"real bytes");
         entry.blake3 = Some(blake3::hash(b"other bytes").to_hex().to_string());
         let error = validate_envelope(&envelope_json(&[entry])).expect_err("blake3 mismatch");
-        assert!(error.message().contains("blake3"), "{error}");
+        assert!(error.to_string().contains("blake3"), "{error}");
     }
 
     #[test]
@@ -242,24 +397,24 @@ mod tests {
         let mut entry = file_entry("mod.nu", b"x");
         entry.content_base64 = "!!!not-base64!!!".to_string();
         let error = validate_envelope(&envelope_json(&[entry])).expect_err("bad base64");
-        assert!(error.message().contains("base64"), "{error}");
+        assert!(error.to_string().contains("base64"), "{error}");
 
         let big = vec![b'a'; MAX_FILE_BYTES + 1];
         let error = validate_envelope(&envelope_json(&[file_entry("big.nu", &big)]))
             .expect_err("oversize content");
-        assert!(error.message().contains("bytes"), "{error}");
+        assert!(error.to_string().contains("bytes"), "{error}");
     }
 
     #[test]
     fn rejects_duplicate_paths_and_bad_unix_mode() {
         let json = envelope_json(&[file_entry("mod.nu", b"a"), file_entry("mod.nu", b"b")]);
         let error = validate_envelope(&json).expect_err("duplicate path");
-        assert!(error.message().contains("path"), "{error}");
+        assert!(error.to_string().contains("path"), "{error}");
 
         let mut entry = file_entry("mod.nu", b"a");
         entry.unix_mode = "rwxr-xr-x".to_string();
         let error = validate_envelope(&envelope_json(&[entry])).expect_err("bad mode");
-        assert!(error.message().contains("unix_mode"), "{error}");
+        assert!(error.to_string().contains("unix_mode"), "{error}");
     }
 
     #[test]
