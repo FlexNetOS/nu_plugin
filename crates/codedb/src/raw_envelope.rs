@@ -83,9 +83,16 @@ pub struct RawCompletion {
 pub struct RawMetadata {
     pub schema_version: String,
     pub idempotency_key: String,
+    // Required by deserialization so an envelope missing any of these fails
+    // the contract; only schema_version and idempotency_key are read here,
+    // and the full metadata echo preserves everything for the store.
+    #[allow(dead_code)]
     pub rtk_filter: String,
+    #[allow(dead_code)]
     pub rtk_filter_revision: String,
+    #[allow(dead_code)]
     pub parser_name: String,
+    #[allow(dead_code)]
     pub parser_status: String,
 }
 
