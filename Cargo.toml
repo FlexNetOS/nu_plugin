@@ -10,6 +10,7 @@ members = [
   "crates/codedb_rust_static",
   "crates/codedb_store_redb",
   "crates/codedb_store_pg",
+  "crates/codedb_ruvector_adapter",
   "crates/nu_plugin_codedb",
 ]
 resolver = "3"
