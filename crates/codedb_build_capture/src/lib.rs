@@ -5779,8 +5779,4 @@ edition = "2024"
     fn external_raw_log(repo: &Path, name: &str) -> PathBuf {
         repo.with_extension("codedb-evidence").join(name)
     }
-
-    fn external_raw_log(repo: &Path, name: &str) -> PathBuf {
-        repo.with_extension("codedb-evidence").join(name)
-    }
 }

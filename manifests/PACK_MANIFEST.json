@@ -6,9 +6,9 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "f597a13b8d21e9d6253816c8a84855ea88f7c72b6c0a1906509158453b869a55",
+  "checksum_scope_files_sha256": "b5481826845af595dfbfb25b343e2b1ed29e90b027c0bb389a0dc85a3d95b12c",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 807,
+  "file_count_in_checksum_scope": 813,
   "files": [
     {
       "bytes": 2748,
@@ -371,9 +371,9 @@
       "sha256": "4c057839d705ca8ef6af5f9f4100eecaee7f78e75c9920503c8b781f328fa3e9"
     },
     {
-      "bytes": 215285,
+      "bytes": 215158,
       "path": "crates/codedb_build_capture/src/lib.rs",
-      "sha256": "6fe264a27f8045ebd9f94a4120cd79a79c8586ca15e9c21b73d4eea2b2609dfd"
+      "sha256": "cb4601fc124b646abd461825d9043b246f94ac4d5770877d595bb495f4802034"
     },
     {
       "bytes": 4799,
@@ -949,6 +949,36 @@
       "bytes": 195,
       "path": "fixtures/include_edges/src/lib.rs",
       "sha256": "0ddb423c30d0a829b13d9a9b26f07bbcaf898240aee4c07ca33fa6b67f65439f"
+    },
+    {
+      "bytes": 227,
+      "path": "fixtures/ingestion_round_trip/Cargo.toml",
+      "sha256": "e1c307d353020ce80814886878908658238a54b5e8de0f32456485ad84737064"
+    },
+    {
+      "bytes": 114,
+      "path": "fixtures/ingestion_round_trip/dup/copy_one.nu",
+      "sha256": "7d06623c078c2ad8080e2e08f358ea96df5c165387b2e22e94633776c006d86f"
+    },
+    {
+      "bytes": 114,
+      "path": "fixtures/ingestion_round_trip/dup/copy_two.nu",
+      "sha256": "7d06623c078c2ad8080e2e08f358ea96df5c165387b2e22e94633776c006d86f"
+    },
+    {
+      "bytes": 251,
+      "path": "fixtures/ingestion_round_trip/mod.nu",
+      "sha256": "a41ae05805a4d57c1a10af80fd673a52c1266267011f0031f00fcc2a95b4f657"
+    },
+    {
+      "bytes": 166,
+      "path": "fixtures/ingestion_round_trip/scripts/build.nu",
+      "sha256": "a87690af6c2526de447d0347d7ced4570637be9f3b123fac87fe5b45a332c252"
+    },
+    {
+      "bytes": 187,
+      "path": "fixtures/ingestion_round_trip/src/lib.rs",
+      "sha256": "5fcde5b81ccbff60e342dbf270c3ad4c50789686e4e7bccc2e53245e1acb08d6"
     },
     {
       "bytes": 137,
@@ -4046,7 +4076,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-21T08:45:43+00:00",
+  "generated_at_utc": "2026-07-21T08:51:43+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
