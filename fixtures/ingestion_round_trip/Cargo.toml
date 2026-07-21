@@ -1,0 +1,11 @@
+# Ingestion round-trip fixture: TOML manifest with a nested table.
+
+[package]
+name = "ingestion-round-trip-fixture"
+version = "0.1.0"
+edition = "2021"
+
+[package.metadata.codedb]
+fixture = "ingestion_round_trip"
+
+[dependencies]
