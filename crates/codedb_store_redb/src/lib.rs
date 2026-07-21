@@ -39,6 +39,12 @@ const SOURCE_BLOBS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("s
 const SOURCE_FILES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("source_files");
 const SOURCE_FILE_METADATA_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("source_file_metadata");
+// BLAKE3 content identity -> sha256 blob key. Created lazily by the first
+// ingest-envelope write so pre-existing stores stay valid without migration.
+const BLAKE3_INDEX_TABLE: TableDefinition<&str, &str> = TableDefinition::new("blake3_index");
+
+/// Artifact kind marking rows written by `codedb ingest-envelope`.
+pub const INGEST_ARTIFACT_KIND: &str = "ingest_envelope_file";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreInitContext<'a> {
@@ -92,6 +98,30 @@ pub struct FileMaterializationReport {
     pub blob_ref: String,
     pub sha256: String,
     pub bytes: u64,
+}
+
+/// One file persisted by `codedb ingest-envelope`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IngestFileRow {
+    pub relative_path: String,
+    pub blob_ref: String,
+    pub sha256: String,
+    pub bytes: u64,
+    /// True when the BLAKE3 identity was already indexed before this write,
+    /// i.e. identical bytes are content-addressed exactly once.
+    pub deduplicated: bool,
+}
+
+/// One ingested file read back with its stored metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IngestReportRow {
+    pub relative_path: String,
+    pub module_path: String,
+    pub unix_mode: String,
+    pub sha256: String,
+    pub blake3: String,
+    pub bytes: u64,
+    pub ast_json: String,
 }
 
 #[derive(Debug)]
@@ -348,6 +378,109 @@ pub fn persist_source_blob(
         sha256,
         bytes: bytes.len() as u64,
     })
+}
+
+/// Persist one `ingest-envelope` file: content-address the exact bytes once
+/// (sha256 blob key, BLAKE3 dedup index), bind the relative path, and store
+/// the module path, unix mode, BLAKE3 identity, and Nushell AST rows as
+/// metadata. The `unix_mode` metadata key is the same one
+/// [`materialize_source_file`] restores, so ingested files round-trip
+/// permissions through the existing materialization path.
+#[allow(clippy::result_large_err)]
+pub fn persist_ingest_file(
+    store_path: impl AsRef<Path>,
+    relative_path: impl Into<String>,
+    bytes: &[u8],
+    blake3: &str,
+    unix_mode: &str,
+    module_path: &str,
+    ast_json: &str,
+) -> Result<IngestFileRow, StoreError> {
+    let relative_path = relative_path.into();
+    let sha256 = sha256_bytes(bytes);
+    let blob_ref = format!("sha256:{sha256}");
+    let db = Database::open(store_path.as_ref())?;
+    let deduplicated;
+    {
+        let write_txn = db.begin_write()?;
+        {
+            let mut blake3_index = write_txn.open_table(BLAKE3_INDEX_TABLE)?;
+            deduplicated = blake3_index.get(blake3)?.is_some();
+            blake3_index.insert(blake3, sha256.as_str())?;
+        }
+        {
+            let mut blobs = write_txn.open_table(SOURCE_BLOBS_TABLE)?;
+            blobs.insert(sha256.as_str(), bytes)?;
+        }
+        {
+            let mut files = write_txn.open_table(SOURCE_FILES_TABLE)?;
+            files.insert(relative_path.as_str(), blob_ref.as_str())?;
+        }
+        {
+            let mut metadata = write_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+            for (field, value) in [
+                ("artifact_kind", INGEST_ARTIFACT_KIND),
+                ("permission_capture", "unix_mode"),
+                ("unix_mode", unix_mode),
+                ("module_path", module_path),
+                ("blake3", blake3),
+                ("nu_ast", ast_json),
+            ] {
+                metadata.insert(
+                    source_file_metadata_key(&relative_path, field).as_str(),
+                    value,
+                )?;
+            }
+        }
+        write_txn.commit()?;
+    }
+
+    Ok(IngestFileRow {
+        relative_path,
+        blob_ref,
+        sha256,
+        bytes: bytes.len() as u64,
+        deduplicated,
+    })
+}
+
+/// Read back every `ingest-envelope` file with its stored metadata.
+#[allow(clippy::result_large_err)]
+pub fn list_ingest_files(store_path: impl AsRef<Path>) -> Result<Vec<IngestReportRow>, StoreError> {
+    let db = Database::open(store_path.as_ref())?;
+    let read_txn = db.begin_read()?;
+    let files = read_txn.open_table(SOURCE_FILES_TABLE)?;
+    let blobs = read_txn.open_table(SOURCE_BLOBS_TABLE)?;
+    let metadata = read_txn.open_table(SOURCE_FILE_METADATA_TABLE)?;
+    let field = |relative_path: &str, name: &str| -> Result<String, StoreError> {
+        Ok(metadata
+            .get(source_file_metadata_key(relative_path, name).as_str())?
+            .map(|value| value.value().to_string())
+            .unwrap_or_default())
+    };
+    let mut rows = Vec::new();
+    for entry in files.iter()? {
+        let (key, value) = entry?;
+        let relative_path = key.value().to_string();
+        if field(&relative_path, "artifact_kind")? != INGEST_ARTIFACT_KIND {
+            continue;
+        }
+        let sha256 = value.value().trim_start_matches("sha256:").to_string();
+        let bytes = blobs
+            .get(sha256.as_str())?
+            .map(|blob| blob.value().len() as u64)
+            .unwrap_or(0);
+        rows.push(IngestReportRow {
+            module_path: field(&relative_path, "module_path")?,
+            unix_mode: field(&relative_path, "unix_mode")?,
+            blake3: field(&relative_path, "blake3")?,
+            ast_json: field(&relative_path, "nu_ast")?,
+            relative_path,
+            sha256,
+            bytes,
+        });
+    }
+    Ok(rows)
 }
 
 /// A capture session that holds the store open across many batches so a full-repo
