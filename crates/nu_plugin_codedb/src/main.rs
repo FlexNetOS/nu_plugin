@@ -86,6 +86,8 @@ impl Plugin for CodeDbPlugin {
             Box::new(EnvctlDbRoots),
             Box::new(EnvctlDbQuery),
             Box::new(EnvctlDbRefactor),
+            Box::new(IngestEnvelope),
+            Box::new(IngestReport),
         ]
     }
 }
@@ -94,6 +96,8 @@ struct Scan;
 struct Capture;
 struct Materialize;
 struct StoreReport;
+struct IngestEnvelope;
+struct IngestReport;
 struct FsEntries;
 struct SourceFiles;
 struct CargoPackages;
@@ -3239,6 +3243,116 @@ impl SimplePluginCommand for Materialize {
     }
 }
 
+static INGEST_TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+const MAX_INGEST_ENVELOPE_JSON_BYTES: usize = 16 * 1024 * 1024;
+
+impl SimplePluginCommand for IngestEnvelope {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb ingest-envelope"
+    }
+
+    fn description(&self) -> &str {
+        "Ingest a typed envelope of source files (exact bytes, module paths, unix modes, hashes, Nushell AST rows) into the selected redb store with BLAKE3 content deduplication, returning a typed receipt."
+    }
+
+    fn signature(&self) -> Signature {
+        store_signature(
+            Signature::build(PluginCommand::name(self))
+                .input_output_type(Type::record(), Type::record()),
+        )
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        input: &Value,
+    ) -> Result<Value, LabeledError> {
+        if matches!(input, Value::Nothing { .. }) {
+            return Err(LabeledError::new("missing typed envelope input").with_label(
+                "pipe the ingest envelope record into this command",
+                call.head,
+            ));
+        }
+        let envelope = nu_value_to_json(input).map_err(|message| {
+            LabeledError::new("invalid typed envelope").with_label(message, call.head)
+        })?;
+        let json = serde_json::to_string(&envelope).map_err(|error| {
+            LabeledError::new("envelope serialization failed")
+                .with_label(error.to_string(), call.head)
+        })?;
+        if json.len() > MAX_INGEST_ENVELOPE_JSON_BYTES {
+            return Err(LabeledError::new("envelope too large").with_label(
+                format!(
+                    "envelope JSON is {} bytes; the bound is {MAX_INGEST_ENVELOPE_JSON_BYTES}",
+                    json.len()
+                ),
+                call.head,
+            ));
+        }
+        let sequence = INGEST_TEMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temp_path = env::temp_dir().join(format!(
+            "codedb-ingest-{}-{sequence}.json",
+            std::process::id()
+        ));
+        std::fs::write(&temp_path, &json).map_err(|error| {
+            LabeledError::new("failed to stage envelope").with_label(
+                format!("{}: {error}", temp_path.display()),
+                call.head,
+            )
+        })?;
+        let mut argv = vec![
+            "ingest-envelope".to_string(),
+            "--input".to_string(),
+            temp_path.display().to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+        let store = codedb_store_invocation(call)?;
+        argv.extend(store.argv.iter().cloned());
+        let result = run_codedb_json(&argv, &store.env, call.head);
+        let _ = std::fs::remove_file(&temp_path);
+        Ok(json_value_to_nu(&result?, call.head))
+    }
+}
+
+impl SimplePluginCommand for IngestReport {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb ingest-report"
+    }
+
+    fn description(&self) -> &str {
+        "Read back every ingested file's stored module path, unix mode, hashes, and Nushell AST rows from the selected redb store."
+    }
+
+    fn signature(&self) -> Signature {
+        store_signature(command_signature(PluginCommand::name(self)))
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let mut argv = vec![
+            "ingest-report".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+        let store = codedb_store_invocation(call)?;
+        argv.extend(store.argv.iter().cloned());
+        let json = run_codedb_json(&argv, &store.env, call.head)?;
+        Ok(json_value_to_nu(&json, call.head))
+    }
+}
+
 impl SimplePluginCommand for StoreReport {
     type Plugin = CodeDbPlugin;
 
@@ -3582,6 +3696,57 @@ fn run_envctl_json(argv: &[String], span: Span) -> Result<JsonValue, LabeledErro
 
 /// Render a JSON array of flat objects as a Nushell table Value. Scalars become
 /// typed cells; nested arrays/objects render as compact JSON strings.
+/// Serialize a typed Nu pipeline value (record/list/table/scalars) to JSON so
+/// the typed ingest envelope crosses the plugin boundary losslessly.
+fn nu_value_to_json(value: &Value) -> Result<JsonValue, String> {
+    Ok(match value {
+        Value::Nothing { .. } => JsonValue::Null,
+        Value::Bool { val, .. } => JsonValue::Bool(*val),
+        Value::Int { val, .. } => JsonValue::Number((*val).into()),
+        Value::Float { val, .. } => serde_json::Number::from_f64(*val)
+            .map(JsonValue::Number)
+            .ok_or_else(|| format!("non-finite float {val} cannot enter an envelope"))?,
+        Value::String { val, .. } => JsonValue::String(val.clone()),
+        Value::Record { val, .. } => {
+            let mut map = serde_json::Map::new();
+            for (key, item) in val.iter() {
+                map.insert(key.clone(), nu_value_to_json(item)?);
+            }
+            JsonValue::Object(map)
+        }
+        Value::List { vals, .. } => JsonValue::Array(
+            vals.iter()
+                .map(nu_value_to_json)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        other => {
+            return Err(format!(
+                "unsupported value type {:?} in typed envelope",
+                other.get_type()
+            ));
+        }
+    })
+}
+
+/// Convert JSON (including nested arrays/objects) into a typed Nu value so
+/// receipts and report rows come back as native records and tables.
+fn json_value_to_nu(json: &JsonValue, span: Span) -> Value {
+    match json {
+        JsonValue::Array(items) => Value::list(
+            items.iter().map(|item| json_value_to_nu(item, span)).collect(),
+            span,
+        ),
+        JsonValue::Object(map) => {
+            let mut rec = nu_protocol::Record::new();
+            for (key, item) in map {
+                rec.push(key.clone(), json_value_to_nu(item, span));
+            }
+            Value::record(rec, span)
+        }
+        scalar => json_scalar_to_value(scalar, span),
+    }
+}
+
 fn json_array_to_table(json: &JsonValue, span: Span) -> Value {
     let rows = match json.as_array() {
         Some(a) => a,

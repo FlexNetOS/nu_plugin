@@ -41,6 +41,8 @@ use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
 use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
 
+mod ingest;
+
 type Row = BTreeMap<String, String>;
 
 #[derive(Clone)]
@@ -161,6 +163,68 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
         "reproduce" => {
             let rows = reproduce_build_artifacts_rows(&args)?;
             print_rows(rows, parse_format(&args)?)
+        }
+        // ingest-envelope = typed native-Nushell ingestion (ARCHBP-001):
+        // validate a bounded envelope of exact bytes + AST metadata, then
+        // content-address it into the redb store with BLAKE3 dedup.
+        "ingest-envelope" => {
+            if !matches!(parse_format(&args), Ok(OutputFormat::Json)) {
+                return Err(CliError::Message(
+                    "ingest-envelope emits a typed receipt; pass --format json".into(),
+                ));
+            }
+            let input = option_value(&args, "--input").ok_or_else(|| {
+                CliError::Message("ingest-envelope requires --input <envelope.json>".into())
+            })?;
+            let store_path = ingest_redb_store_path(&args)?;
+            if let Some(parent) = store_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                fs::create_dir_all(parent)
+                    .map_err(|e| CliError::Message(format!("creating store parent: {e}")))?;
+            }
+            if !store_path.exists() {
+                let rustc_version = probe_tool_version("rustc");
+                let cargo_version = probe_tool_version("cargo");
+                initialize_store(
+                    &store_path,
+                    &StoreInitContext {
+                        codedb_version: codedb_core::VERSION,
+                        toolchain: "host-default",
+                        rustc_version: &rustc_version,
+                        cargo_version: &cargo_version,
+                    },
+                )
+                .map_err(|e| CliError::Message(format!("store init failed: {e}")))?;
+            }
+            let json = fs::read_to_string(absolute_cli_path(input)?)
+                .map_err(|e| CliError::Message(format!("reading {input}: {e}")))?;
+            let validated = ingest::validate_envelope(&json)
+                .map_err(|e| CliError::Message(e.to_string()))?;
+            let receipt = ingest::run_ingest(&store_path, &validated)
+                .map_err(|e| CliError::Message(e.to_string()))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&receipt)
+                    .map_err(|source| CliError::Core(Box::new(source)))?
+            );
+            Ok(())
+        }
+        // ingest-report = read back every ingested file's stored module path,
+        // unix mode, hashes, and AST rows.
+        "ingest-report" => {
+            if !matches!(parse_format(&args), Ok(OutputFormat::Json)) {
+                return Err(CliError::Message(
+                    "ingest-report emits typed rows; pass --format json".into(),
+                ));
+            }
+            let store_path = ingest_redb_store_path(&args)?;
+            let rows = ingest::ingest_report(&store_path)
+                .map_err(|e| CliError::Message(e.to_string()))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&rows)
+                    .map_err(|source| CliError::Core(Box::new(source)))?
+            );
+            Ok(())
         }
         // store-report = the store's own metadata/toolchain/validation rows.
         "store-report" => {
@@ -4471,6 +4535,22 @@ fn nuon_string(value: &str) -> String {
             .replace('"', "\\\"")
             .replace('\n', "\\n")
     )
+}
+
+/// Resolve `--store` for the ingest commands to a redb filesystem path.
+/// The authoritative PostgreSQL commit path is envctl-owned; the plugin and
+/// CLI ingest lane stays on the transient redb plane by design.
+fn ingest_redb_store_path(args: &[String]) -> Result<PathBuf, CliError> {
+    let store = option_value(args, "--store").ok_or_else(|| {
+        CliError::Message("ingest commands require --store <path|redb://path>".into())
+    })?;
+    let spec = parse_store_spec(store, args)?;
+    spec.redb_path().map(Path::to_path_buf).ok_or_else(|| {
+        CliError::Message(
+            "ingest commands support only the redb backend; authoritative PostgreSQL commits are envctl-owned"
+                .into(),
+        )
+    })
 }
 
 fn parse_format(args: &[String]) -> Result<OutputFormat, CliError> {
