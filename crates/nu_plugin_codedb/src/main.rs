@@ -3260,7 +3260,8 @@ impl SimplePluginCommand for IngestEnvelope {
     fn signature(&self) -> Signature {
         store_signature(
             Signature::build(PluginCommand::name(self))
-                .input_output_type(Type::record(), Type::record()),
+                .input_output_type(Type::record(), Type::record())
+                .input_output_type(Type::List(Type::Any.into()), Type::record()),
         )
     }
 
@@ -3273,7 +3274,7 @@ impl SimplePluginCommand for IngestEnvelope {
     ) -> Result<Value, LabeledError> {
         if matches!(input, Value::Nothing { .. }) {
             return Err(LabeledError::new("missing typed envelope input").with_label(
-                "pipe the ingest envelope record into this command",
+                "pipe the ingest envelope record (or rtk_nu event list) into this command",
                 call.head,
             ));
         }

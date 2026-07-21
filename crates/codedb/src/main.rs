@@ -43,6 +43,7 @@ use toml::Value as TomlValue;
 
 mod ingest;
 mod outbox;
+mod raw_envelope;
 
 type Row = BTreeMap<String, String>;
 
@@ -198,13 +199,70 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             }
             let json = fs::read_to_string(absolute_cli_path(input)?)
                 .map_err(|e| CliError::Message(format!("reading {input}: {e}")))?;
-            let validated = ingest::validate_envelope(&json)
-                .map_err(|e| CliError::Message(e.to_string()))?;
-            let receipt = ingest::run_ingest(&store_path, &validated)
+            // Route by envelope contract: native typed source envelopes
+            // (ARCHBP-001), rtk_nu raw aggregates / event arrays / JSONL
+            // event streams (ARCHBP-041). Detection is structural and
+            // fail-closed: a single JSON document routes by schema_version,
+            // anything else must validate as a JSONL event stream.
+            let rendered = match serde_json::from_str::<serde_json::Value>(&json) {
+                Ok(serde_json::Value::Object(object)) => {
+                    match object.get("schema_version").and_then(|v| v.as_str()) {
+                        Some(ingest::ENVELOPE_SCHEMA_VERSION) => {
+                            let validated = ingest::validate_envelope(&json)
+                                .map_err(|e| CliError::Message(e.to_string()))?;
+                            let receipt = ingest::run_ingest(&store_path, &validated)
+                                .map_err(|e| CliError::Message(e.to_string()))?;
+                            serde_json::to_string_pretty(&receipt)
+                        }
+                        Some(raw_envelope::RTK_NU_ENVELOPE_SCHEMA_VERSION) => {
+                            let validated = raw_envelope::validate_raw_envelope(&json)
+                                .map_err(|e| CliError::Message(e.to_string()))?;
+                            let receipt = raw_envelope::run_raw_ingest(&store_path, &validated)
+                                .map_err(|e| CliError::Message(e.to_string()))?;
+                            serde_json::to_string_pretty(&receipt)
+                        }
+                        other => {
+                            return Err(CliError::Message(format!(
+                                "unsupported envelope schema_version: {other:?}"
+                            )));
+                        }
+                    }
+                }
+                Ok(serde_json::Value::Array(_)) => {
+                    let validated = raw_envelope::validate_raw_event_array(&json)
+                        .map_err(|e| CliError::Message(e.to_string()))?;
+                    let receipt = raw_envelope::run_raw_ingest(&store_path, &validated)
+                        .map_err(|e| CliError::Message(e.to_string()))?;
+                    serde_json::to_string_pretty(&receipt)
+                }
+                _ => {
+                    let validated = raw_envelope::validate_raw_jsonl(&json)
+                        .map_err(|e| CliError::Message(e.to_string()))?;
+                    let receipt = raw_envelope::run_raw_ingest(&store_path, &validated)
+                        .map_err(|e| CliError::Message(e.to_string()))?;
+                    serde_json::to_string_pretty(&receipt)
+                }
+            };
+            println!(
+                "{}",
+                rendered.map_err(|source| CliError::Core(Box::new(source)))?
+            );
+            Ok(())
+        }
+        // raw-report = read back every canonical raw object with stream,
+        // frame, digest, and idempotency metadata (ARCHBP-041).
+        "raw-report" => {
+            if !matches!(parse_format(&args), Ok(OutputFormat::Json)) {
+                return Err(CliError::Message(
+                    "raw-report emits typed rows; pass --format json".into(),
+                ));
+            }
+            let store_path = ingest_redb_store_path(&args)?;
+            let rows = raw_envelope::raw_report(&store_path)
                 .map_err(|e| CliError::Message(e.to_string()))?;
             println!(
                 "{}",
-                serde_json::to_string_pretty(&receipt)
+                serde_json::to_string_pretty(&rows)
                     .map_err(|source| CliError::Core(Box::new(source)))?
             );
             Ok(())
