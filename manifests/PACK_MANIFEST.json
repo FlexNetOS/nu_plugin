@@ -6,11 +6,20 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "5b4116bb309050029dd672660f80f0c4b4e1bc50dfd4ba5374adceafcdcb127d",
-  "checksum_scope_files_sha256": "187a159d935baccc515540dc122391bd5efe63cf5d550f13a52fbeeaeab87581",
+  "checksum_scope_files_sha256": "b5481826845af595dfbfb25b343e2b1ed29e90b027c0bb389a0dc85a3d95b12c",
   "entrypoint": "CODEDB_START_HERE.md",
-  "file_count_in_checksum_scope": 803,
+  "file_count_in_checksum_scope": 813,
   "files": [
+    {
+      "bytes": 2748,
+      "path": ".agents/skills/meta-gitkb-review/SKILL.md",
+      "sha256": "ed3b95e6eeb5f0c9a0cc38423f893fc176a7283b48b9e34f91dd3dc04fb840fd"
+    },
+    {
+      "bytes": 2748,
+      "path": ".codex/skills/meta-gitkb-review/SKILL.md",
+      "sha256": "ed3b95e6eeb5f0c9a0cc38423f893fc176a7283b48b9e34f91dd3dc04fb840fd"
+    },
     {
       "bytes": 22712,
       "path": ".github/workflows/ci.yml",
@@ -315,6 +324,16 @@
       "bytes": 455,
       "path": "SUBGOALS.md",
       "sha256": "a01f38094ecb0aaebf8eb04726516bb1444bd95122b5dd865893eae1ca9716a4"
+    },
+    {
+      "bytes": 1563,
+      "path": "agent-env.lock",
+      "sha256": "f5f231da58f73fe10af097f5dc867051c9fc2908fa0edc82fd0173111da85630"
+    },
+    {
+      "bytes": 245,
+      "path": "agent-env.yaml",
+      "sha256": "cba228ad05d6b1b3cf8c909267b808df68853f557087939c0a8fa9cb152c7a5f"
     },
     {
       "bytes": 562,
@@ -930,6 +949,36 @@
       "bytes": 195,
       "path": "fixtures/include_edges/src/lib.rs",
       "sha256": "0ddb423c30d0a829b13d9a9b26f07bbcaf898240aee4c07ca33fa6b67f65439f"
+    },
+    {
+      "bytes": 227,
+      "path": "fixtures/ingestion_round_trip/Cargo.toml",
+      "sha256": "e1c307d353020ce80814886878908658238a54b5e8de0f32456485ad84737064"
+    },
+    {
+      "bytes": 114,
+      "path": "fixtures/ingestion_round_trip/dup/copy_one.nu",
+      "sha256": "7d06623c078c2ad8080e2e08f358ea96df5c165387b2e22e94633776c006d86f"
+    },
+    {
+      "bytes": 114,
+      "path": "fixtures/ingestion_round_trip/dup/copy_two.nu",
+      "sha256": "7d06623c078c2ad8080e2e08f358ea96df5c165387b2e22e94633776c006d86f"
+    },
+    {
+      "bytes": 251,
+      "path": "fixtures/ingestion_round_trip/mod.nu",
+      "sha256": "a41ae05805a4d57c1a10af80fd673a52c1266267011f0031f00fcc2a95b4f657"
+    },
+    {
+      "bytes": 166,
+      "path": "fixtures/ingestion_round_trip/scripts/build.nu",
+      "sha256": "a87690af6c2526de447d0347d7ced4570637be9f3b123fac87fe5b45a332c252"
+    },
+    {
+      "bytes": 187,
+      "path": "fixtures/ingestion_round_trip/src/lib.rs",
+      "sha256": "5fcde5b81ccbff60e342dbf270c3ad4c50789686e4e7bccc2e53245e1acb08d6"
     },
     {
       "bytes": 137,
@@ -4027,8 +4076,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-13T05:21:18+00:00",
-  "generated_at_utc": "2026-07-13T19:17:28+00:00",
+  "generated_at_utc": "2026-07-21T08:51:43+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
