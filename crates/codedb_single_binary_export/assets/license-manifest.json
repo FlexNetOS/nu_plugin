@@ -1,1 +1,28 @@
-{}
+{
+  "components": [
+    {
+      "name": "codedb-snapshot-content",
+      "license": "MIT (FlexNetOS nu_plugin repository)"
+    },
+    {
+      "name": "serde",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "serde_json",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "sha2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "base64",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "zstd (rust bindings + libzstd)",
+      "license": "MIT (bindings) / BSD-3-Clause (libzstd)"
+    }
+  ]
+}

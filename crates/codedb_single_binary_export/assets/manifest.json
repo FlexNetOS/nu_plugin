@@ -1,1 +1,7 @@
-{}
+{
+  "schema_version": "codedb.single-binary-snapshot.v0",
+  "snapshot_source": "codedb-bounded-fixture-corpus-v0",
+  "file_count": 6,
+  "total_bytes": 415,
+  "pack_sha256": "2a2ec39d60ae50087686be3859d6ceb53a8b5ab32475f34333c165c5f977c89b"
+}

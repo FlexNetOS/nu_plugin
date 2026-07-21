@@ -1,0 +1,9 @@
+{
+  "schema_version": "codedb.consolidation-rehearsal-receipt.v0",
+  "units_checked": 3,
+  "capabilities_accounted": 19,
+  "peers_checked": 42,
+  "all_preserved": true,
+  "bounded_claim": "read-only rehearsal over the bounded CONSOLIDATE-003 contract; nothing was retired, merged, or cut over, and no release claim exceeds the bounded embedded artifact",
+  "findings": []
+}
