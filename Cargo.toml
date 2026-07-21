@@ -5,6 +5,7 @@ members = [
   "crates/codedb_context",
   "crates/codedb_core",
   "crates/codedb_fixtures",
+  "crates/codedb_host_import",
   "crates/codedb_build_capture",
   "crates/codedb_mcp",
   "crates/codedb_rust_static",
