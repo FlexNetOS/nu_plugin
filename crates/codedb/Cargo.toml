@@ -17,6 +17,12 @@ codedb-core.workspace = true
 codedb-rust-static = { path = "../codedb_rust_static" }
 codedb-store-redb = { path = "../codedb_store_redb" }
 codedb-store-pg = { path = "../codedb_store_pg" }
+base64 = "0.22"
+blake3 = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

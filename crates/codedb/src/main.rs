@@ -41,6 +41,8 @@ use codedb_store_redb::{CaptureBatcher, StoreInitContext, initialize_store};
 use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
 
+mod ingest;
+
 type Row = BTreeMap<String, String>;
 
 #[derive(Clone)]
