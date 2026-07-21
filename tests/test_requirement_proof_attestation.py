@@ -50,7 +50,7 @@ def external_identities() -> dict[str, ExternalSourceIdentity]:
         "envctl": ExternalSourceIdentity(
             name="envctl",
             repository="FlexNetOS/envctl",
-            source_ref="refs/heads/envctl-db-automation-2026-07-12",
+            source_ref="refs/heads/master",
             commit_sha="c" * 40,
             tree_sha="d" * 40,
             checkout_path="../envctl",
@@ -256,13 +256,63 @@ def make_external_identity(
 
 
 class RequirementProofAttestationTest(unittest.TestCase):
+    def test_worktree_status_ignores_only_untracked_runtime_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.name", "CodeDB Test"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "codedb@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            tracked = root / ".claude" / "settings.json"
+            tracked.parent.mkdir()
+            tracked.write_text("{}\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "add", ".claude/settings.json"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "fixture"],
+                cwd=root,
+                check=True,
+            )
+
+            runtime_artifact = root / ".claude" / "session-state.json"
+            runtime_artifact.write_text("{}\n", encoding="utf-8")
+            (root / ".codex.tar.xz").write_bytes(b"runtime archive")
+            self.assertEqual("", receipt_generator.worktree_status(root))
+
+            tracked.write_text('{"changed":true}\n', encoding="utf-8")
+            status = receipt_generator.worktree_status(root)
+            self.assertIn(".claude/settings.json", status)
+
+    def test_worktree_status_reports_non_runtime_untracked_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            source = root / "src" / "new.py"
+            source.parent.mkdir()
+            source.write_text("print('proof')\n", encoding="utf-8")
+
+            self.assertEqual(
+                "?? src/new.py",
+                receipt_generator.worktree_status(root),
+            )
+
     def test_tracked_external_source_pin_is_exact_and_complete(self) -> None:
         sources = load_external_source_pins(ROOT / EXTERNAL_SOURCE_PIN_PATH)
         self.assertEqual(
             {"envctl", "loop_lib", "meta_plugin_protocol"}, set(sources)
         )
         self.assertEqual(
-            "b62669c4e32c8de0407aa51ca3add94d529b50b6",
+            "58fd32c9b756251d4a9c8989e0235086c0de54e0",
             sources["envctl"].commit_sha,
         )
         self.assertEqual(
@@ -278,7 +328,7 @@ class RequirementProofAttestationTest(unittest.TestCase):
             pin_text = (ROOT / EXTERNAL_SOURCE_PIN_PATH).read_text(encoding="utf-8")
             tampered_pin.write_text(
                 pin_text.replace(
-                    "b62669c4e32c8de0407aa51ca3add94d529b50b6",
+                    "58fd32c9b756251d4a9c8989e0235086c0de54e0",
                     "9" * 40,
                 ),
                 encoding="utf-8",

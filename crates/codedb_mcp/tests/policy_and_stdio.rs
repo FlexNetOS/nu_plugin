@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use codedb_mcp::{
     ALLOWED_TOOLS, BLOCKED_TOOLS, DEFAULT_MAX_BYTES, MAX_REDB_STORE_BYTES, MAX_RESPONSE_BYTES,
@@ -1190,14 +1189,8 @@ fn summary_count(rows: &[Row], table: &str) -> usize {
 }
 
 fn temp_dir(label: &str) -> PathBuf {
-    // The nanosecond suffix alone collides across concurrent processes sharing
-    // /tmp (e.g. two `cargo test --workspace` runs); the process id and a
-    // per-process atomic sequence make every fixture dir unique.
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let suffix = unique_suffix();
-    let pid = std::process::id();
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("codedb_mcp_{label}_{pid}_{suffix}_{seq}"));
+    let path = std::env::temp_dir().join(format!("codedb_mcp_{label}_{suffix}"));
     fs::create_dir_all(&path).expect("create temp directory");
     path
 }
@@ -1207,10 +1200,8 @@ fn remove_dir(path: PathBuf) {
 }
 
 fn unique_suffix() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time")
-        .as_nanos()
+    static NEXT_SUFFIX: AtomicU64 = AtomicU64::new(0);
+    ((std::process::id() as u128) << 64) | (NEXT_SUFFIX.fetch_add(1, Ordering::Relaxed) as u128)
 }
 
 fn workspace_root() -> PathBuf {

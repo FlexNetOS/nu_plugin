@@ -19,7 +19,7 @@
 //! `OUT_DIR` include) are recorded as explicit capability boundaries
 //! (`capture_gap`) rather than faked or silently omitted.
 
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -122,23 +122,25 @@ struct ProcMacroSpec {
 /// Runs the broker over every fixture and writes the deterministic evidence tree
 /// under `output_dir`. Returns the structured outcome for gating.
 pub(crate) fn run_compiler_broker(output_dir: &Path) -> BrokerReport {
+    let broker_lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(std::env::temp_dir().join("codedb-compiler-broker.lock"))
+        .expect("open compiler broker lock");
+    broker_lock
+        .lock()
+        .expect("serialize compiler broker evidence regeneration");
     let repo = repo_root();
     // Regenerate the evidence tree from scratch so runs are deterministic and
     // never carry stale files from an earlier toolchain.
     let _ = fs::remove_dir_all(output_dir);
     fs::create_dir_all(output_dir).expect("create broker output dir");
     // Scratch tree for compiled proc-macro externs and substituted consumers.
-    // Kept outside the evidence tree so the evidence directory stays clean and
-    // the request-bound context hashes remain deterministic (the scratch path is
-    // never hashed into the output). Namespaced by process id + an atomic
-    // sequence so concurrent broker runs (parallel test threads or two
-    // `cargo test --workspace` processes) never clobber each other's scratch.
-    static BROKER_SCRATCH_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let scratch_seq = BROKER_SCRATCH_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let build_root = std::env::temp_dir().join(format!(
-        "codedb-compiler-broker-{}-{scratch_seq}",
-        std::process::id()
-    ));
+    // Kept at a fixed path (outside the evidence tree) so the evidence directory
+    // stays clean and the request-bound context hashes remain deterministic.
+    let build_root = std::env::temp_dir().join("codedb-compiler-broker");
     let _ = fs::remove_dir_all(&build_root);
     fs::create_dir_all(&build_root).expect("create broker build scratch");
 
@@ -226,10 +228,6 @@ pub(crate) fn run_compiler_broker(output_dir: &Path) -> BrokerReport {
         &toolchain_sha256,
     );
     write_summary_json(output_dir, &host, &toolchain_sha256, &outcomes);
-
-    // Remove the process-unique scratch now that every fixture has been compiled;
-    // the evidence tree under output_dir is the durable artifact.
-    let _ = fs::remove_dir_all(&build_root);
 
     BrokerReport {
         output_dir: output_dir.to_path_buf(),
@@ -694,10 +692,8 @@ struct TemporaryBrokerOutput(PathBuf);
 
 impl TemporaryBrokerOutput {
     fn new() -> Self {
-        let sequence = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("broker test clock")
-            .as_nanos();
+        static NEXT_OUTPUT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = NEXT_OUTPUT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self(std::env::temp_dir().join(format!(
             "codedb-compiler-broker-test-{}-{sequence}",
             std::process::id()

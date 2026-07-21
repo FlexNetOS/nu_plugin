@@ -3,22 +3,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_root() -> PathBuf {
-    // Uniqueness must survive concurrent test threads AND concurrent processes
-    // (e.g. two `cargo test --workspace` runs sharing /tmp). A bare nanosecond
-    // timestamp collides when two callers land in the same tick, and the second
-    // capture.log write then fails with AlreadyExists. Compose the timestamp with
-    // the process id and a per-process atomic sequence for a collision-free path.
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let suffix = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let pid = std::process::id();
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("codedb-build-cli-{pid}-{suffix}-{seq}"))
+    static NEXT_TEMP_ROOT: AtomicU64 = AtomicU64::new(0);
+    let sequence = NEXT_TEMP_ROOT.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "codedb-build-cli-{}-{sequence}",
+        std::process::id()
+    ));
+    fs::create_dir(&root).expect("reserve unique build CLI fixture root");
+    root
 }
 
 fn source_snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -47,6 +41,19 @@ fn source_snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut rows = BTreeMap::new();
     walk(root, root, &mut rows);
     rows
+}
+
+#[test]
+fn build_cli_temp_roots_are_atomically_unique() {
+    let roots = (0..64)
+        .map(|_| std::thread::spawn(temp_root))
+        .map(|thread| thread.join().expect("create fixture root"))
+        .collect::<Vec<_>>();
+    let unique = roots.iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(unique.len(), roots.len());
+    for root in roots {
+        fs::remove_dir(root).expect("remove fixture root");
+    }
 }
 
 #[test]

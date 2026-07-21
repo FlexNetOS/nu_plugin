@@ -2,22 +2,18 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use codedb_build_capture::{BuildCaptureRequest, BuildCaptureStatus, capture_approved_build};
 
 fn temp_root() -> PathBuf {
-    // A bare nanosecond timestamp collides across concurrent test threads and
-    // across concurrent processes sharing /tmp; compose it with the process id
-    // and a per-process atomic sequence so every fixture root is unique.
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let suffix = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let pid = std::process::id();
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("codedb-approved-frontdoor-{pid}-{suffix}-{seq}"))
+    static NEXT_TEMP_ROOT: AtomicU64 = AtomicU64::new(0);
+    let sequence = NEXT_TEMP_ROOT.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "codedb-approved-frontdoor-{}-{sequence}",
+        std::process::id()
+    ));
+    fs::create_dir(&root).expect("reserve unique approved frontdoor fixture root");
+    root
 }
 
 fn source_snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {

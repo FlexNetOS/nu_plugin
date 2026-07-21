@@ -3,10 +3,18 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      rust-overlay,
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -120,19 +128,23 @@
       devShells = forAllSystems (
         system:
         let
-          pkgs = import nixpkgs { inherit system; };
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ rust-overlay.overlays.default ];
+          };
+          rustToolchain = pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default);
         in
         {
           default = self.devShells.${system}.ci;
           ci = pkgs.mkShell {
             packages = [
-              pkgs.cargo
-              pkgs.clippy
-              pkgs.rustc
-              pkgs.rustfmt
+              rustToolchain
               pkgs.nushell
               pkgs.python3
               pkgs.nixfmt
+            ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+              pkgs.bubblewrap
             ];
 
             CODEDB_CI_SHELL = "1";

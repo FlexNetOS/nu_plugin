@@ -15,7 +15,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
@@ -2344,23 +2344,19 @@ struct CompilerScratch {
 
 impl CompilerScratch {
     fn new() -> Result<Self, io::Error> {
-        // pid+nonce alone collides when two rustc-evidence captures land in the
-        // same tick (parallel test threads or concurrent processes). Colliding
-        // scratch roots let one capture's Drop delete the sandbox source out from
-        // under another's in-flight bwrap mount ("Can't get type of source ...").
-        // A per-process atomic sequence makes every scratch root unique.
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        static NEXT_SCRATCH_ID: AtomicU64 = AtomicU64::new(0);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let sequence = NEXT_SCRATCH_ID.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "codedb_compiler_evidence_{}_{}_{seq}",
+            "codedb_compiler_evidence_{}_{}_{}",
             std::process::id(),
-            nonce
+            nonce,
+            sequence
         ));
-        fs::create_dir_all(&path)?;
+        fs::create_dir(&path)?;
         Ok(Self { path })
     }
 }
@@ -5278,6 +5274,32 @@ fn main() {
         assert!(
             survivor.root.join("src/lib.rs").is_file(),
             "dropping sibling workspaces must not remove another workspace's files"
+        );
+    }
+
+    #[test]
+    fn compiler_scratch_roots_are_reserved_and_collision_free() {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    (0..16)
+                        .map(|_| CompilerScratch::new().expect("reserve compiler scratch root"))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let scratches: Vec<CompilerScratch> = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().expect("compiler scratch thread"))
+            .collect();
+        let roots = scratches
+            .iter()
+            .map(|scratch| scratch.path.clone())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            roots.len(),
+            scratches.len(),
+            "compiler scratch roots must be unique so one Drop can never delete a live sibling"
         );
     }
 

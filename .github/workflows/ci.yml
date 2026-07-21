@@ -20,7 +20,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+      - name: Enable and prove the trusted Bubblewrap sandbox
+        run: bash scripts/ci/require_bwrap_userns.sh
       - name: Reject optional, deferred, or GAP-closed requirements
         run: python3 -m unittest tests/test_mandatory_capability_policy.py
       - name: Validate executable task graph, maps, receipts, and manifests
@@ -30,7 +32,15 @@ jobs:
       - name: Prove locked context, path safety, and PostgreSQL policy
         run: python3 -m unittest tests/test_locked_context_integration.py tests/test_materialization_safety.py tests/test_postgres_open_policy.py tests/test_mandatory_pg_parity.py
       - name: Test affected crates and frontdoors
-        run: cargo test -p codedb-core -p codedb-context -p codedb-cargo -p codedb -p nu_plugin_codedb -p codedb-mcp -p codedb-store-pg
+        run: >-
+          nix develop .#ci -c cargo test
+          -p codedb-core
+          -p codedb-context
+          -p codedb-cargo
+          -p codedb
+          -p nu_plugin_codedb
+          -p codedb-mcp
+          -p codedb-store-pg
 
   postgres_parity:
     name: PostgreSQL/redb mandatory parity
@@ -120,6 +130,8 @@ jobs:
       - name: Run non-skipping differential backend contract
         run: cargo test -p codedb-store-pg --features pg-integration --test blobstore_parity -- --nocapture
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+      - name: Enable and prove the trusted Bubblewrap sandbox
+        run: bash scripts/ci/require_bwrap_userns.sh
       - name: Prove the dynamic redb/PostgreSQL Nu frontdoor over verified TLS
         run: nix develop .#ci -c nu tests/test_dynamic_store_plugin.nu
 
@@ -140,9 +152,33 @@ jobs:
     runs-on: ${{ vars.CI_FORCE_HOSTED == '1' && 'ubuntu-latest' || ((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","local","flexnetos"]') || 'ubuntu-latest') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - name: Install Rust toolchain on GitHub-hosted runners
+      - name: Install Nix on GitHub-hosted fallback runners
         if: runner.environment == 'github-hosted'
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+      - name: Enable and prove Bubblewrap on GitHub-hosted fallback runners
+        if: runner.environment == 'github-hosted'
+        run: bash scripts/ci/require_bwrap_userns.sh
+      - name: Select pinned Nix Rust toolchain on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016
+          toolbin="$(nix develop .#ci -c bash -lc 'dirname "$(command -v cargo)"')"
+          case "$toolbin" in
+            /nix/store/*/bin) ;;
+            *)
+              echo "Rust toolchain must resolve from the pinned Nix store: $toolbin" >&2
+              exit 1
+              ;;
+          esac
+          for tool in cargo rustc rustdoc rustfmt; do
+            test -x "$toolbin/$tool"
+          done
+          echo "$toolbin" >> "$GITHUB_PATH"
+          "$toolbin/cargo" --version
+          "$toolbin/rustc" -Vv
+          "$toolbin/rustdoc" -Vv
       - name: Select profile-owned Rust toolchain on FlexNetOS self-hosted runners
         if: runner.environment == 'self-hosted'
         shell: bash
@@ -166,6 +202,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+      - name: Enable and prove the trusted Bubblewrap sandbox
+        run: bash scripts/ci/require_bwrap_userns.sh
       - name: Run every mandatory Nu behavior gate
         run: |
           # Variables expand in the inner bash process.
@@ -223,6 +261,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d
+
+      - name: Enable and prove the trusted Bubblewrap sandbox
+        run: bash scripts/ci/require_bwrap_userns.sh
+
+      - name: Require the complete proof toolchain
+        run: >-
+          nix develop .#ci -c bash -lc
+          'cargo --version && nu --version && python3 --version'
+
       - name: Check out exact external proof sources without credentials
         shell: bash
         run: |
@@ -247,9 +295,9 @@ jobs:
           checkout_exact \
             envctl \
             FlexNetOS/envctl \
-            refs/heads/envctl-db-automation-2026-07-12 \
-            b62669c4e32c8de0407aa51ca3add94d529b50b6 \
-            f9ca54b6c7529ab1b690ab1f75c507d7ff54d6eb
+            refs/heads/master \
+            58fd32c9b756251d4a9c8989e0235086c0de54e0 \
+            0bf5a018648ed41fdb3ea8fc11ae56a463e658e3
           checkout_exact \
             loop_lib \
             FlexNetOS/loop_lib \
@@ -358,7 +406,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/generate_requirement_proof_receipt.py \
+          nix develop .#ci -c python3 scripts/generate_requirement_proof_receipt.py \
             --output "$CODEDB_PROOF_RECEIPT" \
             --provider github-actions \
             --run-id "$GITHUB_RUN_ID" \
@@ -404,7 +452,7 @@ jobs:
               name: source["commit_sha"]
               for name, source in receipt["external_sources"].items()
           } == {
-              "envctl": "b62669c4e32c8de0407aa51ca3add94d529b50b6",
+              "envctl": "58fd32c9b756251d4a9c8989e0235086c0de54e0",
               "loop_lib": "6e79836387d15ac5849e73e7bb869c6077953d90",
               "meta_plugin_protocol": "7d65eeac3bba8e9702eb0590ba9476e4e420bfb3",
           }

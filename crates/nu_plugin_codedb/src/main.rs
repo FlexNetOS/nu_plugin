@@ -3940,14 +3940,11 @@ mod envctl_db_tests {
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(name: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!("codedb-{name}-{nanos}"))
+        static NEXT_TEMP_PATH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = NEXT_TEMP_PATH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!("codedb-{name}-{}-{sequence}", std::process::id()))
     }
 
     #[test]

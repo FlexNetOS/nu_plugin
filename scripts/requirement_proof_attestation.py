@@ -28,9 +28,9 @@ EMPTY_STATUS_SHA256 = hashlib.sha256(b"").hexdigest()
 REQUIRED_EXTERNAL_SOURCE_PINS: dict[str, dict[str, str]] = {
     "envctl": {
         "repository": "FlexNetOS/envctl",
-        "source_ref": "refs/heads/envctl-db-automation-2026-07-12",
-        "commit_sha": "b62669c4e32c8de0407aa51ca3add94d529b50b6",
-        "tree_sha": "f9ca54b6c7529ab1b690ab1f75c507d7ff54d6eb",
+        "source_ref": "refs/heads/master",
+        "commit_sha": "58fd32c9b756251d4a9c8989e0235086c0de54e0",
+        "tree_sha": "0bf5a018648ed41fdb3ea8fc11ae56a463e658e3",
         "checkout_path": "../envctl",
     },
     "loop_lib": {

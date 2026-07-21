@@ -28,9 +28,9 @@ use codedb_core::store::{
 };
 use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
-    FilesystemEntry, SourceBlobMetadata, SymlinkMaterializationStatus, TableRow, capture_gaps,
-    capture_source_metadata_from_bytes, prove_no_mutation, scan_filesystem, schema_rows,
-    table_inventory, validation_errors,
+    FilesystemEntry, NU_PLUGIN_PROTOCOL_VERSION, SourceBlobMetadata, SymlinkMaterializationStatus,
+    TableRow, capture_gaps, capture_source_metadata_from_bytes, prove_no_mutation, scan_filesystem,
+    schema_rows, table_inventory, validation_errors,
 };
 use codedb_rust_static::capture_rust_items;
 use codedb_rust_static::{
@@ -4007,21 +4007,27 @@ fn nu_runtime_doctor_rows(component: &str, nu_path: Option<PathBuf>) -> Result<V
             "degraded",
             "",
             "nu executable not found",
-            "install Nushell 0.112.2 or pass a runtime-specific registration command",
+            &format!(
+                "install Nushell {NU_PLUGIN_PROTOCOL_VERSION} or pass a runtime-specific registration command"
+            ),
         )]);
     };
 
     let path_value = nu_path.display().to_string();
     let version = command_stdout(&nu_path, &["--version"])?;
-    let compatibility_status = if version.trim() == "0.112.2" {
+    let compatibility_status = if version.trim() == NU_PLUGIN_PROTOCOL_VERSION {
         "available"
     } else {
         "degraded"
     };
     let compatibility_note = if compatibility_status == "available" {
-        "runtime Nu version matches nu-plugin/nu-protocol 0.112.2"
+        format!(
+            "runtime Nu version matches nu-plugin/nu-protocol handshake {NU_PLUGIN_PROTOCOL_VERSION}"
+        )
     } else {
-        "runtime Nu version differs from nu-plugin/nu-protocol 0.112.2"
+        format!(
+            "runtime Nu version differs from nu-plugin/nu-protocol handshake {NU_PLUGIN_PROTOCOL_VERSION}"
+        )
     };
     let plugin_path = plugin_binary_path();
     let registration_command = plugin_path
@@ -4055,8 +4061,10 @@ fn nu_runtime_doctor_rows(component: &str, nu_path: Option<PathBuf>) -> Result<V
             component,
             "plugin_protocol_compatibility",
             compatibility_status,
-            "nu-plugin=0.112.2;nu-protocol=0.112.2",
-            compatibility_note,
+            &format!(
+                "nu-plugin={NU_PLUGIN_PROTOCOL_VERSION};nu-protocol={NU_PLUGIN_PROTOCOL_VERSION};nu-plugin-protocol={NU_PLUGIN_PROTOCOL_VERSION}"
+            ),
+            &compatibility_note,
             "rebuild the plugin against the target Nu protocol if degraded",
         ),
         doctor_row(
@@ -4563,6 +4571,90 @@ fn _repo_path(path: &str) -> PathBuf {
 mod tests {
     use super::*;
 
+    fn locked_package_version(package_name: &str) -> String {
+        let lock: TomlValue = toml::from_str(include_str!("../../../Cargo.lock"))
+            .expect("workspace Cargo.lock must be valid TOML");
+        let versions = lock
+            .get("package")
+            .and_then(TomlValue::as_array)
+            .expect("Cargo.lock must contain package entries")
+            .iter()
+            .filter(|package| package.get("name").and_then(TomlValue::as_str) == Some(package_name))
+            .filter_map(|package| package.get("version").and_then(TomlValue::as_str))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            versions.len(),
+            1,
+            "expected exactly one locked {package_name} package, found {versions:?}"
+        );
+        versions[0].to_string()
+    }
+
+    #[test]
+    fn locked_nu_packages_share_the_plugin_handshake_version() {
+        let plugin = locked_package_version("nu-plugin");
+        let protocol = locked_package_version("nu-plugin-protocol");
+        let nu_protocol = locked_package_version("nu-protocol");
+
+        assert_eq!(plugin, protocol);
+        assert_eq!(nu_protocol, protocol);
+        assert_eq!(NU_PLUGIN_PROTOCOL_VERSION, protocol);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doctor_protocol_metadata_matches_the_locked_plugin_handshake() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_repo();
+        let nu = root.join("nu");
+        let protocol = locked_package_version("nu-plugin-protocol");
+        fs::write(&nu, format!("#!/bin/sh\nprintf '%s\\n' '{protocol}'\n"))
+            .expect("write fake Nu version command");
+        fs::set_permissions(&nu, fs::Permissions::from_mode(0o700))
+            .expect("make fake Nu executable");
+
+        let rows = nu_runtime_doctor_rows("host_nu", Some(nu)).expect("run Nu doctor checks");
+        let compatibility = rows
+            .iter()
+            .find(|row| {
+                row.get("check")
+                    .is_some_and(|check| check == "plugin_protocol_compatibility")
+            })
+            .expect("plugin protocol compatibility row");
+
+        assert_eq!(
+            compatibility.get("status").map(String::as_str),
+            Some("available")
+        );
+        assert_eq!(
+            compatibility.get("value"),
+            Some(&format!(
+                "nu-plugin={protocol};nu-protocol={protocol};nu-plugin-protocol={protocol}"
+            ))
+        );
+        assert!(
+            compatibility
+                .get("note")
+                .is_some_and(|note| note.contains(&protocol))
+        );
+
+        fs::remove_dir_all(root).expect("remove fake Nu directory");
+    }
+
+    #[test]
+    fn doctor_missing_nu_guidance_uses_the_locked_plugin_handshake() {
+        let protocol = locked_package_version("nu-plugin-protocol");
+        let rows = nu_runtime_doctor_rows("host_nu", None).expect("run missing Nu doctor check");
+        let remediation = rows[0].get("action").expect("missing Nu remediation");
+
+        assert_eq!(
+            remediation,
+            &format!("install Nushell {protocol} or pass a runtime-specific registration command")
+        );
+    }
+
     #[test]
     fn materialize_postgresql_identity_hides_url_credentials() {
         let sentinel = "CODEDB_CREDENTIAL_SENTINEL";
@@ -4690,15 +4782,7 @@ mod tests {
 
     #[test]
     fn mcp_frontdoor_rejects_postgresql_argv_sentinels_without_echoing_them() {
-        let root = env::temp_dir().join(format!(
-            "codedb_mcp_argv_guard_{}_{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system time")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("create MCP root");
+        let root = temp_repo();
         let credential_sentinel = "CODEDB_ARGV_CREDENTIAL_SENTINEL";
         let query_sentinel = "CODEDB_ARGV_QUERY_SENTINEL";
         let percent_sentinel = "%43%4f%44%45%44%42";
