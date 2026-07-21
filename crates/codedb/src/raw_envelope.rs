@@ -61,7 +61,10 @@ pub struct RawExit {
     pub code: Option<i64>,
     pub signal: Option<i64>,
     pub success: bool,
+    /// Deserialized for contract completeness; receipts carry code/signal/
+    /// success and the full metadata echo preserves the rest.
     #[serde(default)]
+    #[allow(dead_code)]
     pub launch_error: Option<String>,
 }
 
@@ -133,23 +136,292 @@ pub struct RawReportRow {
     pub sha256: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct AggregateEnvelope {
+    schema_version: String,
+    event_type: String,
+    metadata: serde_json::Value,
+    frames: Vec<RawFrame>,
+    completion: RawCompletion,
+}
+
+fn metadata_contract(metadata: &serde_json::Value) -> Result<RawMetadata, RawEnvelopeError> {
+    serde_json::from_value(metadata.clone())
+        .map_err(|e| RawEnvelopeError::new(format!("envelope metadata is malformed: {e}")))
+}
+
+fn validate_shape(
+    metadata: serde_json::Value,
+    frames: Vec<RawFrame>,
+    completion: RawCompletion,
+) -> Result<ValidatedRawEnvelope, RawEnvelopeError> {
+    let contract = metadata_contract(&metadata)?;
+    if contract.schema_version != RTK_NU_ENVELOPE_SCHEMA_VERSION {
+        return Err(RawEnvelopeError::new(format!(
+            "unsupported metadata schema_version: {}",
+            contract.schema_version
+        )));
+    }
+    if frames.len() > MAX_RAW_FRAMES {
+        return Err(RawEnvelopeError::new(format!(
+            "{} frames exceed the bound of {MAX_RAW_FRAMES}",
+            frames.len()
+        )));
+    }
+    if completion.frame_count != frames.len() as u64 {
+        return Err(RawEnvelopeError::new(format!(
+            "completion.frame_count {} disagrees with {} frames",
+            completion.frame_count,
+            frames.len()
+        )));
+    }
+
+    // Global sequence order must be strictly monotonic.
+    let mut last_sequence: Option<u64> = None;
+    for frame in &frames {
+        if let Some(previous) = last_sequence {
+            if frame.sequence <= previous {
+                return Err(RawEnvelopeError::new(format!(
+                    "frame sequence {} is not strictly after {previous}",
+                    frame.sequence
+                )));
+            }
+        }
+        last_sequence = Some(frame.sequence);
+        if frame.provisional_frame_id.is_empty() || frame.provisional_content_id.is_empty() {
+            return Err(RawEnvelopeError::new(format!(
+                "frame {} is missing provisional identities",
+                frame.sequence
+            )));
+        }
+    }
+
+    // Per-stream: contiguous offsets from zero, byte-exact digests, exact
+    // lengths, bounded totals.
+    let mut streams: Vec<ValidatedStream> = Vec::new();
+    for stream_name in ["stdout", "stderr"] {
+        let mut bytes = Vec::new();
+        let mut frame_count = 0u64;
+        let mut expected_offset = 0u64;
+        let mut preassigned: Option<String> = None;
+        for frame in frames.iter().filter(|f| f.stream == stream_name) {
+            let payload = BASE64.decode(&frame.payload_base64).map_err(|e| {
+                RawEnvelopeError::new(format!("frame {} payload: {e}", frame.sequence))
+            })?;
+            if payload.len() as u64 != frame.byte_length {
+                return Err(RawEnvelopeError::new(format!(
+                    "frame {} declares byte_length {} but decodes to {} bytes",
+                    frame.sequence,
+                    frame.byte_length,
+                    payload.len()
+                )));
+            }
+            if sha256_hex(&payload) != frame.sha256 {
+                return Err(RawEnvelopeError::new(format!(
+                    "frame {} sha256 does not match its payload bytes",
+                    frame.sequence
+                )));
+            }
+            if frame.byte_offset != expected_offset {
+                return Err(RawEnvelopeError::new(format!(
+                    "frame {} byte_offset {} breaks contiguity (expected {expected_offset})",
+                    frame.sequence, frame.byte_offset
+                )));
+            }
+            expected_offset += frame.byte_length;
+            if expected_offset > MAX_RAW_STREAM_BYTES {
+                return Err(RawEnvelopeError::new(format!(
+                    "{stream_name} exceeds the {MAX_RAW_STREAM_BYTES}-byte stream bound"
+                )));
+            }
+            if let Some(claimed) = &frame.canonical_raw_object_id {
+                if let Some(existing) = &preassigned {
+                    if claimed != existing {
+                        return Err(RawEnvelopeError::new(format!(
+                            "frame {} carries a conflicting canonical_raw_object_id",
+                            frame.sequence
+                        )));
+                    }
+                } else {
+                    preassigned = Some(claimed.clone());
+                }
+            }
+            bytes.extend_from_slice(&payload);
+            frame_count += 1;
+        }
+        let declared_total = match stream_name {
+            "stdout" => completion.stdout_byte_length,
+            _ => completion.stderr_byte_length,
+        };
+        if bytes.len() as u64 != declared_total {
+            return Err(RawEnvelopeError::new(format!(
+                "completion declares {declared_total} {stream_name} bytes but frames carry {}",
+                bytes.len()
+            )));
+        }
+        if frame_count == 0 {
+            continue;
+        }
+        let raw_object_id = format!("sha256:{}", sha256_hex(&bytes));
+        if let Some(claimed) = preassigned {
+            if claimed != raw_object_id {
+                return Err(RawEnvelopeError::new(format!(
+                    "{stream_name} carries canonical_raw_object_id {claimed} but the exact \
+                     bytes address to {raw_object_id}"
+                )));
+            }
+        }
+        streams.push(ValidatedStream {
+            stream: stream_name.to_string(),
+            bytes,
+            frame_count,
+            raw_object_id,
+        });
+    }
+
+    // Any frame with an unknown stream name is unaccounted — fail closed.
+    if let Some(unknown) = frames
+        .iter()
+        .find(|f| f.stream != "stdout" && f.stream != "stderr")
+    {
+        return Err(RawEnvelopeError::new(format!(
+            "frame {} names unknown stream {:?}",
+            unknown.sequence, unknown.stream
+        )));
+    }
+
+    let metadata_json = serde_json::to_string(&metadata)
+        .map_err(|e| RawEnvelopeError::new(format!("serializing metadata echo: {e}")))?;
+    Ok(ValidatedRawEnvelope {
+        streams,
+        metadata_json,
+        idempotency_key: contract.idempotency_key,
+        exit: (
+            completion.exit.code,
+            completion.exit.signal,
+            completion.exit.success,
+        ),
+    })
+}
+
 /// Validate one rtk_nu JSON aggregate envelope fail-closed.
 pub fn validate_raw_envelope(json: &str) -> Result<ValidatedRawEnvelope, RawEnvelopeError> {
-    let _ = json;
-    Err(RawEnvelopeError::new("validate_raw_envelope is not implemented"))
+    let envelope: AggregateEnvelope = serde_json::from_str(json)
+        .map_err(|e| RawEnvelopeError::new(format!("rtk_nu envelope does not parse: {e}")))?;
+    if envelope.schema_version != RTK_NU_ENVELOPE_SCHEMA_VERSION {
+        return Err(RawEnvelopeError::new(format!(
+            "unsupported envelope schema_version: {}",
+            envelope.schema_version
+        )));
+    }
+    if envelope.event_type != "execution" {
+        return Err(RawEnvelopeError::new(format!(
+            "aggregate envelopes must carry event_type \"execution\", got {:?}",
+            envelope.event_type
+        )));
+    }
+    validate_shape(envelope.metadata, envelope.frames, envelope.completion)
+}
+
+#[derive(Debug, Deserialize)]
+struct EventLine {
+    event_type: String,
+    metadata: serde_json::Value,
+    #[serde(default)]
+    frame: Option<RawFrame>,
+    #[serde(default)]
+    frame_count: Option<u64>,
+    #[serde(default)]
+    stdout_byte_length: Option<u64>,
+    #[serde(default)]
+    stderr_byte_length: Option<u64>,
+    #[serde(default)]
+    exit: Option<RawExit>,
+}
+
+fn validate_events(events: Vec<EventLine>) -> Result<ValidatedRawEnvelope, RawEnvelopeError> {
+    let mut frames = Vec::new();
+    let mut completion: Option<RawCompletion> = None;
+    let mut metadata: Option<serde_json::Value> = None;
+    let mut idempotency: Option<String> = None;
+    for (index, event) in events.into_iter().enumerate() {
+        if completion.is_some() {
+            return Err(RawEnvelopeError::new(
+                "events continue after execution_complete; the stream is malformed",
+            ));
+        }
+        let contract = metadata_contract(&event.metadata)?;
+        if let Some(existing) = &idempotency {
+            if existing != &contract.idempotency_key {
+                return Err(RawEnvelopeError::new(format!(
+                    "event {index} switches idempotency_key mid-stream"
+                )));
+            }
+        } else {
+            idempotency = Some(contract.idempotency_key.clone());
+            metadata = Some(event.metadata.clone());
+        }
+        match event.event_type.as_str() {
+            "raw_frame" => {
+                let frame = event.frame.ok_or_else(|| {
+                    RawEnvelopeError::new(format!("raw_frame event {index} has no frame"))
+                })?;
+                frames.push(frame);
+            }
+            "execution_complete" => {
+                completion = Some(RawCompletion {
+                    frame_count: event.frame_count.ok_or_else(|| {
+                        RawEnvelopeError::new("execution_complete lacks frame_count")
+                    })?,
+                    stdout_byte_length: event.stdout_byte_length.ok_or_else(|| {
+                        RawEnvelopeError::new("execution_complete lacks stdout_byte_length")
+                    })?,
+                    stderr_byte_length: event.stderr_byte_length.ok_or_else(|| {
+                        RawEnvelopeError::new("execution_complete lacks stderr_byte_length")
+                    })?,
+                    exit: event.exit.ok_or_else(|| {
+                        RawEnvelopeError::new("execution_complete lacks exit details")
+                    })?,
+                });
+            }
+            other => {
+                return Err(RawEnvelopeError::new(format!(
+                    "unknown event_type {other:?} at event {index}"
+                )));
+            }
+        }
+    }
+    let completion = completion.ok_or_else(|| {
+        RawEnvelopeError::new(
+            "event stream ended without execution_complete; refusing a truncated capture",
+        )
+    })?;
+    let metadata = metadata
+        .ok_or_else(|| RawEnvelopeError::new("event stream carries no events at all"))?;
+    validate_shape(metadata, frames, completion)
 }
 
 /// Validate a rtk_nu JSONL event stream (raw_frame* + execution_complete)
 /// by assembling it into the aggregate shape first.
 pub fn validate_raw_jsonl(text: &str) -> Result<ValidatedRawEnvelope, RawEnvelopeError> {
-    let _ = text;
-    Err(RawEnvelopeError::new("validate_raw_jsonl is not implemented"))
+    let mut events = Vec::new();
+    for (line_number, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let event: EventLine = serde_json::from_str(line).map_err(|e| {
+            RawEnvelopeError::new(format!("JSONL line {} does not parse: {e}", line_number + 1))
+        })?;
+        events.push(event);
+    }
+    validate_events(events)
 }
 
 /// Validate a JSON array of JSONL event objects (the plugin's list input).
 pub fn validate_raw_event_array(json: &str) -> Result<ValidatedRawEnvelope, RawEnvelopeError> {
-    let _ = json;
-    Err(RawEnvelopeError::new("validate_raw_event_array is not implemented"))
+    let events: Vec<EventLine> = serde_json::from_str(json)
+        .map_err(|e| RawEnvelopeError::new(format!("event array does not parse: {e}")))?;
+    validate_events(events)
 }
 
 /// Persist every validated stream as a canonical raw object (idempotent) and
@@ -158,25 +430,91 @@ pub fn run_raw_ingest(
     store_path: &std::path::Path,
     validated: &ValidatedRawEnvelope,
 ) -> Result<RawIngestReceipt, RawEnvelopeError> {
-    let _ = (store_path, validated);
-    Err(RawEnvelopeError::new("run_raw_ingest is not implemented"))
+    let mut raw_objects = Vec::new();
+    for stream in &validated.streams {
+        let sha256 = stream
+            .raw_object_id
+            .strip_prefix("sha256:")
+            .expect("canonical ids are sha256-prefixed")
+            .to_string();
+        let object_metadata = serde_json::json!({
+            "stream": stream.stream,
+            "byte_length": stream.bytes.len() as u64,
+            "frame_count": stream.frame_count,
+            "idempotency_key": validated.idempotency_key,
+            "sha256": sha256,
+            "exit": {
+                "code": validated.exit.0,
+                "signal": validated.exit.1,
+                "success": validated.exit.2,
+            },
+            "envelope_metadata": serde_json::from_str::<serde_json::Value>(
+                &validated.metadata_json
+            )
+            .expect("metadata echo round-trips"),
+        })
+        .to_string();
+        let deduplicated = codedb_store_redb::persist_raw_object(
+            store_path,
+            &stream.raw_object_id,
+            &stream.bytes,
+            &object_metadata,
+        )
+        .map_err(|e| RawEnvelopeError::new(e.to_string()))?;
+        raw_objects.push(RawObjectReceiptRow {
+            stream: stream.stream.clone(),
+            raw_object_id: stream.raw_object_id.clone(),
+            byte_length: stream.bytes.len() as u64,
+            frame_count: stream.frame_count,
+            deduplicated,
+        });
+    }
+    Ok(RawIngestReceipt {
+        schema_version: RAW_RECEIPT_SCHEMA_VERSION.to_string(),
+        idempotency_key: validated.idempotency_key.clone(),
+        raw_objects,
+        exit_code: validated.exit.0,
+        exit_signal: validated.exit.1,
+        exit_success: validated.exit.2,
+    })
 }
 
 /// Read back every stored raw object with its metadata.
 pub fn raw_report(store_path: &std::path::Path) -> Result<Vec<RawReportRow>, RawEnvelopeError> {
-    let _ = store_path;
-    Err(RawEnvelopeError::new("raw_report is not implemented"))
+    let rows = codedb_store_redb::list_raw_objects(store_path)
+        .map_err(|e| RawEnvelopeError::new(e.to_string()))?;
+    let mut report = Vec::new();
+    for (raw_object_id, metadata_json) in rows {
+        let metadata: serde_json::Value = serde_json::from_str(&metadata_json)
+            .map_err(|e| RawEnvelopeError::new(format!("raw object metadata: {e}")))?;
+        let field = |name: &str| -> Result<String, RawEnvelopeError> {
+            metadata
+                .get(name)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    RawEnvelopeError::new(format!("raw object {raw_object_id} lacks {name}"))
+                })
+        };
+        let number = |name: &str| -> Result<u64, RawEnvelopeError> {
+            metadata.get(name).and_then(|v| v.as_u64()).ok_or_else(|| {
+                RawEnvelopeError::new(format!("raw object {raw_object_id} lacks {name}"))
+            })
+        };
+        report.push(RawReportRow {
+            raw_object_id: raw_object_id.clone(),
+            stream: field("stream")?,
+            byte_length: number("byte_length")?,
+            frame_count: number("frame_count")?,
+            idempotency_key: field("idempotency_key")?,
+            sha256: field("sha256")?,
+        });
+    }
+    Ok(report)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
-}
-
-#[allow(dead_code)]
-fn decode_frame_payload(frame: &RawFrame) -> Result<Vec<u8>, RawEnvelopeError> {
-    BASE64
-        .decode(&frame.payload_base64)
-        .map_err(|e| RawEnvelopeError::new(format!("frame {} payload: {e}", frame.sequence)))
 }
 
 #[cfg(test)]

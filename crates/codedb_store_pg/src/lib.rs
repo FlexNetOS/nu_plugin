@@ -1369,6 +1369,85 @@ pub fn outbox_export_rows(
         .collect())
 }
 
+// ---------------------------------------------------------------------------
+// Raw-object metadata landing (ARCHBP-041): the PostgreSQL twin of redb's
+// raw_objects table, keyed by the same canonical content-addressed ids so
+// the two stores hold parity metadata for every captured raw byte object.
+// ---------------------------------------------------------------------------
+
+/// Fixed name of the raw-object metadata table.
+pub const RAW_OBJECTS_TABLE: &str = "codedb_raw_objects";
+
+#[derive(Debug, Clone, Default)]
+pub struct RawObjectsFlushOutcome {
+    pub inserted: Vec<String>,
+    pub skipped_existing: Vec<String>,
+}
+
+/// Idempotently land raw-object metadata rows keyed by canonical id.
+pub fn raw_objects_flush(
+    conn: &str,
+    rows: &[(String, String)],
+) -> Result<RawObjectsFlushOutcome, StoreError> {
+    let mut outcome = RawObjectsFlushOutcome::default();
+    if rows.is_empty() {
+        return Ok(outcome);
+    }
+    let mut client = connect_client(conn)?;
+    let mut tx = client
+        .transaction()
+        .map_err(|_| database_error("begin raw objects transaction"))?;
+    tx.batch_execute(&format!(
+        "CREATE TABLE IF NOT EXISTS {RAW_OBJECTS_TABLE} (\
+             raw_object_id TEXT PRIMARY KEY,\
+             metadata JSONB NOT NULL,\
+             landed_at TIMESTAMPTZ NOT NULL DEFAULT now()\
+         )"
+    ))
+    .map_err(|_| database_error("create raw objects table"))?;
+    let insert = format!(
+        "INSERT INTO {RAW_OBJECTS_TABLE} (raw_object_id, metadata) \
+         VALUES ($1, $2::text::jsonb) ON CONFLICT (raw_object_id) DO NOTHING"
+    );
+    for (raw_object_id, metadata_json) in rows {
+        let affected = tx
+            .execute(insert.as_str(), &[raw_object_id, metadata_json])
+            .map_err(|_| database_error("insert raw object row"))?;
+        if affected == 1 {
+            outcome.inserted.push(raw_object_id.clone());
+        } else {
+            outcome.skipped_existing.push(raw_object_id.clone());
+        }
+    }
+    tx.commit()
+        .map_err(|_| database_error("commit raw objects transaction"))?;
+    Ok(outcome)
+}
+
+/// Read back every raw-object metadata row ordered by canonical id. An
+/// absent table reports no rows.
+pub fn raw_objects_rows(conn: &str) -> Result<Vec<(String, String)>, StoreError> {
+    let mut client = connect_client(conn)?;
+    let exists: Option<String> = client
+        .query_one("SELECT to_regclass($1)::text", &[&RAW_OBJECTS_TABLE])
+        .map_err(|_| database_error("probe raw objects table"))?
+        .get(0);
+    if exists.is_none() {
+        return Ok(Vec::new());
+    }
+    let rows = client
+        .query(
+            format!(
+                "SELECT raw_object_id, metadata::text FROM {RAW_OBJECTS_TABLE} \
+                 ORDER BY raw_object_id"
+            )
+            .as_str(),
+            &[],
+        )
+        .map_err(|_| database_error("read raw object rows"))?;
+    Ok(rows.into_iter().map(|row| (row.get(0), row.get(1))).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
