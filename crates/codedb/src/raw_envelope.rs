@@ -186,13 +186,11 @@ fn validate_shape(
     // Global sequence order must be strictly monotonic.
     let mut last_sequence: Option<u64> = None;
     for frame in &frames {
-        if let Some(previous) = last_sequence {
-            if frame.sequence <= previous {
-                return Err(RawEnvelopeError::new(format!(
-                    "frame sequence {} is not strictly after {previous}",
-                    frame.sequence
-                )));
-            }
+        if last_sequence.is_some_and(|previous| frame.sequence <= previous) {
+            return Err(RawEnvelopeError::new(format!(
+                "frame sequence {} is not strictly monotonic",
+                frame.sequence
+            )));
         }
         last_sequence = Some(frame.sequence);
         if frame.provisional_frame_id.is_empty() || frame.provisional_content_id.is_empty() {
