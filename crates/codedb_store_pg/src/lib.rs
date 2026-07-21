@@ -1259,6 +1259,116 @@ fn parse_unix_mode(metadata_text: &str) -> Option<u32> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Outbox export contract (ARCHBP-002): the versioned PostgreSQL landing table
+// for ordered embedding work drained from the redb outbox. This table is an
+// export contract only — envctl remains the sole authoritative committer and
+// consumes these rows; nothing here mutates authoritative LifeOS state.
+// ---------------------------------------------------------------------------
+
+/// Fixed name of the versioned export contract table.
+pub const OUTBOX_EXPORT_TABLE: &str = "codedb_outbox_export";
+/// Version stamped on every exported row.
+pub const OUTBOX_EXPORT_CONTRACT_VERSION: &str = "codedb.outbox-export.v0";
+
+#[derive(Debug, Clone)]
+pub struct OutboxExportRowInput {
+    pub seq: u64,
+    pub blob_sha256: String,
+    pub job_json: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OutboxExportOutcome {
+    pub inserted: Vec<u64>,
+    pub skipped_existing: Vec<u64>,
+}
+
+/// Idempotently land export rows keyed by outbox sequence. Creates the
+/// contract table when absent; every insert is `ON CONFLICT (seq) DO
+/// NOTHING`, and the whole batch commits in one transaction so a crash can
+/// never leave a partially visible batch.
+pub fn outbox_export_flush(
+    conn: &str,
+    rows: &[OutboxExportRowInput],
+) -> Result<OutboxExportOutcome, StoreError> {
+    let mut outcome = OutboxExportOutcome::default();
+    if rows.is_empty() {
+        return Ok(outcome);
+    }
+    let mut client = connect_client(conn)?;
+    let mut tx = client
+        .transaction()
+        .map_err(|_| database_error("begin outbox export transaction"))?;
+    tx.batch_execute(&format!(
+        "CREATE TABLE IF NOT EXISTS {OUTBOX_EXPORT_TABLE} (\
+             seq BIGINT PRIMARY KEY,\
+             contract_version TEXT NOT NULL,\
+             blob_sha256 TEXT NOT NULL,\
+             job JSONB NOT NULL,\
+             synced_at TIMESTAMPTZ NOT NULL DEFAULT now()\
+         )"
+    ))
+    .map_err(|_| database_error("create outbox export contract table"))?;
+    let insert = format!(
+        "INSERT INTO {OUTBOX_EXPORT_TABLE} (seq, contract_version, blob_sha256, job) \
+         VALUES ($1, $2, $3, $4::text::jsonb) ON CONFLICT (seq) DO NOTHING"
+    );
+    for row in rows {
+        let seq = i64::try_from(row.seq).map_err(|_| {
+            StoreError::new(format!("outbox sequence {} overflows BIGINT", row.seq))
+        })?;
+        let affected = tx
+            .execute(
+                insert.as_str(),
+                &[
+                    &seq,
+                    &OUTBOX_EXPORT_CONTRACT_VERSION,
+                    &row.blob_sha256,
+                    &row.job_json,
+                ],
+            )
+            .map_err(|_| database_error("insert outbox export row"))?;
+        if affected == 1 {
+            outcome.inserted.push(row.seq);
+        } else {
+            outcome.skipped_existing.push(row.seq);
+        }
+    }
+    tx.commit()
+        .map_err(|_| database_error("commit outbox export transaction"))?;
+    Ok(outcome)
+}
+
+/// Read back every exported row ordered by sequence: (seq, contract_version,
+/// blob_sha256, job_json). An absent contract table reports no rows.
+pub fn outbox_export_rows(
+    conn: &str,
+) -> Result<Vec<(i64, String, String, String)>, StoreError> {
+    let mut client = connect_client(conn)?;
+    let exists: Option<String> = client
+        .query_one("SELECT to_regclass($1)::text", &[&OUTBOX_EXPORT_TABLE])
+        .map_err(|_| database_error("probe outbox export contract table"))?
+        .get(0);
+    if exists.is_none() {
+        return Ok(Vec::new());
+    }
+    let rows = client
+        .query(
+            format!(
+                "SELECT seq, contract_version, blob_sha256, job::text \
+                 FROM {OUTBOX_EXPORT_TABLE} ORDER BY seq"
+            )
+            .as_str(),
+            &[],
+        )
+        .map_err(|_| database_error("read outbox export rows"))?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.get(0), row.get(1), row.get(2), row.get(3)))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

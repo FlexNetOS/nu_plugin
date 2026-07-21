@@ -42,6 +42,7 @@ use sha2::{Digest, Sha256};
 use toml::Value as TomlValue;
 
 mod ingest;
+mod outbox;
 
 type Row = BTreeMap<String, String>;
 
@@ -200,6 +201,93 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             let validated = ingest::validate_envelope(&json)
                 .map_err(|e| CliError::Message(e.to_string()))?;
             let receipt = ingest::run_ingest(&store_path, &validated)
+                .map_err(|e| CliError::Message(e.to_string()))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&receipt)
+                    .map_err(|source| CliError::Core(Box::new(source)))?
+            );
+            Ok(())
+        }
+        // outbox-enqueue = validate one embedding job against the versioned
+        // contract, verify its blob linkage, and append it to the redb outbox
+        // (ARCHBP-002).
+        "outbox-enqueue" => {
+            if !matches!(parse_format(&args), Ok(OutputFormat::Json)) {
+                return Err(CliError::Message(
+                    "outbox-enqueue emits a typed receipt; pass --format json".into(),
+                ));
+            }
+            let input = option_value(&args, "--input").ok_or_else(|| {
+                CliError::Message("outbox-enqueue requires --input <job.json>".into())
+            })?;
+            let store_path = ingest_redb_store_path(&args)?;
+            if !store_path.exists() {
+                return Err(CliError::Message(format!(
+                    "outbox-enqueue requires an initialized store: {} does not exist",
+                    store_path.display()
+                )));
+            }
+            let json = fs::read_to_string(absolute_cli_path(input)?)
+                .map_err(|e| CliError::Message(format!("reading {input}: {e}")))?;
+            let receipt = outbox::enqueue_job(&store_path, &json)
+                .map_err(|e| CliError::Message(e.to_string()))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&receipt)
+                    .map_err(|source| CliError::Core(Box::new(source)))?
+            );
+            Ok(())
+        }
+        // outbox-status = observable outbox state (enqueued/acknowledged/pending).
+        "outbox-status" => {
+            if !matches!(parse_format(&args), Ok(OutputFormat::Json)) {
+                return Err(CliError::Message(
+                    "outbox-status emits typed rows; pass --format json".into(),
+                ));
+            }
+            let store_path = ingest_redb_store_path(&args)?;
+            let status = outbox::outbox_status(&store_path)
+                .map_err(|e| CliError::Message(e.to_string()))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&status)
+                    .map_err(|source| CliError::Core(Box::new(source)))?
+            );
+            Ok(())
+        }
+        // outbox-sync = drain the outbox in order into the versioned
+        // PostgreSQL export contract. The DSN is inherited only through
+        // CODEDB_PG_CONN (never process arguments); envctl remains the sole
+        // authoritative committer and consumes the export contract.
+        "outbox-sync" => {
+            if !matches!(parse_format(&args), Ok(OutputFormat::Json)) {
+                return Err(CliError::Message(
+                    "outbox-sync emits a typed receipt; pass --format json".into(),
+                ));
+            }
+            if option_value(&args, "--pg-conn").is_some() {
+                return Err(CliError::Message(
+                    "--pg-conn is forbidden because DSNs must not enter process arguments; set CODEDB_PG_CONN".into(),
+                ));
+            }
+            let store_path = ingest_redb_store_path(&args)?;
+            let conn = env::var("CODEDB_PG_CONN").map_err(|_| {
+                CliError::Message(
+                    "outbox-sync requires the PostgreSQL DSN in CODEDB_PG_CONN".into(),
+                )
+            })?;
+            let max_batch = match option_value(&args, "--max-batch") {
+                Some(raw) => raw.parse::<usize>().map_err(|_| {
+                    CliError::Message(format!("--max-batch must be a positive integer, got {raw}"))
+                })?,
+                None => outbox::MAX_SYNC_BATCH,
+            };
+            if max_batch == 0 {
+                return Err(CliError::Message("--max-batch must be at least 1".into()));
+            }
+            let mut sink = outbox::PgExportSink::new(&conn);
+            let receipt = outbox::run_sync(&store_path, &mut sink, max_batch)
                 .map_err(|e| CliError::Message(e.to_string()))?;
             println!(
                 "{}",
