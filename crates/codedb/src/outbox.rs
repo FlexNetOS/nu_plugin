@@ -96,10 +96,51 @@ pub struct SyncReceipt {
     pub pending_remaining: u64,
 }
 
+fn require_hex_digest(value: &str, field: &str) -> Result<(), OutboxError> {
+    if value.len() != 64 || !value.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return Err(OutboxError::new(format!(
+            "{field} must be 64 lowercase hex characters"
+        )));
+    }
+    Ok(())
+}
+
 /// Fail-closed validation of one embedding job JSON.
 pub fn validate_job(json: &str) -> Result<EmbeddingJob, OutboxError> {
-    let _ = json;
-    Err(OutboxError::new("validate_job is not implemented"))
+    let job: EmbeddingJob = serde_json::from_str(json)
+        .map_err(|e| OutboxError::new(format!("embedding job does not parse: {e}")))?;
+    if job.schema_version != EMBEDDING_JOB_SCHEMA_VERSION {
+        return Err(OutboxError::new(format!(
+            "unsupported embedding job schema version: {} (expected {})",
+            job.schema_version, EMBEDDING_JOB_SCHEMA_VERSION
+        )));
+    }
+    require_hex_digest(&job.blob_sha256, "blob_sha256")?;
+    require_hex_digest(&job.payload_digest, "payload_digest")?;
+    if job.model_name.trim().is_empty() {
+        return Err(OutboxError::new("model_name must not be empty"));
+    }
+    if job.model_revision.trim().is_empty() {
+        return Err(OutboxError::new("model_revision must not be empty"));
+    }
+    if job.relative_path.is_empty() {
+        return Err(OutboxError::new("relative_path must not be empty"));
+    }
+    if job.relative_path.starts_with('/') || job.relative_path.contains('\\') {
+        return Err(OutboxError::new(
+            "relative_path must be a clean relative path",
+        ));
+    }
+    if job
+        .relative_path
+        .split('/')
+        .any(|component| component.is_empty() || component == "." || component == "..")
+    {
+        return Err(OutboxError::new(
+            "relative_path must not contain empty, '.', or '..' components",
+        ));
+    }
+    Ok(job)
 }
 
 /// Validate, verify blob linkage against the store, and append to the outbox.
@@ -107,19 +148,93 @@ pub fn enqueue_job(
     store_path: &std::path::Path,
     json: &str,
 ) -> Result<EnqueueReceipt, OutboxError> {
-    let _ = (store_path, json);
-    Err(OutboxError::new("enqueue_job is not implemented"))
+    let job = validate_job(json)?;
+    let present = codedb_store_redb::source_blob_exists(store_path, &job.blob_sha256)
+        .map_err(|e| OutboxError::new(e.to_string()))?;
+    if !present {
+        return Err(OutboxError::new(format!(
+            "embedding job references blob sha256:{} which is not in the store",
+            job.blob_sha256
+        )));
+    }
+    // Canonical serialization: the outbox stores the parsed contract, not the
+    // caller's raw bytes, so replayed entries are byte-stable.
+    let canonical = serde_json::to_string(&job)
+        .map_err(|e| OutboxError::new(format!("serializing job: {e}")))?;
+    let seq = codedb_store_redb::outbox_enqueue(store_path, &canonical)
+        .map_err(|e| OutboxError::new(e.to_string()))?;
+    Ok(EnqueueReceipt {
+        schema_version: ENQUEUE_RECEIPT_SCHEMA_VERSION.to_string(),
+        seq,
+        blob_sha256: job.blob_sha256,
+        relative_path: job.relative_path,
+    })
 }
 
 /// Drain pending entries in order through the sink, acknowledging after each
-/// successful flush. Restart-safe at every boundary.
+/// successful flush. Restart-safe at every boundary: entries are append-only,
+/// export rows are keyed by sequence, and the cursor only advances after the
+/// sink accepted the whole batch. A corrupt entry aborts the run before its
+/// batch is flushed — the valid prefix stays acknowledged, nothing is
+/// silently dropped.
 pub fn run_sync(
     store_path: &std::path::Path,
     sink: &mut dyn ExportSink,
     max_batch: usize,
 ) -> Result<SyncReceipt, OutboxError> {
-    let _ = (store_path, sink, max_batch);
-    Err(OutboxError::new("run_sync is not implemented"))
+    let mut synced = Vec::new();
+    let mut skipped_existing = Vec::new();
+    loop {
+        let pending = codedb_store_redb::outbox_pending(store_path, max_batch)
+            .map_err(|e| OutboxError::new(e.to_string()))?;
+        if pending.is_empty() {
+            break;
+        }
+        // Embed boundary: rebuild every export row deterministically from the
+        // stored contract. A corrupt entry fails the run closed, but the
+        // valid prefix before it still lands and acknowledges — nothing is
+        // silently dropped and nothing valid is held hostage.
+        let mut rows = Vec::with_capacity(pending.len());
+        let mut corrupt: Option<OutboxError> = None;
+        for entry in &pending {
+            match validate_job(&entry.entry_json) {
+                Ok(job) => rows.push(ExportRow {
+                    seq: entry.seq,
+                    blob_sha256: job.blob_sha256,
+                    job_json: entry.entry_json.clone(),
+                }),
+                Err(e) => {
+                    corrupt = Some(OutboxError::new(format!(
+                        "outbox entry seq {} violates the embedding-job contract: {e}",
+                        entry.seq
+                    )));
+                    break;
+                }
+            }
+        }
+        if let Some(last_seq) = rows.last().map(|row| row.seq) {
+            // Flush boundary: idempotent landing keyed by sequence.
+            let outcome = sink.flush(&rows)?;
+            synced.extend(outcome.inserted);
+            skipped_existing.extend(outcome.skipped_existing);
+            // Acknowledge boundary: only after the whole batch landed.
+            codedb_store_redb::outbox_acknowledge(store_path, last_seq)
+                .map_err(|e| OutboxError::new(e.to_string()))?;
+        }
+        if let Some(err) = corrupt {
+            return Err(err);
+        }
+    }
+    let status = codedb_store_redb::outbox_status(store_path)
+        .map_err(|e| OutboxError::new(e.to_string()))?;
+    Ok(SyncReceipt {
+        schema_version: SYNC_RECEIPT_SCHEMA_VERSION.to_string(),
+        contract_version: EXPORT_CONTRACT_VERSION.to_string(),
+        synced,
+        skipped_existing,
+        acknowledged_up_to: status.acknowledged,
+        pending_remaining: status.pending,
+    })
 }
 
 /// PostgreSQL sink over the versioned export contract table. The DSN is
@@ -164,8 +279,13 @@ pub struct OutboxStatus {
 }
 
 pub fn outbox_status(store_path: &std::path::Path) -> Result<OutboxStatus, OutboxError> {
-    let _ = store_path;
-    Err(OutboxError::new("outbox_status is not implemented"))
+    let status = codedb_store_redb::outbox_status(store_path)
+        .map_err(|e| OutboxError::new(e.to_string()))?;
+    Ok(OutboxStatus {
+        enqueued: status.enqueued,
+        acknowledged: status.acknowledged,
+        pending: status.pending,
+    })
 }
 
 #[cfg(test)]

@@ -1389,16 +1389,47 @@ pub struct OutboxStatusRow {
     pub pending: u64,
 }
 
+fn outbox_last_seq(
+    read_txn: &redb::ReadTransaction,
+) -> Result<u64, StoreError> {
+    match read_txn.open_table(OUTBOX_ENTRIES_TABLE) {
+        Ok(entries) => Ok(entries.last()?.map(|(key, _)| key.value()).unwrap_or(0)),
+        Err(TableError::TableDoesNotExist(_)) => Ok(0),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn outbox_ack_cursor(
+    read_txn: &redb::ReadTransaction,
+) -> Result<u64, StoreError> {
+    match read_txn.open_table(OUTBOX_CURSOR_TABLE) {
+        Ok(cursor) => Ok(cursor
+            .get(OUTBOX_ACK_KEY)?
+            .map(|value| value.value())
+            .unwrap_or(0)),
+        Err(TableError::TableDoesNotExist(_)) => Ok(0),
+        Err(err) => Err(err.into()),
+    }
+}
+
 /// Append one entry; returns its assigned sequence (contiguous from 1).
 #[allow(clippy::result_large_err)]
 pub fn outbox_enqueue(
     store_path: impl AsRef<Path>,
     entry_json: &str,
 ) -> Result<u64, StoreError> {
-    let _ = (store_path.as_ref(), entry_json);
-    Err(StoreError::OutboxContract {
-        message: "outbox_enqueue is not implemented".into(),
-    })
+    let db = Database::open(store_path.as_ref())?;
+    let seq;
+    {
+        let write_txn = db.begin_write()?;
+        {
+            let mut entries = write_txn.open_table(OUTBOX_ENTRIES_TABLE)?;
+            seq = entries.last()?.map(|(key, _)| key.value()).unwrap_or(0) + 1;
+            entries.insert(seq, entry_json)?;
+        }
+        write_txn.commit()?;
+    }
+    Ok(seq)
 }
 
 /// Entries strictly after the acknowledge cursor, in sequence order.
@@ -1407,10 +1438,26 @@ pub fn outbox_pending(
     store_path: impl AsRef<Path>,
     limit: usize,
 ) -> Result<Vec<OutboxEntryRow>, StoreError> {
-    let _ = (store_path.as_ref(), limit);
-    Err(StoreError::OutboxContract {
-        message: "outbox_pending is not implemented".into(),
-    })
+    let db = Database::open(store_path.as_ref())?;
+    let read_txn = db.begin_read()?;
+    let acknowledged = outbox_ack_cursor(&read_txn)?;
+    let entries = match read_txn.open_table(OUTBOX_ENTRIES_TABLE) {
+        Ok(entries) => entries,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+    let mut rows = Vec::new();
+    for entry in entries.range((acknowledged + 1)..)? {
+        if rows.len() >= limit {
+            break;
+        }
+        let (key, value) = entry?;
+        rows.push(OutboxEntryRow {
+            seq: key.value(),
+            entry_json: value.value().to_string(),
+        });
+    }
+    Ok(rows)
 }
 
 /// Advance the acknowledge cursor. The cursor is monotonic and can never
@@ -1420,18 +1467,49 @@ pub fn outbox_acknowledge(
     store_path: impl AsRef<Path>,
     up_to: u64,
 ) -> Result<u64, StoreError> {
-    let _ = (store_path.as_ref(), up_to);
-    Err(StoreError::OutboxContract {
-        message: "outbox_acknowledge is not implemented".into(),
-    })
+    let db = Database::open(store_path.as_ref())?;
+    {
+        let write_txn = db.begin_write()?;
+        {
+            let entries = write_txn.open_table(OUTBOX_ENTRIES_TABLE)?;
+            let last_seq = entries.last()?.map(|(key, _)| key.value()).unwrap_or(0);
+            let mut cursor = write_txn.open_table(OUTBOX_CURSOR_TABLE)?;
+            let acknowledged = cursor
+                .get(OUTBOX_ACK_KEY)?
+                .map(|value| value.value())
+                .unwrap_or(0);
+            if up_to < acknowledged {
+                return Err(StoreError::OutboxContract {
+                    message: format!(
+                        "acknowledge cursor cannot regress from {acknowledged} to {up_to}"
+                    ),
+                });
+            }
+            if up_to > last_seq {
+                return Err(StoreError::OutboxContract {
+                    message: format!(
+                        "cannot acknowledge {up_to} beyond the enqueued head {last_seq}"
+                    ),
+                });
+            }
+            cursor.insert(OUTBOX_ACK_KEY, up_to)?;
+        }
+        write_txn.commit()?;
+    }
+    Ok(up_to)
 }
 
 /// Observable outbox state: last enqueued seq, acknowledge cursor, pending.
 #[allow(clippy::result_large_err)]
 pub fn outbox_status(store_path: impl AsRef<Path>) -> Result<OutboxStatusRow, StoreError> {
-    let _ = store_path.as_ref();
-    Err(StoreError::OutboxContract {
-        message: "outbox_status is not implemented".into(),
+    let db = Database::open(store_path.as_ref())?;
+    let read_txn = db.begin_read()?;
+    let enqueued = outbox_last_seq(&read_txn)?;
+    let acknowledged = outbox_ack_cursor(&read_txn)?;
+    Ok(OutboxStatusRow {
+        enqueued,
+        acknowledged,
+        pending: enqueued.saturating_sub(acknowledged),
     })
 }
 
@@ -1441,10 +1519,14 @@ pub fn source_blob_exists(
     store_path: impl AsRef<Path>,
     sha256: &str,
 ) -> Result<bool, StoreError> {
-    let _ = (store_path.as_ref(), sha256);
-    Err(StoreError::OutboxContract {
-        message: "source_blob_exists is not implemented".into(),
-    })
+    let db = Database::open(store_path.as_ref())?;
+    let read_txn = db.begin_read()?;
+    let blobs = match read_txn.open_table(SOURCE_BLOBS_TABLE) {
+        Ok(blobs) => blobs,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(false),
+        Err(err) => return Err(err.into()),
+    };
+    Ok(blobs.get(sha256)?.is_some())
 }
 
 #[cfg(test)]

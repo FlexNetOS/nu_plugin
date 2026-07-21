@@ -10,6 +10,9 @@ use codedb_store_pg::{
     connect_for_integration_tests, outbox_export_flush, outbox_export_rows,
 };
 
+/// Both tests own the single shared contract table; serialize them.
+static EXPORT_TABLE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn disposable_conn() -> String {
     std::env::var("CODEDB_PG_CONN")
         .expect("CODEDB_PG_CONN must select the explicit disposable PostgreSQL test service")
@@ -32,6 +35,7 @@ fn row(seq: u64) -> OutboxExportRowInput {
 
 #[test]
 fn flush_lands_rows_in_order_and_refluses_are_skipped_not_duplicated() {
+    let _guard = EXPORT_TABLE_LOCK.lock().expect("export table lock");
     let conn = disposable_conn();
     reset_export_table(&conn);
 
@@ -66,6 +70,7 @@ fn flush_lands_rows_in_order_and_refluses_are_skipped_not_duplicated() {
 
 #[test]
 fn empty_flush_is_a_no_op_and_read_back_of_missing_table_is_empty() {
+    let _guard = EXPORT_TABLE_LOCK.lock().expect("export table lock");
     let conn = disposable_conn();
     reset_export_table(&conn);
 
