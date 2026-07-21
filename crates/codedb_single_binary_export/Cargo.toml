@@ -1,0 +1,32 @@
+[package]
+name = "codedb-single-binary-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Generated single-binary CodeDB snapshot artifact: embeds a bounded snapshot pack and verifies, lists, summarizes, exports, and materializes it (ARCHBP-024; bounded artifact, no wider release claim)."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "codedb-single-binary-export"
+path = "src/main.rs"
+
+[[bin]]
+name = "generate-snapshot-assets"
+path = "src/bin/generate.rs"
+
+[[bin]]
+name = "consolidation-rehearsal"
+path = "src/bin/rehearsal.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+zstd = "0.13"
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"
