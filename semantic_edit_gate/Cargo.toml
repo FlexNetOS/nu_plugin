@@ -1,0 +1,12 @@
+[package]
+name = "semantic_edit_gate"
+version = "0.1.0"
+edition = "2021"
+description = "Approval-gated semantic edit-plan authority (ARCHBP-004). Source-snapshot-bound edit plans require owner approval, path confinement, drift-freeness, and passing repository gates before an ISOLATED patch is materialized; direct SQL mutation of canonical source is forbidden and canonical source is never changed by this gate."
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone hermetic crate: opts out of any host workspace, zero dependencies.
+[workspace]
+
+[dependencies]
