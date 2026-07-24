@@ -66,5 +66,52 @@ fn final_and_ancestor_symlinks_are_rejected_without_reading_outside_bytes() {
             error.message().contains("refused"),
             "unexpected error for {path}: {error}"
         );
+        assert!(
+            !error.is_permission_denied(),
+            "a symlink-escape refusal is a policy rejection, not a permission-denied read, for {path}"
+        );
     }
+}
+
+// Test lane: default (unix only: permission bits are a POSIX concept)
+// Defends: a file whose content cannot be opened due to filesystem
+// permissions is classified as permission-denied so callers can
+// record-and-continue instead of aborting an entire whole-host capture
+// (EVERY-BYTE engine gap G3), while an unrelated failure (missing file) is
+// not misclassified the same way.
+#[test]
+fn unreadable_file_content_is_classified_as_permission_denied() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temporary = tempfile::tempdir().expect("temporary root");
+    let root = temporary.path().join("repo");
+    std::fs::create_dir(&root).expect("repo root");
+    std::fs::write(root.join("secret.env"), b"token=abc123\n").expect("write denied file");
+    std::fs::set_permissions(
+        root.join("secret.env"),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .expect("deny file content access");
+    let contained = ContainedDirectory::open_existing(&root).expect("open root");
+
+    let result = contained.read_regular_file("secret.env");
+    // Restore permissions before any assertion can panic and skip cleanup.
+    std::fs::set_permissions(
+        root.join("secret.env"),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .expect("restore permissions");
+    let error = result.expect_err("chmod 000 content read must fail");
+    assert!(
+        error.is_permission_denied(),
+        "unexpected non-permission-denied classification for chmod 000 file: {error}"
+    );
+
+    let missing_error = contained
+        .read_regular_file("does-not-exist.txt")
+        .expect_err("missing file read must fail");
+    assert!(
+        !missing_error.is_permission_denied(),
+        "a missing file must not be misclassified as permission-denied: {missing_error}"
+    );
 }

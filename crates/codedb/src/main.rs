@@ -30,7 +30,7 @@ use codedb_core::store_spec::{StoreBackend, StoreSpec};
 use codedb_core::{
     FilesystemEntry, NU_PLUGIN_PROTOCOL_VERSION, SourceBlobMetadata, SymlinkMaterializationStatus,
     TableRow, capture_gaps, capture_source_metadata_from_bytes, prove_no_mutation, scan_filesystem,
-    schema_rows, table_inventory, validation_errors,
+    scan_filesystem_tolerant, schema_rows, table_inventory, validation_errors,
 };
 use codedb_rust_static::capture_rust_items;
 use codedb_rust_static::{
@@ -1053,6 +1053,19 @@ struct CaptureConfig {
     batch_bytes: u64,
     time_budget: Option<Duration>,
     resume: bool,
+    drift_mode: DriftMode,
+}
+
+/// How to react when a file's content at persist time no longer matches the
+/// content hashed into the repository snapshot (the tree changed underneath
+/// a live, in-progress whole-host capture — e.g. a browser profile under
+/// continuous write). `Fail` (the default) preserves the original hard-abort
+/// behavior; `Record` skips just the drifted file as a `capture_gaps` row and
+/// lets the rest of the capture complete (EVERY-BYTE engine gap G2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DriftMode {
+    Fail,
+    Record,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1066,6 +1079,12 @@ enum CapturePolicySelection {
 struct RepositorySnapshot {
     binding: String,
     exact_sources: BTreeMap<String, ExactSourceRequirement>,
+    /// Regular files whose content could not be read while building this
+    /// snapshot because the read was refused by filesystem permissions.
+    /// Excluded from `binding`/`exact_sources` deterministically (recorded,
+    /// not hashed) instead of aborting the whole capture (EVERY-BYTE engine
+    /// gap G3).
+    permission_denied: BTreeSet<String>,
 }
 
 impl CaptureConfig {
@@ -1085,11 +1104,21 @@ impl CaptureConfig {
             Some(v) => Some(parse_time_budget(v)?),
             None => None,
         };
+        let drift_mode = match option_value(args, "--drift-mode") {
+            None | Some("fail") => DriftMode::Fail,
+            Some("record") => DriftMode::Record,
+            Some(other) => {
+                return Err(CliError::Message(format!(
+                    "invalid --drift-mode: {other}; expected fail or record"
+                )));
+            }
+        };
         Ok(Self {
             batch_files,
             batch_bytes,
             time_budget,
             resume: has_flag(args, "--resume"),
+            drift_mode,
         })
     }
 }
@@ -1397,21 +1426,32 @@ fn repository_snapshot(
     let mut hasher = Sha256::new();
     hash_snapshot_field(&mut hasher, "codedb.repository-snapshot.v1");
     let mut exact_sources = BTreeMap::new();
+    let mut permission_denied = BTreeSet::new();
     for entry in entries {
         if exclusions.contains(&entry.relative_path) {
             continue;
         }
-        hash_snapshot_field(&mut hasher, &entry.relative_path);
-        hash_snapshot_field(&mut hasher, entry.kind.as_str());
         if entry.kind.as_str() == "file" && !entry.is_symlink {
-            let contained_file = contained_repo
-                .read_regular_file(&entry.relative_path)
-                .map_err(|error| {
-                    CliError::Message(format!(
+            // A permission-denied file is excluded from the binding
+            // deterministically (recorded here, never hashed) instead of
+            // aborting the whole capture; the main capture loop consults
+            // `permission_denied` to record the same file as a
+            // `capture_gaps` row (EVERY-BYTE engine gap G3).
+            let contained_file = match contained_repo.read_regular_file(&entry.relative_path) {
+                Ok(file) => file,
+                Err(error) if error.is_permission_denied() => {
+                    permission_denied.insert(entry.relative_path.clone());
+                    continue;
+                }
+                Err(error) => {
+                    return Err(CliError::Message(format!(
                         "contained snapshot read failed for {}: {error}",
                         entry.relative_path
-                    ))
-                })?;
+                    )));
+                }
+            };
+            hash_snapshot_field(&mut hasher, &entry.relative_path);
+            hash_snapshot_field(&mut hasher, entry.kind.as_str());
             let requirement = ExactSourceRequirement {
                 relative_path: entry.relative_path.clone(),
                 byte_len: contained_file.bytes.len() as u64,
@@ -1421,12 +1461,15 @@ fn repository_snapshot(
             hash_snapshot_field(&mut hasher, &requirement.sha256);
             exact_sources.insert(entry.relative_path.clone(), requirement);
         } else {
+            hash_snapshot_field(&mut hasher, &entry.relative_path);
+            hash_snapshot_field(&mut hasher, entry.kind.as_str());
             hash_snapshot_field(&mut hasher, entry.symlink_target.as_deref().unwrap_or(""));
         }
     }
     Ok(RepositorySnapshot {
         binding: format!("sha256:{:x}", hasher.finalize()),
         exact_sources,
+        permission_denied,
     })
 }
 
@@ -1582,18 +1625,26 @@ fn capture_rows(
     config: &CaptureConfig,
     args: &[String],
 ) -> Result<Vec<Row>, CliError> {
-    capture_rows_after_scan(selection, config, args, || {})
+    capture_rows_after_scan(selection, config, args, || {}, || {})
 }
 
+/// `after_scan` and `after_snapshot` are test-only injection points (both
+/// no-ops in production): `after_scan` runs after the walk but before any
+/// content is read, `after_snapshot` runs after the repository snapshot has
+/// read every file once but before the main capture loop reads them again —
+/// exactly the window in which a live, in-progress capture can observe drift
+/// (EVERY-BYTE engine gap G2).
 #[allow(unused_assignments)]
-fn capture_rows_after_scan<F>(
+fn capture_rows_after_scan<F, G>(
     selection: &RepoSelection,
     config: &CaptureConfig,
     args: &[String],
     after_scan: F,
+    after_snapshot: G,
 ) -> Result<Vec<Row>, CliError>
 where
     F: FnOnce(),
+    G: FnOnce(),
 {
     let repo_path = selection.repo_path.as_path();
     let store_spec = capture_store_selector(selection);
@@ -1601,9 +1652,15 @@ where
     let snapshot_exclusions = capture_snapshot_exclusions(repo_path, &store_spec, args)?;
     let contained_repo = ContainedDirectory::open_existing(repo_path)
         .map_err(|error| CliError::Message(format!("opening contained repository: {error}")))?;
-    let entries = scan_filesystem(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
+    // Tolerant: a permission-denied directory/entry is recorded in
+    // `scan.unreadable` and skipped instead of aborting the whole walk
+    // (EVERY-BYTE engine gap G3).
+    let scan = scan_filesystem_tolerant(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
     after_scan();
+    let walk_permission_denied = scan.unreadable;
+    let entries = scan.entries;
     let repository_snapshot = repository_snapshot(&contained_repo, &entries, &snapshot_exclusions)?;
+    after_snapshot();
     let authorization =
         resolve_capture_authorization(repo_path, &repository_snapshot.binding, &policy_selection)?;
     // One store open for the whole import; each batch is a durable commit. The
@@ -1642,12 +1699,28 @@ where
     let mut metadata_only = 0usize;
     let mut directories = 0usize;
     let mut gaps = 0usize;
+    let mut drifted = 0usize;
     let mut symlinks = 0usize;
     let mut resumed = 0usize;
     let mut batches = 0usize;
     let mut stopped_early = false;
     let mut batch: Vec<(String, Vec<u8>)> = Vec::new();
     let mut batch_bytes = 0u64;
+
+    // A permission-denied directory (or, defensively, an unreadable directory
+    // entry) found during the walk: recorded and skipped, never aborts the
+    // capture (EVERY-BYTE engine gap G3).
+    for unreadable in walk_permission_denied {
+        gaps += 1;
+        rows.push(row([
+            ("table", "capture_gaps".to_string()),
+            ("relative_path", unreadable.relative_path),
+            ("kind", unreadable.kind.as_str().to_string()),
+            ("gap", "permission_denied".to_string()),
+            ("reason", "permission-denied".to_string()),
+            ("status", "gap".to_string()),
+        ]));
+    }
 
     // Commit the pending batch as one durable checkpoint (fsync) and emit its rows.
     // A macro (not a closure) so it can borrow the surrounding mutable state inline.
@@ -1690,14 +1763,48 @@ where
                 resumed += 1;
                 continue;
             }
-            let contained_file = contained_repo
-                .read_regular_file(&entry.relative_path)
-                .map_err(|error| {
-                    CliError::Message(format!(
+            // Excluded from the snapshot because its content was already
+            // permission-denied when the snapshot was built; record the same
+            // gap here rather than attempting (and failing) the read again
+            // (EVERY-BYTE engine gap G3).
+            if repository_snapshot
+                .permission_denied
+                .contains(&entry.relative_path)
+            {
+                gaps += 1;
+                rows.push(row([
+                    ("table", "capture_gaps".to_string()),
+                    ("relative_path", entry.relative_path),
+                    ("kind", kind.to_string()),
+                    ("gap", "permission_denied".to_string()),
+                    ("reason", "permission-denied".to_string()),
+                    ("status", "gap".to_string()),
+                ]));
+                continue;
+            }
+            let contained_file = match contained_repo.read_regular_file(&entry.relative_path) {
+                Ok(file) => file,
+                // Defense in depth: permissions changed between the snapshot
+                // read and this read (rare TOCTOU). Same tolerant handling.
+                Err(error) if error.is_permission_denied() => {
+                    gaps += 1;
+                    rows.push(row([
+                        ("table", "capture_gaps".to_string()),
+                        ("relative_path", entry.relative_path),
+                        ("kind", kind.to_string()),
+                        ("gap", "permission_denied".to_string()),
+                        ("reason", "permission-denied".to_string()),
+                        ("status", "gap".to_string()),
+                    ]));
+                    continue;
+                }
+                Err(error) => {
+                    return Err(CliError::Message(format!(
                         "contained read failed for {}: {error}",
                         entry.relative_path
-                    ))
-                })?;
+                    )));
+                }
+            };
             let bytes = contained_file.bytes;
             let source_metadata =
                 capture_source_metadata_from_bytes(entry.relative_path.clone(), &bytes);
@@ -1717,10 +1824,31 @@ where
                     ))
                 })?;
             if decision.exact_source != *expected {
-                return Err(CliError::Message(format!(
-                    "repository changed after policy snapshot for {}",
-                    entry.relative_path
-                )));
+                // The tree changed underneath a live, in-progress capture
+                // (EVERY-BYTE engine gap G2). `--drift-mode fail` (default)
+                // preserves the original hard-abort; `--drift-mode record`
+                // skips just this file so the rest of the capture completes.
+                match config.drift_mode {
+                    DriftMode::Fail => {
+                        return Err(CliError::Message(format!(
+                            "repository changed after policy snapshot for {}",
+                            entry.relative_path
+                        )));
+                    }
+                    DriftMode::Record => {
+                        drifted += 1;
+                        gaps += 1;
+                        rows.push(row([
+                            ("table", "capture_gaps".to_string()),
+                            ("relative_path", entry.relative_path),
+                            ("kind", kind.to_string()),
+                            ("gap", "drifted_after_snapshot".to_string()),
+                            ("reason", "drifted-after-snapshot".to_string()),
+                            ("status", "gap".to_string()),
+                        ]));
+                        continue;
+                    }
+                }
             }
             rows.push(source_policy_decision_row(&source_metadata, &decision));
             if !decision.raw_persistence_allowed() {
@@ -1816,6 +1944,7 @@ where
         ("symlinks_captured", symlinks.to_string()),
         ("directories_walked", directories.to_string()),
         ("capture_gaps", gaps.to_string()),
+        ("files_drifted", drifted.to_string()),
         ("files_resumed_skipped", resumed.to_string()),
         ("batches_committed", batches.to_string()),
         ("elapsed_ms", started.elapsed().as_millis().to_string()),
@@ -4820,6 +4949,7 @@ mod tests {
                 batch_bytes: 1024 * 1024,
                 time_budget: None,
                 resume: false,
+                drift_mode: DriftMode::Fail,
             },
             &safe_source_policy_args(),
         )
@@ -5032,6 +5162,7 @@ mod tests {
             batch_bytes: 1024 * 1024,
             time_budget: None,
             resume: false,
+            drift_mode: DriftMode::Fail,
         }
     }
 
@@ -5182,6 +5313,7 @@ mod tests {
             batch_bytes: 1024 * 1024,
             time_budget: None,
             resume: false,
+            drift_mode: DriftMode::Fail,
         };
 
         let rows = capture_rows(&selection, &config, &[]).expect("capture rows");
@@ -5441,12 +5573,19 @@ mod tests {
             batch_bytes: 1024 * 1024,
             time_budget: None,
             resume: false,
+            drift_mode: DriftMode::Fail,
         };
 
-        capture_rows_after_scan(&selection, &config, &safe_source_policy_args(), || {
-            fs::rename(&repo, &held_repo).expect("hold scanned repository");
-            symlink(&outside, &repo).expect("replace repository path with outside symlink");
-        })
+        capture_rows_after_scan(
+            &selection,
+            &config,
+            &safe_source_policy_args(),
+            || {
+                fs::rename(&repo, &held_repo).expect("hold scanned repository");
+                symlink(&outside, &repo).expect("replace repository path with outside symlink");
+            },
+            || {},
+        )
         .expect("capture remains bound to scanned root");
 
         let store = CaptureBatcher::open(&store_path).expect("open captured store");
@@ -5462,6 +5601,307 @@ mod tests {
         let _ = fs::remove_dir_all(repo);
         let _ = fs::remove_dir_all(outside);
         let _ = fs::remove_file(store_path);
+    }
+
+    // Test lane: default
+    // Defends: EVERY-BYTE engine gap G2 default behavior — `--drift-mode fail`
+    // (the default) preserves the original hard-abort when a file's content
+    // changes between the repository snapshot read and the capture read.
+    #[test]
+    fn capture_with_drift_mode_fail_aborts_when_content_changes_after_snapshot() {
+        let repo = temp_repo();
+        let store_path = repo.with_extension("capture.redb");
+        fs::write(repo.join("drifting.rs"), b"original content\n").expect("write original content");
+        fs::write(repo.join("stable.rs"), b"stable content\n").expect("write stable content");
+
+        let selection = RepoSelection {
+            repo_id: "drift-fail".to_string(),
+            repo_path: repo.clone(),
+            store_path: store_path.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        let config = test_capture_config();
+
+        let repo_for_hook = repo.clone();
+        let error = capture_rows_after_scan(
+            &selection,
+            &config,
+            &safe_source_policy_args(),
+            || {},
+            move || {
+                fs::write(repo_for_hook.join("drifting.rs"), b"CHANGED content!!\n")
+                    .expect("mutate file between snapshot and read");
+            },
+        )
+        .expect_err("drift-mode fail must abort when content changes after the snapshot");
+        assert!(
+            error
+                .to_string()
+                .contains("repository changed after policy snapshot"),
+            "unexpected error: {error}"
+        );
+
+        let _ = fs::remove_dir_all(&repo);
+        let _ = fs::remove_file(&store_path);
+    }
+
+    // Test lane: default
+    // Defends: EVERY-BYTE engine gap G2 — `--drift-mode record` skips just the
+    // drifted file (recorded as a capture_gaps row with the exact reason the
+    // fixpack2 spec requires) and lets the rest of the capture complete.
+    #[test]
+    fn capture_with_drift_mode_record_skips_drifted_file_and_completes() {
+        let repo = temp_repo();
+        let store_path = repo.with_extension("capture.redb");
+        fs::write(repo.join("drifting.rs"), b"original content\n").expect("write original content");
+        fs::write(repo.join("stable.rs"), b"stable content\n").expect("write stable content");
+
+        let selection = RepoSelection {
+            repo_id: "drift-record".to_string(),
+            repo_path: repo.clone(),
+            store_path: store_path.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        let config = CaptureConfig {
+            batch_files: 32,
+            batch_bytes: 1024 * 1024,
+            time_budget: None,
+            resume: false,
+            drift_mode: DriftMode::Record,
+        };
+
+        let repo_for_hook = repo.clone();
+        let rows = capture_rows_after_scan(
+            &selection,
+            &config,
+            &safe_source_policy_args(),
+            || {},
+            move || {
+                fs::write(repo_for_hook.join("drifting.rs"), b"CHANGED content!!\n")
+                    .expect("mutate file between snapshot and read");
+            },
+        )
+        .expect("drift-mode record must complete instead of aborting");
+
+        let gap = rows
+            .iter()
+            .find(|row| {
+                row.get("table").map(String::as_str) == Some("capture_gaps")
+                    && row.get("relative_path").map(String::as_str) == Some("drifting.rs")
+            })
+            .expect("the drifted file must be recorded as a capture_gaps row");
+        assert_eq!(
+            gap.get("gap").map(String::as_str),
+            Some("drifted_after_snapshot")
+        );
+        assert_eq!(
+            gap.get("reason").map(String::as_str),
+            Some("drifted-after-snapshot")
+        );
+        assert_eq!(gap.get("kind").map(String::as_str), Some("file"));
+
+        let summary = rows
+            .iter()
+            .find(|row| row.get("table").map(String::as_str) == Some("capture_summary"))
+            .expect("capture_summary row");
+        assert_eq!(summary.get("files_drifted").map(String::as_str), Some("1"));
+        assert_eq!(
+            summary.get("status").map(String::as_str),
+            Some("complete_with_gaps")
+        );
+
+        let store = CaptureBatcher::open(&store_path).expect("open captured store");
+        assert_eq!(
+            store
+                .read_source_file_blob("stable.rs")
+                .expect("read stable"),
+            Some(b"stable content\n".to_vec())
+        );
+        assert_eq!(
+            store
+                .read_source_file_blob("drifting.rs")
+                .expect("read drifting"),
+            None,
+            "a drifted-and-skipped file must never be persisted"
+        );
+
+        let _ = fs::remove_dir_all(&repo);
+        let _ = fs::remove_file(&store_path);
+    }
+
+    // Test lane: default (unix only: permission bits are a POSIX concept)
+    // Defends: EVERY-BYTE engine gap G3 — a permission-denied directory is
+    // recorded as a capture_gaps row and the rest of a live capture completes
+    // instead of aborting the whole walk.
+    #[test]
+    #[cfg(unix)]
+    fn capture_records_permission_denied_directory_and_continues() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo = temp_repo();
+        let store_path = repo.with_extension("capture.redb");
+        fs::write(repo.join("readable.rs"), b"visible content\n").expect("write readable file");
+        let denied = repo.join("denied");
+        fs::create_dir_all(&denied).expect("create denied dir");
+        fs::write(denied.join("hidden.rs"), b"never seen\n").expect("write hidden file");
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o000)).expect("deny directory access");
+
+        let selection = RepoSelection {
+            repo_id: "eacces-dir".to_string(),
+            repo_path: repo.clone(),
+            store_path: store_path.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        let config = test_capture_config();
+
+        let result = capture_rows(&selection, &config, &safe_source_policy_args());
+        // Restore permissions before any assertion can panic and skip cleanup.
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o755)).expect("restore permissions");
+        let rows = result.expect("capture must complete despite a permission-denied directory");
+
+        let gap = rows
+            .iter()
+            .find(|row| {
+                row.get("table").map(String::as_str) == Some("capture_gaps")
+                    && row.get("relative_path").map(String::as_str) == Some("denied")
+            })
+            .expect("the denied directory must be recorded as a capture_gaps row");
+        assert_eq!(gap.get("kind").map(String::as_str), Some("directory"));
+        assert_eq!(gap.get("gap").map(String::as_str), Some("permission_denied"));
+        assert_eq!(
+            gap.get("reason").map(String::as_str),
+            Some("permission-denied")
+        );
+
+        let store = CaptureBatcher::open(&store_path).expect("open captured store");
+        assert_eq!(
+            store
+                .read_source_file_blob("readable.rs")
+                .expect("read readable"),
+            Some(b"visible content\n".to_vec())
+        );
+
+        let _ = fs::remove_dir_all(&repo);
+        let _ = fs::remove_file(&store_path);
+    }
+
+    // Test lane: default (unix only: permission bits are a POSIX concept)
+    // Defends: EVERY-BYTE engine gap G3 — a file whose content is
+    // permission-denied at snapshot time is recorded as a capture_gaps row
+    // instead of aborting the whole capture.
+    #[test]
+    #[cfg(unix)]
+    fn capture_records_permission_denied_file_and_continues() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo = temp_repo();
+        let store_path = repo.with_extension("capture.redb");
+        fs::write(repo.join("readable.rs"), b"visible content\n").expect("write readable file");
+        fs::write(repo.join("denied.rs"), b"never read\n").expect("write denied file");
+        fs::set_permissions(repo.join("denied.rs"), fs::Permissions::from_mode(0o000))
+            .expect("deny file content access");
+
+        let selection = RepoSelection {
+            repo_id: "eacces-file".to_string(),
+            repo_path: repo.clone(),
+            store_path: store_path.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        let config = test_capture_config();
+
+        let result = capture_rows(&selection, &config, &safe_source_policy_args());
+        // Restore permissions before any assertion can panic and skip cleanup.
+        fs::set_permissions(repo.join("denied.rs"), fs::Permissions::from_mode(0o644))
+            .expect("restore permissions");
+        let rows = result.expect("capture must complete despite a permission-denied file");
+
+        let gap = rows
+            .iter()
+            .find(|row| {
+                row.get("table").map(String::as_str) == Some("capture_gaps")
+                    && row.get("relative_path").map(String::as_str) == Some("denied.rs")
+            })
+            .expect("the denied file must be recorded as a capture_gaps row");
+        assert_eq!(gap.get("kind").map(String::as_str), Some("file"));
+        assert_eq!(gap.get("gap").map(String::as_str), Some("permission_denied"));
+        assert_eq!(
+            gap.get("reason").map(String::as_str),
+            Some("permission-denied")
+        );
+
+        let store = CaptureBatcher::open(&store_path).expect("open captured store");
+        assert_eq!(
+            store
+                .read_source_file_blob("readable.rs")
+                .expect("read readable"),
+            Some(b"visible content\n".to_vec())
+        );
+        assert_eq!(
+            store
+                .read_source_file_blob("denied.rs")
+                .expect("read denied"),
+            None,
+            "a permission-denied file must never be persisted"
+        );
+
+        let _ = fs::remove_dir_all(&repo);
+        let _ = fs::remove_file(&store_path);
+    }
+
+    // Test lane: default (unix only: permission bits are a POSIX concept)
+    // Defends: EVERY-BYTE engine gap G3 defense-in-depth — a file that was
+    // readable when the snapshot was taken but becomes permission-denied
+    // before the capture loop's own read (a TOCTOU race) is still recorded
+    // and skipped rather than aborting the capture.
+    #[test]
+    #[cfg(unix)]
+    fn capture_records_permission_denied_file_when_permissions_change_after_snapshot() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo = temp_repo();
+        let store_path = repo.with_extension("capture.redb");
+        fs::write(repo.join("readable.rs"), b"visible content\n").expect("write readable file");
+        fs::write(repo.join("racy.rs"), b"race content\n").expect("write racy file");
+
+        let selection = RepoSelection {
+            repo_id: "eacces-race".to_string(),
+            repo_path: repo.clone(),
+            store_path: store_path.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        let config = test_capture_config();
+
+        let racy_path = repo.join("racy.rs");
+        let racy_path_for_hook = racy_path.clone();
+        let result = capture_rows_after_scan(
+            &selection,
+            &config,
+            &safe_source_policy_args(),
+            || {},
+            move || {
+                fs::set_permissions(&racy_path_for_hook, fs::Permissions::from_mode(0o000))
+                    .expect("deny file content access after the snapshot completes");
+            },
+        );
+        // Restore permissions before any assertion can panic and skip cleanup.
+        fs::set_permissions(&racy_path, fs::Permissions::from_mode(0o644)).expect("restore permissions");
+        let rows = result.expect("capture must complete despite a post-snapshot permission change");
+
+        let gap = rows
+            .iter()
+            .find(|row| {
+                row.get("table").map(String::as_str) == Some("capture_gaps")
+                    && row.get("relative_path").map(String::as_str) == Some("racy.rs")
+            })
+            .expect("the racy file must be recorded as a capture_gaps row");
+        assert_eq!(gap.get("gap").map(String::as_str), Some("permission_denied"));
+        assert_eq!(
+            gap.get("reason").map(String::as_str),
+            Some("permission-denied")
+        );
+
+        let _ = fs::remove_dir_all(&repo);
+        let _ = fs::remove_file(&store_path);
     }
 
     // Test lane: default
