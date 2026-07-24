@@ -6,7 +6,10 @@
 //! A logical store name expands to three tables:
 //!
 //! - `<store>_blobs` contains one byte-exact blob per SHA-256 digest.
-//! - `<store>_path_refs` maps captured relative paths to blob digests.
+//! - `<store>_path_refs` maps captured relative paths to blob digests, scoped
+//!   by capture root (`metadata->>'repo_path'`) so multi-root ingestion of a
+//!   whole host tree into one store never collides on relative path alone
+//!   (see [`PgStore::set_capture_root`]).
 //! - `<store>_schema_metadata` records the schema version and migration state.
 //!
 //! [`PgStore::open_existing`] is deliberately read-only: it validates that
@@ -40,14 +43,26 @@ const ORIGIN: &str = "codedb";
 const CURRENT_MIGRATION_STATE: &str = "current";
 const SCHEMA_LAYOUT: &str = "content_addressed_blobs_plus_path_refs";
 const MAX_IDENTIFIER_BYTES: usize = 63;
-const LONGEST_COMPONENT_SUFFIX: &str = "_migration_backup";
+// The longest suffix appended to `base` across every derived identifier
+// (schema_metadata/blobs/path_refs/migration_backup/path_refs_repo_index);
+// `sanitize_table` reserves this much headroom so no generated identifier can
+// exceed PostgreSQL's 63-byte NAMEDATALEN limit.
+const LONGEST_COMPONENT_SUFFIX: &str = "_path_refs_repo_uidx";
 const POSTGRESQL_MIGRATIONS: [StoreMigrationStep; 1] = [StoreMigrationStep::new(
     "postgresql_legacy_content_rows_to_v1",
     LEGACY_STORE_SCHEMA_VERSION,
     CURRENT_STORE_SCHEMA_VERSION,
 )];
-const BATCH_METADATA_JSON: &str =
-    "{\"artifact_kind\":\"raw_blob\",\"permission_capture\":\"gap_not_available_for_raw_blob\"}";
+/// Shared bucket for `path_refs` writes that never set a capture root (legacy
+/// call sites that predate [`PgStore::set_capture_root`]). Every such row
+/// collapses onto this one value, so `module_path` stays effectively unique
+/// among them — identical to the pre-repo-path-identity behavior.
+const NO_CAPTURE_ROOT_SENTINEL: &str = "";
+/// The `path_refs` uniqueness/conflict expression. Used verbatim in both the
+/// unique index definition ([`ensure_repo_path_unique_index`]) and every
+/// `ON CONFLICT` target so PostgreSQL matches the conflict target to the
+/// index; the two must stay textually identical.
+const REPO_PATH_METADATA_EXPR: &str = "(metadata->>'repo_path')";
 
 #[derive(Clone, Debug)]
 struct StoreTables {
@@ -55,6 +70,7 @@ struct StoreTables {
     schema_metadata: String,
     blobs: String,
     path_refs: String,
+    path_refs_repo_index: String,
     migration_backup: String,
 }
 
@@ -65,6 +81,7 @@ impl StoreTables {
             schema_metadata: format!("{base}_schema_metadata"),
             blobs: format!("{base}_blobs"),
             path_refs: format!("{base}_path_refs"),
+            path_refs_repo_index: format!("{base}_path_refs_repo_uidx"),
             migration_backup: format!("{base}_migration_backup"),
             base,
         })
@@ -83,12 +100,19 @@ enum StoreLayout {
 pub struct PgStore {
     client: RefCell<Client>,
     tables: StoreTables,
+    /// Absolute capture root attributed to every `path_refs` write from this
+    /// handle, set via [`PgStore::set_capture_root`]. `None` until set;
+    /// [`persist_batch`](BlobStore::persist_batch) and
+    /// [`persist_symlink`](BlobStore::persist_symlink) fall back to
+    /// [`NO_CAPTURE_ROOT_SENTINEL`] so the metadata field is never absent.
+    capture_root: Option<String>,
 }
 
 impl fmt::Debug for PgStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PgStore")
             .field("tables", &self.tables)
+            .field("capture_root", &self.capture_root)
             .finish_non_exhaustive()
     }
 }
@@ -110,7 +134,14 @@ impl PgStore {
             StoreLayout::Fresh => {
                 create_current_schema(&mut tx, &tables, "initialize_v1")?;
             }
-            StoreLayout::Current => {}
+            StoreLayout::Current => {
+                // Idempotent bootstrap repair: a store created before capture-root
+                // identity existed still has the legacy `module_path`-only primary
+                // key. Converge it onto the repo-scoped unique index every time so
+                // every existing installation heals on its next capture, with no
+                // separate migration command required.
+                ensure_repo_path_unique_index(&mut tx, &tables)?;
+            }
             StoreLayout::LegacyContentRows => {
                 return Err(StoreError::new(format!(
                     "legacy PostgreSQL CodeDB store {} requires explicit PgStore::migrate",
@@ -127,6 +158,7 @@ impl PgStore {
         Ok(Self {
             client: RefCell::new(client),
             tables,
+            capture_root: None,
         })
     }
 
@@ -158,6 +190,7 @@ impl PgStore {
                 )));
             }
             StoreLayout::Current => {
+                ensure_repo_path_unique_index(&mut tx, &tables)?;
                 validate_current_schema(&mut tx, &tables)?;
                 CURRENT_STORE_SCHEMA_VERSION
             }
@@ -209,6 +242,7 @@ impl PgStore {
             Self {
                 client: RefCell::new(client),
                 tables,
+                capture_root: None,
             },
             report,
         ))
@@ -312,12 +346,29 @@ impl PgStore {
         Ok(Self {
             client: RefCell::new(client),
             tables,
+            capture_root: None,
         })
     }
 
     /// The validated logical store identifier supplied by the caller.
     pub fn table(&self) -> &str {
         &self.tables.base
+    }
+
+    /// Attribute every subsequent `path_refs` write from this handle to
+    /// `root` (recorded as `metadata->>'repo_path'`), so multi-root ingestion
+    /// of a whole host tree into one store reconciles unambiguously instead
+    /// of colliding on relative path alone (every repository has a
+    /// `README.md`). `root` must already be absolute; every capture call site
+    /// canonicalizes its repository path before a store is opened.
+    pub fn set_capture_root(&mut self, root: &Path) -> Result<(), StoreError> {
+        if !root.is_absolute() {
+            return Err(StoreError::new(
+                "PostgreSQL CodeDB capture root must be an absolute path",
+            ));
+        }
+        self.capture_root = Some(root.display().to_string());
+        Ok(())
     }
 }
 
@@ -337,10 +388,11 @@ impl BlobStore for PgStore {
         );
         let path_sql = format!(
             "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::text::jsonb) \
-             ON CONFLICT (module_path) DO UPDATE SET \
+             ON CONFLICT ({}, module_path) DO UPDATE SET \
                  sha256 = EXCLUDED.sha256, metadata = EXCLUDED.metadata",
-            self.tables.path_refs
+            self.tables.path_refs, REPO_PATH_METADATA_EXPR
         );
+        let metadata_json = raw_blob_metadata_json(self.capture_root.as_deref());
 
         let mut rows = Vec::with_capacity(files.len());
         for (relative_path, bytes) in files {
@@ -352,7 +404,7 @@ impl BlobStore for PgStore {
                 .map_err(|_| database_error("insert content-addressed blob"))?;
             tx.execute(
                 path_sql.as_str(),
-                &[relative_path, &sha256, &BATCH_METADATA_JSON],
+                &[relative_path, &sha256, &metadata_json],
             )
             .map_err(|_| database_error("upsert path reference"))?;
             rows.push(SourceFileRow {
@@ -376,6 +428,7 @@ impl BlobStore for PgStore {
         let metadata = serde_json::json!({
             "artifact_kind": "symlink",
             "symlink_target_sha256": row.target_sha256,
+            "repo_path": self.capture_root.as_deref().unwrap_or(NO_CAPTURE_ROOT_SENTINEL),
         })
         .to_string();
         let mut client = self.client.borrow_mut();
@@ -389,9 +442,9 @@ impl BlobStore for PgStore {
         );
         let path_sql = format!(
             "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::text::jsonb) \
-             ON CONFLICT (module_path) DO UPDATE SET \
+             ON CONFLICT ({}, module_path) DO UPDATE SET \
                  sha256 = EXCLUDED.sha256, metadata = EXCLUDED.metadata",
-            self.tables.path_refs
+            self.tables.path_refs, REPO_PATH_METADATA_EXPR
         );
         let target_bytes = target.as_bytes();
         let target_len = i64::try_from(target_bytes.len()).map_err(|_| {
@@ -957,7 +1010,7 @@ fn create_current_schema<C: GenericClient>(
              bytes bigint NOT NULL CHECK (bytes >= 0)\
          );\
          CREATE TABLE {path_refs} (\
-             module_path text PRIMARY KEY,\
+             module_path text NOT NULL,\
              sha256 text NOT NULL REFERENCES {blobs}(sha256),\
              metadata jsonb NOT NULL DEFAULT '{{}}'::jsonb\
          );",
@@ -968,6 +1021,7 @@ fn create_current_schema<C: GenericClient>(
     client
         .batch_execute(&ddl)
         .map_err(|_| database_error("create current schema"))?;
+    ensure_repo_path_unique_index(client, tables)?;
 
     let metadata_sql = format!(
         "INSERT INTO {} (key, value) VALUES ($1, $2) \
@@ -994,6 +1048,38 @@ fn create_current_schema<C: GenericClient>(
         maybe_inject_initialization_failure(client, last_migration, key)?;
     }
     Ok(())
+}
+
+/// Idempotently converge `path_refs` uniqueness onto
+/// `(metadata->>'repo_path', module_path)` instead of `module_path` alone:
+/// many capture roots share relative paths (every repository has a
+/// `README.md`), so per-root attribution must also be the conflict/upsert
+/// key or multi-root ingestion into one store silently corrupts.
+///
+/// Safe to call unconditionally: on a table just created by
+/// [`create_current_schema`] there is no legacy primary key to drop and the
+/// index does not yet exist; on a store bootstrapped by a build that
+/// predates capture-root identity, this drops that legacy `module_path`
+/// primary key (PostgreSQL's default name for an unnamed single-column
+/// primary key on this table is deterministic — every such key was created
+/// by this same crate's DDL) and creates the new index. Called from every
+/// [`PgStore::initialize`] so an existing installation heals on its very
+/// next capture; no separate migration command is required.
+fn ensure_repo_path_unique_index<C: GenericClient>(
+    client: &mut C,
+    tables: &StoreTables,
+) -> Result<(), StoreError> {
+    let legacy_pkey = format!("{}_pkey", tables.path_refs);
+    let ddl = format!(
+        "ALTER TABLE {path_refs} DROP CONSTRAINT IF EXISTS {legacy_pkey}; \
+         CREATE UNIQUE INDEX IF NOT EXISTS {repo_index} ON {path_refs} ({repo_path_expr}, module_path);",
+        path_refs = tables.path_refs,
+        repo_index = tables.path_refs_repo_index,
+        repo_path_expr = REPO_PATH_METADATA_EXPR,
+    );
+    client
+        .batch_execute(&ddl)
+        .map_err(|_| database_error("ensure repo-path unique index"))
 }
 
 #[cfg(feature = "pg-integration")]
@@ -1248,6 +1334,19 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+/// Metadata for a raw-blob `path_refs` row, tagged with the store's capture
+/// root when [`PgStore::set_capture_root`] has set one. Call sites that never
+/// set a capture root all collapse onto [`NO_CAPTURE_ROOT_SENTINEL`],
+/// reproducing today's single-bucket-per-store behavior exactly.
+fn raw_blob_metadata_json(capture_root: Option<&str>) -> String {
+    serde_json::json!({
+        "artifact_kind": "raw_blob",
+        "permission_capture": "gap_not_available_for_raw_blob",
+        "repo_path": capture_root.unwrap_or(NO_CAPTURE_ROOT_SENTINEL),
+    })
+    .to_string()
+}
+
 #[cfg(unix)]
 fn parse_unix_mode(metadata_text: &str) -> Option<u32> {
     let value = serde_json::from_str::<serde_json::Value>(metadata_text).ok()?;
@@ -1279,6 +1378,36 @@ mod tests {
         assert!(sanitize_table("").is_err());
         assert!(sanitize_table("9abc").is_err());
         assert!(sanitize_table(&"a".repeat(MAX_IDENTIFIER_BYTES)).is_err());
+    }
+
+    #[test]
+    fn sanitize_table_reserves_headroom_for_the_longest_generated_identifier() {
+        // 43 + "_path_refs_repo_uidx".len() (20) == 63, exactly PostgreSQL's
+        // NAMEDATALEN limit; one byte longer must be rejected up front rather
+        // than silently truncated by PostgreSQL later.
+        let fits = "a".repeat(43);
+        let base = sanitize_table(&fits).expect("43-byte base name must fit");
+        let tables = StoreTables::new(&base).expect("StoreTables must build for a fitting base");
+        assert_eq!(tables.path_refs_repo_index.len(), 63);
+
+        let overflow = "a".repeat(44);
+        assert!(sanitize_table(&overflow).is_err());
+    }
+
+    #[test]
+    fn raw_blob_metadata_json_includes_the_capture_root_when_set() {
+        let json = raw_blob_metadata_json(Some("/captures/repo-a"));
+        let value: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert_eq!(value["artifact_kind"], "raw_blob");
+        assert_eq!(value["permission_capture"], "gap_not_available_for_raw_blob");
+        assert_eq!(value["repo_path"], "/captures/repo-a");
+    }
+
+    #[test]
+    fn raw_blob_metadata_json_falls_back_to_the_sentinel_when_capture_root_is_unset() {
+        let json = raw_blob_metadata_json(None);
+        let value: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert_eq!(value["repo_path"], NO_CAPTURE_ROOT_SENTINEL);
     }
 
     #[test]

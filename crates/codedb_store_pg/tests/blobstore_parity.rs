@@ -1227,3 +1227,160 @@ fn directory_entry_names(path: &Path) -> Vec<String> {
     entries.sort();
     entries
 }
+
+// --- Capture-root identity: `path_refs` attribution and uniqueness ---
+//
+// Every repository has a README.md. Capturing many roots into one store must
+// keep each root's rows distinct instead of colliding on relative path alone.
+
+#[test]
+fn capture_root_partitions_identical_relative_paths_across_multiple_roots() {
+    let tables = TestTables::new();
+    let root_a = Path::new("/fixtures/multi-root/repo-a");
+    let root_b = Path::new("/fixtures/multi-root/repo-b");
+
+    let mut pg_a = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+    pg_a.set_capture_root(root_a).expect("root-a is absolute");
+    pg_a.persist_batch(&[("README.md".to_string(), b"root-a content\n".to_vec())])
+        .expect("persist root-a README.md");
+    drop(pg_a);
+
+    let mut pg_b =
+        PgStore::open_existing(&tables.conn, &tables.base).expect("reopen pg store for root-b");
+    pg_b.set_capture_root(root_b).expect("root-b is absolute");
+    pg_b.persist_batch(&[("README.md".to_string(), b"root-b content\n".to_vec())])
+        .expect("persist root-b README.md");
+    drop(pg_b);
+
+    let mut client = tables.connection();
+    let sql = format!(
+        "SELECT sha256, metadata->>'repo_path' FROM {} \
+         WHERE module_path = 'README.md' ORDER BY metadata->>'repo_path'",
+        tables.path_refs()
+    );
+    let rows = client
+        .query(sql.as_str(), &[])
+        .expect("query path_refs rows for README.md");
+    let observed = rows
+        .iter()
+        .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        observed,
+        vec![
+            (sha256_hex(b"root-a content\n"), root_a.display().to_string()),
+            (sha256_hex(b"root-b content\n"), root_b.display().to_string()),
+        ],
+        "each capture root must retain its own distinct row, not collide on relative path"
+    );
+}
+
+#[test]
+fn same_capture_root_upserts_without_duplicating_the_path_refs_row() {
+    let tables = TestTables::new();
+    let root = Path::new("/fixtures/single-root/repo");
+
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+    pg.set_capture_root(root).expect("root is absolute");
+    pg.persist_batch(&[("README.md".to_string(), b"first content\n".to_vec())])
+        .expect("persist first capture");
+    pg.persist_batch(&[("README.md".to_string(), b"second content\n".to_vec())])
+        .expect("persist second capture under the same root");
+
+    let mut client = tables.connection();
+    let sql = format!(
+        "SELECT sha256 FROM {} WHERE module_path = 'README.md' AND metadata->>'repo_path' = $1",
+        tables.path_refs()
+    );
+    let rows = client
+        .query(sql.as_str(), &[&root.display().to_string()])
+        .expect("query path_refs rows for README.md under root");
+    assert_eq!(
+        rows.len(),
+        1,
+        "re-capture of the same root+file must upsert, not duplicate"
+    );
+    let sha256: String = rows[0].get(0);
+    assert_eq!(sha256, sha256_hex(b"second content\n"));
+}
+
+#[test]
+fn initialize_migrates_a_legacy_module_path_primary_key_store_onto_the_repo_scoped_index() {
+    let tables = TestTables::new();
+    // Bootstrap a fresh current-layout store, then downgrade it in place to
+    // the shape written by a build that predates capture-root identity: a
+    // plain PRIMARY KEY(module_path) and no repo-scoped index.
+    drop(PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store"));
+    let legacy_index = format!("{}_repo_uidx", tables.path_refs());
+    let legacy_pkey = format!("{}_pkey", tables.path_refs());
+    let mut client = tables.connection();
+    client
+        .batch_execute(&format!(
+            "DROP INDEX {legacy_index}; \
+             ALTER TABLE {path_refs} ADD CONSTRAINT {legacy_pkey} PRIMARY KEY (module_path);",
+            path_refs = tables.path_refs(),
+        ))
+        .expect("downgrade to legacy module_path-only primary key shape");
+    drop(client);
+
+    // Re-initializing a store already in this legacy-primary-key shape must
+    // heal it: drop the legacy primary key and create the repo-scoped unique
+    // index, with no separate migration command required.
+    let mut healed = PgStore::initialize(&tables.conn, &tables.base)
+        .expect("initialize must heal a legacy-primary-key store in place");
+
+    let mut client = tables.connection();
+    let pk_rows = client
+        .query(
+            "SELECT conname FROM pg_constraint WHERE conrelid = to_regclass($1) AND contype = 'p'",
+            &[&tables.path_refs()],
+        )
+        .expect("query primary key constraints");
+    assert!(
+        pk_rows.is_empty(),
+        "legacy module_path primary key must be dropped"
+    );
+    let index_rows = client
+        .query(
+            "SELECT indexname FROM pg_indexes WHERE tablename = $1 AND indexname = $2",
+            &[&tables.path_refs(), &legacy_index],
+        )
+        .expect("query repo-scoped unique index");
+    assert_eq!(
+        index_rows.len(),
+        1,
+        "repo-scoped unique index must exist after healing"
+    );
+    drop(client);
+
+    // Behavioral proof, not just catalog introspection: multi-root writes
+    // must now partition correctly through the healed store.
+    let root_a = Path::new("/fixtures/legacy-heal/repo-a");
+    let root_b = Path::new("/fixtures/legacy-heal/repo-b");
+    healed.set_capture_root(root_a).expect("root-a is absolute");
+    healed
+        .persist_batch(&[("README.md".to_string(), b"legacy-heal a\n".to_vec())])
+        .expect("persist root-a after healing");
+    drop(healed);
+    let mut healed_b = PgStore::open_existing(&tables.conn, &tables.base)
+        .expect("reopen healed store for root-b");
+    healed_b.set_capture_root(root_b).expect("root-b is absolute");
+    healed_b
+        .persist_batch(&[("README.md".to_string(), b"legacy-heal b\n".to_vec())])
+        .expect("persist root-b after healing");
+    drop(healed_b);
+
+    let mut client = tables.connection();
+    let sql = format!(
+        "SELECT count(*) FROM {} WHERE module_path = 'README.md'",
+        tables.path_refs()
+    );
+    let count: i64 = client
+        .query_one(sql.as_str(), &[])
+        .expect("count README.md rows")
+        .get(0);
+    assert_eq!(
+        count, 2,
+        "healed store must retain one row per capture root, not collide"
+    );
+}

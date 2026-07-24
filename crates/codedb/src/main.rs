@@ -339,6 +339,9 @@ fn build_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
         Some(path) => absolute_cli_path(path)?,
         None => repo_path.with_extension("codedb-build-capture-refused.log"),
     };
+    // Retained for the receipt's store attribution below: `repo_path` moves
+    // into `request` next.
+    let repo_path_for_store = repo_path.clone();
     let request = BuildCaptureRequest {
         repo_path,
         store_path: store.map(PathBuf::from),
@@ -358,7 +361,8 @@ fn build_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
         capture_approved_build(request).map_err(|source| CliError::Core(Box::new(source)))?;
     let mut rows = outcome.into_rows();
     if let Some(store) = store {
-        let receipt = persist_build_capture_receipt(&rows, store, args)?;
+        let receipt =
+            persist_build_capture_receipt(&rows, store, args, &repo_path_for_store)?;
         rows.push(receipt);
     }
     Ok(rows)
@@ -379,6 +383,7 @@ fn persist_build_capture_receipt(
     rows: &[Row],
     store: &str,
     args: &[String],
+    repo_path: &Path,
 ) -> Result<Row, CliError> {
     let approval_id = rows
         .iter()
@@ -390,7 +395,7 @@ fn persist_build_capture_receipt(
     let relative_path = format!("dynamic-build-captures/{approval_id}.json");
     let bytes = serde_json::to_vec(rows)
         .map_err(|source| CliError::Message(format!("build receipt encoding failed: {source}")))?;
-    let (mut backend, store_identity) = open_store_for_capture(store, args)?;
+    let (mut backend, store_identity) = open_store_for_capture(store, args, repo_path)?;
     let persisted = backend
         .persist_batch(&[(relative_path.clone(), bytes)])
         .map_err(|source| {
@@ -895,7 +900,8 @@ fn persist_compiler_evidence_in_created_dir(
         ),
     ]));
 
-    let (mut backend, store_identity) = open_store_for_capture(store, args)?;
+    let (mut backend, store_identity) =
+        open_store_for_capture(store, args, &outcome.repo_path)?;
     let persisted = backend.persist_batch(&store_files).map_err(|source| {
         CliError::Message(format!("compiler evidence persistence failed: {source}"))
     })?;
@@ -1236,9 +1242,16 @@ fn pg_table_name(args: &[String]) -> String {
 /// Open the capture-side backend selected by the backend-neutral `StoreSpec`.
 /// The parser runs before filesystem/database effects, so a misspelled URI
 /// cannot silently create a redb file.
+///
+/// `repo_path` is the canonicalized capture root for this session. For the
+/// PostgreSQL backend it is recorded on every `path_refs` row so multi-root
+/// ingestion of a whole host tree into one store reconciles unambiguously
+/// (see [`codedb_store_pg::PgStore::set_capture_root`]); redb stores are
+/// already one file per root and need no analogous change.
 fn open_store_for_capture(
     store_spec: &str,
     args: &[String],
+    repo_path: &Path,
 ) -> Result<(Box<dyn BlobStore>, String), CliError> {
     let store_spec = parse_store_spec(store_spec, args)?;
     match store_spec.backend() {
@@ -1247,8 +1260,11 @@ fn open_store_for_capture(
                 .connection_string()
                 .expect("PostgreSQL StoreSpec has a connection string");
             let table = pg_table_name(args);
-            let store = codedb_store_pg::PgStore::initialize(conn, &table)
+            let mut store = codedb_store_pg::PgStore::initialize(conn, &table)
                 .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
+            store.set_capture_root(repo_path).map_err(|e| {
+                CliError::Message(format!("pg store capture root rejected: {e}"))
+            })?;
             Ok((Box::new(store), format!("postgresql:{table}")))
         }
         StoreBackend::Redb => {
@@ -1592,7 +1608,7 @@ where
         resolve_capture_authorization(repo_path, &repository_snapshot.binding, &policy_selection)?;
     // One store open for the whole import; each batch is a durable commit. The
     // repository snapshot and policy are validated before either backend opens.
-    let (mut store, store_path) = open_store_for_capture(&store_spec, args)?;
+    let (mut store, store_path) = open_store_for_capture(&store_spec, args, repo_path)?;
     // Resume: skip paths already durably captured by a prior (possibly interrupted)
     // run so an import continues from its last checkpoint instead of restarting.
     let already = if config.resume {
@@ -4910,7 +4926,7 @@ mod tests {
     fn mcp_frontdoor_ignores_arbitrary_server_override_without_executing_marker() {
         use std::os::unix::fs::PermissionsExt;
 
-        let _env_lock = TEST_ENV_LOCK.lock().expect("lock test environment");
+        let _env_lock = TEST_ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let root = temp_repo();
         let marker = root.join("override-executed");
         let override_bin = root.join("forbidden-override.sh");
@@ -4944,7 +4960,7 @@ mod tests {
     fn mcp_child_environment_is_minimal_and_pg_conn_is_backend_scoped() {
         use std::os::unix::fs::PermissionsExt;
 
-        let _env_lock = TEST_ENV_LOCK.lock().expect("lock test environment");
+        let _env_lock = TEST_ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let root = temp_repo();
         let ambient_sentinel = "CODEDB_MCP_AMBIENT_SECRET_SENTINEL";
         let pg_sentinel = "CODEDB_MCP_PG_CONN_SENTINEL";
@@ -5119,7 +5135,7 @@ mod tests {
 
     #[test]
     fn cli_pg_selector_uses_only_codedb_pg_conn_not_ambient_database_url() {
-        let _env_lock = TEST_ENV_LOCK.lock().expect("lock test environment");
+        let _env_lock = TEST_ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let database_url_sentinel = "CODEDB_DATABASE_URL_SENTINEL";
         let codedb_pg_sentinel = "CODEDB_PG_CONN_SENTINEL";
 
@@ -5483,7 +5499,7 @@ mod tests {
     // explicit safe backend identity, forbids internal access, and never emits a DSN.
     #[test]
     fn envctl_export_normalizes_redb_and_postgresql_store_contracts_without_dsn_leakage() {
-        let _env_lock = TEST_ENV_LOCK.lock().expect("lock test environment");
+        let _env_lock = TEST_ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let repo = temp_repo();
         fs::create_dir_all(repo.join("src")).expect("create src");
         fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");
