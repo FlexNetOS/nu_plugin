@@ -55,6 +55,8 @@ struct PluginRecord {
 
 const CODEDB_INIT_TEMPLATE: &str = include_str!("../../../templates/nushell/codedb_init.nu");
 const CODEDB_EXTERN_TEMPLATE: &str = include_str!("../../../templates/nushell/codedb_extern.nu");
+const INGEST_ENVELOPE_USAGE: &str =
+    "Usage: codedb ingest-envelope --input <envelope.json> --format json [--store <path>]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OutputFormat {
@@ -167,6 +169,14 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
         // ingest-envelope = typed native-Nushell ingestion (ARCHBP-001):
         // validate a bounded envelope of exact bytes + AST metadata, then
         // content-address it into the redb store with BLAKE3 dedup.
+        "ingest-envelope"
+            if args
+                .get(1)
+                .is_some_and(|arg| matches!(arg.as_str(), "--help" | "-h")) =>
+        {
+            println!("{INGEST_ENVELOPE_USAGE}");
+            Ok(())
+        }
         "ingest-envelope" => {
             if !matches!(parse_format(&args), Ok(OutputFormat::Json)) {
                 return Err(CliError::Message(
@@ -4801,6 +4811,12 @@ fn _repo_path(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ingest_envelope_help_succeeds_without_an_input_or_store() {
+        run(vec!["ingest-envelope".into(), "--help".into()])
+            .expect("ingest-envelope help must be directly executable");
+    }
 
     fn locked_package_version(package_name: &str) -> String {
         let lock: TomlValue = toml::from_str(include_str!("../../../Cargo.lock"))

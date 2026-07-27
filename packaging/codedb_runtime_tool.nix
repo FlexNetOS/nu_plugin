@@ -12,6 +12,8 @@ let
     "codedb"
     "-p"
     "nu_plugin_codedb"
+    "-p"
+    "flexnetos-redb-owner"
   ];
 in
 rustPlatform.buildRustPackage {
@@ -52,16 +54,35 @@ rustPlatform.buildRustPackage {
 
     codedb_bin="$(find target -path '*/release/codedb' -type f -perm -0100 | head -n 1)"
     plugin_bin="$(find target -path '*/release/nu_plugin_codedb' -type f -perm -0100 | head -n 1)"
-    if [ -z "$codedb_bin" ] || [ -z "$plugin_bin" ]; then
-      echo "error: expected codedb and nu_plugin_codedb release binaries under target/" >&2
+    owner_bin="$(find target -path '*/release/flexnetos-redb-owner' -type f -perm -0100 | head -n 1)"
+    if [ -z "$codedb_bin" ] || [ -z "$plugin_bin" ] || [ -z "$owner_bin" ]; then
+      echo "error: expected codedb, nu_plugin_codedb, and flexnetos-redb-owner release binaries under target/" >&2
       find target -maxdepth 4 -type f | sort >&2
       exit 1
     fi
 
     install -Dm755 "$codedb_bin" "$out/bin/codedb"
     install -Dm755 "$plugin_bin" "$out/bin/nu_plugin_codedb"
+    install -Dm755 "$owner_bin" "$out/bin/flexnetos-redb-owner"
     wrapProgram "$out/bin/codedb" \
       --prefix PATH : ${lib.makeBinPath [ bubblewrap ]}
+
+    mkdir -p "$out/share/systemd/user"
+    cat > "$out/share/systemd/user/flexnetos-redb-owner.service" <<UNIT
+    [Unit]
+    Description=FlexNetOS single-owner redb state service
+
+    [Service]
+    Type=simple
+    ExecStart=$out/bin/flexnetos-redb-owner serve %h/meta/var/lib/redb
+    Restart=on-failure
+    RestartSec=1s
+    UMask=0077
+    NoNewPrivileges=yes
+
+    [Install]
+    WantedBy=default.target
+    UNIT
 
     mkdir -p "$out/share/codedb"
     cat > "$out/share/codedb/runtime-tool-metadata.json" <<JSON
@@ -69,10 +90,12 @@ rustPlatform.buildRustPackage {
       "schema_version": 1,
       "package_name": "codedb-runtime-tools",
       "version": "${packageVersion}",
-      "commands": ["codedb", "nu_plugin_codedb"],
+      "commands": ["codedb", "nu_plugin_codedb", "flexnetos-redb-owner"],
       "runtime_tool_source": "bundled",
       "codedb_bin": "$out/bin/codedb",
-      "codedb_nu_plugin_bin": "$out/bin/nu_plugin_codedb"
+      "codedb_nu_plugin_bin": "$out/bin/nu_plugin_codedb",
+      "flexnetos_redb_owner_bin": "$out/bin/flexnetos-redb-owner",
+      "flexnetos_redb_owner_unit": "$out/share/systemd/user/flexnetos-redb-owner.service"
     }
     JSON
 
@@ -87,16 +110,18 @@ rustPlatform.buildRustPackage {
     commands = [
       "codedb"
       "nu_plugin_codedb"
+      "flexnetos-redb-owner"
     ];
     runtime_tool_source = "bundled";
     env = {
       YAZELIX_CODEDB_BIN = "bin/codedb";
       YAZELIX_CODEDB_PLUGIN_BIN = "bin/nu_plugin_codedb";
+      FLEXNETOS_REDB_OWNER_BIN = "bin/flexnetos-redb-owner";
     };
   };
 
   meta = {
-    description = "CodeDB CLI and Nushell plugin runtime tool package";
+    description = "CodeDB CLI, Nushell plugin, and single-owner redb runtime package";
     license = lib.licenses.mit;
     mainProgram = "codedb";
   };
