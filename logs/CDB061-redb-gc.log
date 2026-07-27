@@ -38,3 +38,14 @@ Validation passed:
 
 Acceptance signal:
 - redb lifecycle safe.
+
+Current verification: 2026-07-27
+- `nu --no-config-file -c 'source tests/test_redb_lifecycle.nu; main | to json'`
+  - `redb_lock_contention`: passed; `single_writer_blocks_until_release`.
+  - `lifecycle_release`: `drop_releases_write_lock`.
+  - `redb_store_crate_tests`: passed; backup/restore and lifecycle coverage remains green.
+- `nu --no-config-file --ide-check 100 tests/test_redb_lifecycle.nu`: exit 0 (hints only).
+- Fixture lock check remains enforced by the test and produced no fixture `Cargo.lock` files.
+- `cargo fmt --check` was also attempted. It currently reports formatting-only diffs in pre-existing,
+  out-of-scope files under `crates/`; no formatting changes were made by this task. This does not
+  affect the focused CDB061 redb lifecycle gate above.

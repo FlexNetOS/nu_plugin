@@ -197,8 +197,8 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             }
             let json = fs::read_to_string(absolute_cli_path(input)?)
                 .map_err(|e| CliError::Message(format!("reading {input}: {e}")))?;
-            let validated = ingest::validate_envelope(&json)
-                .map_err(|e| CliError::Message(e.to_string()))?;
+            let validated =
+                ingest::validate_envelope(&json).map_err(|e| CliError::Message(e.to_string()))?;
             let receipt = ingest::run_ingest(&store_path, &validated)
                 .map_err(|e| CliError::Message(e.to_string()))?;
             println!(
@@ -217,8 +217,8 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
                 ));
             }
             let store_path = ingest_redb_store_path(&args)?;
-            let rows = ingest::ingest_report(&store_path)
-                .map_err(|e| CliError::Message(e.to_string()))?;
+            let rows =
+                ingest::ingest_report(&store_path).map_err(|e| CliError::Message(e.to_string()))?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&rows)
@@ -361,8 +361,7 @@ fn build_capture_rows(args: &[String]) -> Result<Vec<Row>, CliError> {
         capture_approved_build(request).map_err(|source| CliError::Core(Box::new(source)))?;
     let mut rows = outcome.into_rows();
     if let Some(store) = store {
-        let receipt =
-            persist_build_capture_receipt(&rows, store, args, &repo_path_for_store)?;
+        let receipt = persist_build_capture_receipt(&rows, store, args, &repo_path_for_store)?;
         rows.push(receipt);
     }
     Ok(rows)
@@ -900,8 +899,7 @@ fn persist_compiler_evidence_in_created_dir(
         ),
     ]));
 
-    let (mut backend, store_identity) =
-        open_store_for_capture(store, args, &outcome.repo_path)?;
+    let (mut backend, store_identity) = open_store_for_capture(store, args, &outcome.repo_path)?;
     let persisted = backend.persist_batch(&store_files).map_err(|source| {
         CliError::Message(format!("compiler evidence persistence failed: {source}"))
     })?;
@@ -1291,9 +1289,9 @@ fn open_store_for_capture(
             let table = pg_table_name(args);
             let mut store = codedb_store_pg::PgStore::initialize(conn, &table)
                 .map_err(|e| CliError::Message(format!("pg store connect failed: {e}")))?;
-            store.set_capture_root(repo_path).map_err(|e| {
-                CliError::Message(format!("pg store capture root rejected: {e}"))
-            })?;
+            store
+                .set_capture_root(repo_path)
+                .map_err(|e| CliError::Message(format!("pg store capture root rejected: {e}")))?;
             Ok((Box::new(store), format!("postgresql:{table}")))
         }
         StoreBackend::Redb => {
@@ -1655,7 +1653,8 @@ where
     // Tolerant: a permission-denied directory/entry is recorded in
     // `scan.unreadable` and skipped instead of aborting the whole walk
     // (EVERY-BYTE engine gap G3).
-    let scan = scan_filesystem_tolerant(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
+    let scan =
+        scan_filesystem_tolerant(repo_path).map_err(|source| CliError::Core(Box::new(source)))?;
     after_scan();
     let walk_permission_denied = scan.unreadable;
     let entries = scan.entries;
@@ -3433,6 +3432,10 @@ fn codedb_table_checksum_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
             "codedb_runtime_integration",
             codedb_runtime_integration_rows(repo_path),
         ),
+        (
+            "codedb_source_root_hashes",
+            codedb_source_root_hash_rows(repo_path)?,
+        ),
     ];
     if repo_path.join("Cargo.toml").exists() {
         checksummed_tables.push(("cargo_packages", cargo_package_rows(repo_path)?));
@@ -3591,7 +3594,10 @@ fn codedb_source_root_hash_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> 
 
 fn codedb_materialization_target_rows(repo_path: &Path) -> Result<Vec<Row>, CliError> {
     let filesystem = filesystem_rows(repo_path)?;
-    let checksum = rows_checksum("filesystem_entries", &filesystem);
+    let filesystem_checksum = rows_checksum("filesystem_entries", &filesystem);
+    let source_root_hash_rows = codedb_source_root_hash_rows(repo_path)?;
+    let source_root_hash_checksum =
+        rows_checksum("codedb_source_root_hashes", &source_root_hash_rows);
     Ok(vec![
         envctl_row(
             "codedb_materialization_targets",
@@ -3600,7 +3606,7 @@ fn codedb_materialization_target_rows(repo_path: &Path) -> Result<Vec<Row>, CliE
                 ("repo_path", repo_path.display().to_string()),
                 ("target_table", "source_files".to_string()),
                 ("source_table", "filesystem_entries".to_string()),
-                ("source_table_checksum", checksum.clone()),
+                ("source_table_checksum", filesystem_checksum),
                 ("materialization_owner", "envctl".to_string()),
                 ("materialization_mode", "explicit_request_only".to_string()),
                 ("write_policy", "refuse_unauthorized_paths".to_string()),
@@ -3622,7 +3628,7 @@ fn codedb_materialization_target_rows(repo_path: &Path) -> Result<Vec<Row>, CliE
                 ("repo_path", repo_path.display().to_string()),
                 ("target_table", "source_blobs".to_string()),
                 ("source_table", "codedb_source_root_hashes".to_string()),
-                ("source_table_checksum", checksum),
+                ("source_table_checksum", source_root_hash_checksum),
                 ("materialization_owner", "codedb_selected_store".to_string()),
                 (
                     "materialization_mode",
@@ -4868,6 +4874,45 @@ mod tests {
         fs::remove_dir_all(root).expect("remove fake Nu directory");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn doctor_protocol_mismatch_is_explicitly_degraded() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_repo();
+        let nu = root.join("nu");
+        fs::write(&nu, "#!/bin/sh\nprintf '%s\\n' '0.0.0'\n")
+            .expect("write mismatched fake Nu version command");
+        fs::set_permissions(&nu, fs::Permissions::from_mode(0o700))
+            .expect("make fake Nu executable");
+
+        let rows = nu_runtime_doctor_rows("yazelix_nu", Some(nu))
+            .expect("run mismatched Nu doctor checks");
+        let compatibility = rows
+            .iter()
+            .find(|row| {
+                row.get("check")
+                    .is_some_and(|check| check == "plugin_protocol_compatibility")
+            })
+            .expect("plugin protocol compatibility row");
+
+        assert_eq!(
+            compatibility.get("status").map(String::as_str),
+            Some("degraded")
+        );
+        assert!(
+            compatibility
+                .get("note")
+                .is_some_and(|note| note.contains("differs"))
+        );
+        assert_eq!(
+            compatibility.get("action").map(String::as_str),
+            Some("rebuild the plugin against the target Nu protocol if degraded")
+        );
+
+        fs::remove_dir_all(root).expect("remove fake Nu directory");
+    }
+
     #[test]
     fn doctor_missing_nu_guidance_uses_the_locked_plugin_handshake() {
         let protocol = locked_package_version("nu-plugin-protocol");
@@ -5056,7 +5101,9 @@ mod tests {
     fn mcp_frontdoor_ignores_arbitrary_server_override_without_executing_marker() {
         use std::os::unix::fs::PermissionsExt;
 
-        let _env_lock = TEST_ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _env_lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let root = temp_repo();
         let marker = root.join("override-executed");
         let override_bin = root.join("forbidden-override.sh");
@@ -5090,7 +5137,9 @@ mod tests {
     fn mcp_child_environment_is_minimal_and_pg_conn_is_backend_scoped() {
         use std::os::unix::fs::PermissionsExt;
 
-        let _env_lock = TEST_ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _env_lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let root = temp_repo();
         let ambient_sentinel = "CODEDB_MCP_AMBIENT_SECRET_SENTINEL";
         let pg_sentinel = "CODEDB_MCP_PG_CONN_SENTINEL";
@@ -5266,7 +5315,9 @@ mod tests {
 
     #[test]
     fn cli_pg_selector_uses_only_codedb_pg_conn_not_ambient_database_url() {
-        let _env_lock = TEST_ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _env_lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let database_url_sentinel = "CODEDB_DATABASE_URL_SENTINEL";
         let codedb_pg_sentinel = "CODEDB_PG_CONN_SENTINEL";
 
@@ -5744,7 +5795,8 @@ mod tests {
         let denied = repo.join("denied");
         fs::create_dir_all(&denied).expect("create denied dir");
         fs::write(denied.join("hidden.rs"), b"never seen\n").expect("write hidden file");
-        fs::set_permissions(&denied, fs::Permissions::from_mode(0o000)).expect("deny directory access");
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o000))
+            .expect("deny directory access");
 
         let selection = RepoSelection {
             repo_id: "eacces-dir".to_string(),
@@ -5756,7 +5808,8 @@ mod tests {
 
         let result = capture_rows(&selection, &config, &safe_source_policy_args());
         // Restore permissions before any assertion can panic and skip cleanup.
-        fs::set_permissions(&denied, fs::Permissions::from_mode(0o755)).expect("restore permissions");
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o755))
+            .expect("restore permissions");
         let rows = result.expect("capture must complete despite a permission-denied directory");
 
         let gap = rows
@@ -5767,7 +5820,10 @@ mod tests {
             })
             .expect("the denied directory must be recorded as a capture_gaps row");
         assert_eq!(gap.get("kind").map(String::as_str), Some("directory"));
-        assert_eq!(gap.get("gap").map(String::as_str), Some("permission_denied"));
+        assert_eq!(
+            gap.get("gap").map(String::as_str),
+            Some("permission_denied")
+        );
         assert_eq!(
             gap.get("reason").map(String::as_str),
             Some("permission-denied")
@@ -5823,7 +5879,10 @@ mod tests {
             })
             .expect("the denied file must be recorded as a capture_gaps row");
         assert_eq!(gap.get("kind").map(String::as_str), Some("file"));
-        assert_eq!(gap.get("gap").map(String::as_str), Some("permission_denied"));
+        assert_eq!(
+            gap.get("gap").map(String::as_str),
+            Some("permission_denied")
+        );
         assert_eq!(
             gap.get("reason").map(String::as_str),
             Some("permission-denied")
@@ -5884,7 +5943,8 @@ mod tests {
             },
         );
         // Restore permissions before any assertion can panic and skip cleanup.
-        fs::set_permissions(&racy_path, fs::Permissions::from_mode(0o644)).expect("restore permissions");
+        fs::set_permissions(&racy_path, fs::Permissions::from_mode(0o644))
+            .expect("restore permissions");
         let rows = result.expect("capture must complete despite a post-snapshot permission change");
 
         let gap = rows
@@ -5894,7 +5954,10 @@ mod tests {
                     && row.get("relative_path").map(String::as_str) == Some("racy.rs")
             })
             .expect("the racy file must be recorded as a capture_gaps row");
-        assert_eq!(gap.get("gap").map(String::as_str), Some("permission_denied"));
+        assert_eq!(
+            gap.get("gap").map(String::as_str),
+            Some("permission_denied")
+        );
         assert_eq!(
             gap.get("reason").map(String::as_str),
             Some("permission-denied")
@@ -5939,7 +6002,9 @@ mod tests {
     // explicit safe backend identity, forbids internal access, and never emits a DSN.
     #[test]
     fn envctl_export_normalizes_redb_and_postgresql_store_contracts_without_dsn_leakage() {
-        let _env_lock = TEST_ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _env_lock = TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let repo = temp_repo();
         fs::create_dir_all(repo.join("src")).expect("create src");
         fs::write(repo.join("src/lib.rs"), "pub fn answer() -> u8 { 42 }\n").expect("source");

@@ -106,7 +106,7 @@ def main [] {
             fail "temp-HOME plugin registry smoke changed real HOME Nushell plugin registry files"
         }
 
-        {
+        let result = {
             status: passed,
             row_count: ($rows | length),
             first_table: ($rows | first | get table),
@@ -114,5 +114,10 @@ def main [] {
             temp_plugin_config_sha256: $registry_hash,
             plugin: $plugin,
         }
+        rm -rf $temp_home
+        if ($temp_home | path exists) {
+            fail $"temp HOME was not removed: ($temp_home)"
+        }
+        $result
     }
 }

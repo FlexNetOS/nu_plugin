@@ -1275,8 +1275,14 @@ fn capture_root_partitions_identical_relative_paths_across_multiple_roots() {
     assert_eq!(
         observed,
         vec![
-            (sha256_hex(b"root-a content\n"), root_a.display().to_string()),
-            (sha256_hex(b"root-b content\n"), root_b.display().to_string()),
+            (
+                sha256_hex(b"root-a content\n"),
+                root_a.display().to_string()
+            ),
+            (
+                sha256_hex(b"root-b content\n"),
+                root_b.display().to_string()
+            ),
         ],
         "each capture root must retain its own distinct row, not collide on relative path"
     );
@@ -1369,9 +1375,11 @@ fn initialize_migrates_a_legacy_module_path_primary_key_store_onto_the_repo_scop
         .persist_batch(&[("README.md".to_string(), b"legacy-heal a\n".to_vec())])
         .expect("persist root-a after healing");
     drop(healed);
-    let mut healed_b = PgStore::open_existing(&tables.conn, &tables.base)
-        .expect("reopen healed store for root-b");
-    healed_b.set_capture_root(root_b).expect("root-b is absolute");
+    let mut healed_b =
+        PgStore::open_existing(&tables.conn, &tables.base).expect("reopen healed store for root-b");
+    healed_b
+        .set_capture_root(root_b)
+        .expect("root-b is absolute");
     healed_b
         .persist_batch(&[("README.md".to_string(), b"legacy-heal b\n".to_vec())])
         .expect("persist root-b after healing");
@@ -1409,9 +1417,9 @@ fn chunked_blob_round_trips_through_read_and_materialize_across_every_boundary()
 
     let threshold = 8usize;
     let files: Vec<(String, Vec<u8>)> = vec![
-        ("empty.bin".to_string(), Vec::new()),                    // 0 bytes: unchunked
-        ("exact.bin".to_string(), b"exactly8".to_vec()),          // == threshold: unchunked
-        ("over.bin".to_string(), b"exactly8+".to_vec()),          // threshold + 1: 2 chunks
+        ("empty.bin".to_string(), Vec::new()), // 0 bytes: unchunked
+        ("exact.bin".to_string(), b"exactly8".to_vec()), // == threshold: unchunked
+        ("over.bin".to_string(), b"exactly8+".to_vec()), // threshold + 1: 2 chunks
         ("multi.bin".to_string(), b"abcdefghijklmnopqrstu".to_vec()), // 21 bytes = 2.5x: 3 chunks
     ];
     codedb_store_pg::persist_batch_with_chunk_threshold_for_tests(&mut pg, &files, threshold)
@@ -1466,7 +1474,8 @@ fn chunked_blob_round_trips_through_read_and_materialize_across_every_boundary()
         assert_eq!(materialized.sha256, sha256_hex(bytes));
         assert_eq!(materialized.bytes, bytes.len() as u64);
         assert_eq!(
-            std::fs::read(&output_path).unwrap_or_else(|error| panic!("read materialized {name}: {error}")),
+            std::fs::read(&output_path)
+                .unwrap_or_else(|error| panic!("read materialized {name}: {error}")),
             *bytes,
             "materialized {name} must be byte-identical to the captured content"
         );
@@ -1562,5 +1571,8 @@ fn chunked_blob_reassembly_rejects_a_tampered_chunk_before_publication() {
         error.message().contains("checksum"),
         "unexpected error for a tampered chunk: {error}"
     );
-    assert!(!output_path.exists(), "corrupt reassembled bytes were published");
+    assert!(
+        !output_path.exists(),
+        "corrupt reassembled bytes were published"
+    );
 }

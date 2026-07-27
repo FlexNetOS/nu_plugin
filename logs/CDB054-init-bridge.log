@@ -29,3 +29,11 @@ Validation passed:
 
 Acceptance signal:
 - init bridge generated.
+
+Revalidation: 2026-07-27
+- `cargo test -p codedb generated_yazelix_bridge_has_provenance_checksums_and_leaves_config_untouched --test relative_repo_path` passed.
+- The test verifies generated artifact and manifest SHA-256 values, template provenance,
+  disabled plugin-registry mutation, and an unchanged tracked `config.nu` fixture.
+- `codedb generate-yazelix-bridge --out-dir /tmp/codedb-cdb054-verify --format json`
+  generated only `codedb_init.nu`, `codedb_extern.nu`, and its manifest; both generated
+  Nu files passed `nu --no-config-file --ide-check 100`.

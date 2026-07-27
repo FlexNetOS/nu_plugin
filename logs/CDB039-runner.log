@@ -16,3 +16,27 @@
 24:- `release_without_provenance = forbidden`
 26:Runner must treat `failed` and `pending` rows as release blockers. `degraded` rows
 34:- `codedb doctor --nu`, `--yazelix`, and `--codex` report usable or explicitly degraded status;
+
+## 2026-07-27 CDB039 focused verification
+
+```text
+$ rustfmt crates/codedb/tests/relative_repo_path.rs
+$ cargo test -p codedb --test relative_repo_path
+running 3 tests
+test scan_and_export_accept_nontrivial_relative_repo_paths ... ok
+test runner_proof_manifest_is_exportable_for_noninteractive_runners ... ok
+test envctl_export_binds_materialization_rows_to_exported_table_checksums ... ok
+test result: ok. 3 passed; 0 failed
+
+$ cargo test -p codedb runner_proof_manifest_satisfies_bidirectional_gate_after_all_tasks_complete
+running 1 test
+test tests::runner_proof_manifest_satisfies_bidirectional_gate_after_all_tasks_complete ... ok
+test result: ok. 1 passed; 0 failed
+```
+
+The CDB039 integration test invokes `codedb export runner_proof_manifest` as a
+noninteractive runner would, with explicit repository ID, repository path,
+store path, and each JSON, NUON, and CSV format. JSON rows are asserted to
+carry the gate, status, evidence, raw-log, and provenance-forbidden fields.
+`release_readiness` remains `pending`: CodeDB emits proof rows, while runner
+retains release-readiness authority.

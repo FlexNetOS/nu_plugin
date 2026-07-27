@@ -35,3 +35,10 @@ Validation passed:
 
 Acceptance signal:
 - enabled mode safe.
+
+Replay validation: 2026-07-27
+- `nu --no-config-file --ide-check 100 tests/test_yazelix_enabled_smoke.nu`
+  exited 0 with type hints only.
+- `nu --no-config-file tests/test_yazelix_enabled_smoke.nu` passed with
+  `launch_status: ready`, both CodeDB paths `available`, three bridge rows, and
+  `plugin_registry_created: false`.

@@ -462,11 +462,8 @@ impl PgStore {
                 tx.execute(blob_sql.as_str(), &[&sha256, &content, &byte_count, &0i32])
                     .map_err(|_| database_error("insert content-addressed blob"))?;
             }
-            tx.execute(
-                path_sql.as_str(),
-                &[relative_path, &sha256, &metadata_json],
-            )
-            .map_err(|_| database_error("upsert path reference"))?;
+            tx.execute(path_sql.as_str(), &[relative_path, &sha256, &metadata_json])
+                .map_err(|_| database_error("upsert path reference"))?;
             rows.push(SourceFileRow {
                 relative_path: relative_path.clone(),
                 blob_ref: format!("sha256:{sha256}"),
@@ -1615,7 +1612,11 @@ mod tests {
     #[test]
     fn chunk_count_for_is_zero_at_and_below_the_threshold() {
         let threshold = 8;
-        assert_eq!(chunk_count_for(0, threshold), 0, "an empty blob is never chunked");
+        assert_eq!(
+            chunk_count_for(0, threshold),
+            0,
+            "an empty blob is never chunked"
+        );
         assert_eq!(
             chunk_count_for(threshold, threshold),
             0,
@@ -1643,7 +1644,12 @@ mod tests {
         // `chunk_count_for`'s prediction, across every boundary the fixpack2
         // spec calls out (0, exactly threshold, threshold + 1, 2.5x).
         let threshold = 8usize;
-        for total_bytes in [0usize, threshold, threshold + 1, threshold * 2 + threshold / 2] {
+        for total_bytes in [
+            0usize,
+            threshold,
+            threshold + 1,
+            threshold * 2 + threshold / 2,
+        ] {
             let bytes = vec![0xABu8; total_bytes];
             let expected = chunk_count_for(total_bytes, threshold);
             if expected == 0 {
@@ -1677,7 +1683,11 @@ mod tests {
         let chunks = vec![(0, b"only-one".to_vec())];
         let error = reassemble_chunks(chunks, "test-sha", 2)
             .expect_err("declaring 2 chunks but storing 1 must be rejected");
-        assert!(error.message().contains("declares 2 chunks but 1 are stored"));
+        assert!(
+            error
+                .message()
+                .contains("declares 2 chunks but 1 are stored")
+        );
     }
 
     #[test]
@@ -1701,7 +1711,10 @@ mod tests {
         let json = raw_blob_metadata_json(Some("/captures/repo-a"));
         let value: serde_json::Value = serde_json::from_str(&json).expect("valid json");
         assert_eq!(value["artifact_kind"], "raw_blob");
-        assert_eq!(value["permission_capture"], "gap_not_available_for_raw_blob");
+        assert_eq!(
+            value["permission_capture"],
+            "gap_not_available_for_raw_blob"
+        );
         assert_eq!(value["repo_path"], "/captures/repo-a");
     }
 

@@ -866,7 +866,8 @@ pub fn authorize_raw_persistence(
             Some(RawPersistenceAuthorization::External(binding))
                 if binding.repository_binding == repository_binding
                     && binding.allows(source_class)
-                    && binding.classifier_uncertain_mode() == ClassifierUncertainMode::PersistRaw =>
+                    && binding.classifier_uncertain_mode()
+                        == ClassifierUncertainMode::PersistRaw =>
             {
                 RawPersistenceReason::UncertainPersistedByPolicy
             }
@@ -1193,7 +1194,9 @@ fn parse_allowed_classes(value: &str) -> Result<BTreeSet<SourceClass>, CapturePo
 /// hard-denied classes. Only `configuration` and `unknown` are acceptable;
 /// `sensitive` is rejected the same way `parse_allowed_classes` rejects it,
 /// so no policy can ever widen persistence for sensitive-classified bytes.
-fn parse_extended_allowed_classes(value: &str) -> Result<BTreeSet<SourceClass>, CapturePolicyError> {
+fn parse_extended_allowed_classes(
+    value: &str,
+) -> Result<BTreeSet<SourceClass>, CapturePolicyError> {
     let mut allowed = BTreeSet::new();
     for raw_class in value.split(',') {
         let class = raw_class.trim();

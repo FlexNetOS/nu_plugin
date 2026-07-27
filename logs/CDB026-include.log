@@ -43,3 +43,32 @@ running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
+## TASK-CDB026 approved replay validation (2026-07-27T14:57:21Z)
+
+Scope: review/replay validation only; no implementation source was changed.
+
+Commands:
+
+```text
+CARGO_NET_OFFLINE=true cargo fmt -p codedb-rust-static --check
+CARGO_NET_OFFLINE=true cargo test -p codedb-rust-static include_fixture_passes
+```
+
+Result: formatter check passed; `include_fixture_passes` passed (1 passed, 23 filtered).
+The fixture verifies deterministic static capture of literal `include!`, `include_str!`,
+`include_bytes!`, and `#[path]` edges while keeping dynamic path evaluation out of scope.
+
+## TASK-CDB026 approved replay validation (2026-07-27T15:26:22Z)
+
+Scope: review/replay validation only; no implementation source or dependencies changed.
+
+Commands:
+
+```text
+CARGO_NET_OFFLINE=true cargo fmt -p codedb-rust-static --check
+CARGO_NET_OFFLINE=true cargo test -p codedb-rust-static include_fixture_passes
+```
+
+Result: formatter check passed; `include_fixture_passes` passed (1 passed, 23 filtered).
+The fixture confirms deterministic static capture of literal `include!`, `include_str!`,
+`include_bytes!`, and `#[path]` edges while explicitly excluding dynamic path tracing.

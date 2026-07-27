@@ -1,116 +1,40 @@
 # CDB043 security/no-leak validation
-## test file
-# Test lane: default
-# Defends: CodeDB default CLI and MCP surfaces do not emit raw secret-looking source values.
 
-def fail [message: string] {
-    error make { msg: $message }
-}
+packet_source_commit=c84740532ded2a27ee283ea7a3a5f303eaeb61a7
+execution_head=68ba17aaa62ec30a6fb23425b5258ba3cfaf6b70
+test_file=tests/test_security_no_leak.nu
+test_file_sha256=2a7e2541fc03daef0fef9c692d2b5b73357fbe00c489668859cd4176a1b2b16a
+network=disabled
 
-def run_checked [args: list<string>] {
-    let result = (^cargo ...$args | complete)
-    if $result.exit_code != 0 {
-        fail $"cargo command failed: cargo ($args | str join ' ')\n($result.stderr)"
-    }
-    $result.stdout
-}
+## Command
 
-def run_codedb [args: list<string>] {
-    run_checked ([run --quiet -p codedb --] | append $args)
-}
+CARGO_NET_OFFLINE=true CODEDB_TEST_REPO_ROOT=<repo> nu tests/test_security_no_leak.nu
 
-def assert_no_raw_secret_values [label: string, output: string] {
-    let forbidden = [
-        "sk-placeholder-redacted-not-a-real-key",
-        "ghp_placeholder_redacted_not_a_real_token",
-    ]
+## Assertions
 
-    let leaked = ($forbidden | where {|secret| $output | str contains $secret })
-    if ($leaked | length) > 0 {
-        fail $"($label) leaked raw secret-looking values: ($leaked | str join ', ')"
-    }
+- Every Cargo subprocess checks combined stdout and stderr before its exit
+  status is handled.
+- Leak failures report only the affected surface label; matched values are not
+  reproduced in failure messages.
+- The MCP security suite covers the explicit blocked raw-source/full-file and
+  unsafe-capture tools.
+- CLI scan plus rust-items, table-checksum, and envctl exports contain none of
+  the controlled fixture's secret-looking values.
+- The source fixture remains without a generated Cargo.lock.
 
-    { label: $label, sha256: ($output | hash sha256), raw_secret_values: "absent" }
-}
+## Result
 
-def main [] {
-    let repo_root = ($env.CODEDB_TEST_REPO_ROOT? | default (pwd))
-    let cargo_dir = ($env.CODEDB_TEST_CARGO_DIR? | default "")
-    let path = if $cargo_dir == "" {
-        $env.PATH
-    } else {
-        $env.PATH | prepend $cargo_dir
-    }
+exit_code=0
+mcp_security_tests=passed
+mcp_security_tests_sha256=900cad4fbe7a288a6852112e390f82b348d28b3307bd832fddc494cb19901c93
+scan_summary_raw_secret_values=absent
+scan_summary_sha256=5eb550eb533e99293fd0ac9759a586ce08a7b8487560f854806f6ebf15b0b7bc
+rust_items_raw_secret_values=absent
+rust_items_sha256=0ce2ffbec7706d6047e736a651675659da01c2c17d4aa8a04aaa200cc12f582c
+table_checksums_raw_secret_values=absent
+table_checksums_sha256=4ce31b47af5bd06233e717ea4eb956e8420ea3ad99aadd1756f903c9777d6c40
+envctl_export_raw_secret_values=absent
+envctl_export_sha256=c2a9e6d30e4d6605ebcbe03e8abc0bd431cae5fb9b269f111ab244724d483f78
+source_fixture_cargo_lock=absent
 
-    cd $repo_root
-
-    with-env { PATH: $path } {
-        let source_fixture = ([$repo_root fixtures secret_like] | path join)
-        let temp_root = (mktemp -d)
-        let fixture = ([$temp_root secret_like] | path join)
-
-        cp -r $source_fixture $fixture
-
-        let mcp_tests = (run_checked [
-            test
-            -p
-            codedb-mcp
-            --quiet
-        ])
-
-        let scan_output = (run_codedb [scan $fixture --format json])
-        let rust_items_output = (run_codedb [export rust_items --repo-path $fixture --format json])
-        let checksum_output = (run_codedb [export codedb_table_checksums --repo-path $fixture --format json])
-        let envctl_output = (run_codedb [export envctl --repo-path $fixture --format json])
-
-        let source_lock = ([$source_fixture Cargo.lock] | path join)
-        if ($source_lock | path exists) {
-            fail "security no-leak test mutated the source fixture Cargo.lock"
-        }
-
-        [
-            {
-                label: mcp_security_tests,
-                status: "passed",
-                sha256: ($mcp_tests | hash sha256),
-            },
-            (assert_no_raw_secret_values scan_summary $scan_output),
-            (assert_no_raw_secret_values rust_items $rust_items_output),
-            (assert_no_raw_secret_values table_checksums $checksum_output),
-            (assert_no_raw_secret_values envctl_export $envctl_output),
-        ]
-    }
-}
-## lane and assertion markers
-1:# Test lane: default
-2:# Defends: CodeDB default CLI and MCP surfaces do not emit raw secret-looking source values.
-## MCP blocked/raw source policy markers
-36:    "raw_source_blob_read",
-37:    "full_file_dump",
-38:    "unsafe_build_capture",
-430:    fn allowed_and_blocked_tools_are_explicit() {
-433:            ensure_tool_allowed("raw_source_blob_read"),
-502:    fn repo_summary_does_not_leak_raw_source() {
-## run security no-leak test
-╭───┬────────────────────┬────────┬────────────────────────┬───────────────────╮
-│ # │       label        │ status │         sha256         │ raw_secret_values │
-├───┼────────────────────┼────────┼────────────────────────┼───────────────────┤
-│ 0 │ mcp_security_tests │ passed │ 1952f05b3918efebb581d9 │                ❎ │
-│   │                    │        │ 9640089f8d608313456a2f │                   │
-│   │                    │        │ caf098901ae0dd50d7e0   │                   │
-│ 1 │ scan_summary       │     ❎ │ 3535a52bfec1ada7ac194c │ absent            │
-│   │                    │        │ 9c13bc3626ea98b1b27f5f │                   │
-│   │                    │        │ e5df45d02b86f89ed7e8   │                   │
-│ 2 │ rust_items         │     ❎ │ 977492044a00f6c2659214 │ absent            │
-│   │                    │        │ 3a017b29b58d6d344e0871 │                   │
-│   │                    │        │ c3b019b5354436982722   │                   │
-│ 3 │ table_checksums    │     ❎ │ ab6c7cc65e971b69a60e71 │ absent            │
-│   │                    │        │ a2ac251549fa18280a755c │                   │
-│   │                    │        │ e91c90ab0a24927c5226   │                   │
-│ 4 │ envctl_export      │     ❎ │ 55c5370bde3fd64f067b74 │ absent            │
-│   │                    │        │ 95023df1ab724e01ec23a3 │                   │
-│   │                    │        │ 1e46bb36e0a399ab67c6   │                   │
-╰───┴────────────────────┴────────┴────────────────────────┴───────────────────╯
-## no source fixture lockfile mutation
-none
 CDB043 validation passed

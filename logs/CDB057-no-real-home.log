@@ -29,3 +29,14 @@ Validation passed:
 
 Acceptance signal:
 - HOME safety proven.
+
+Replay validation:
+- Date: 2026-07-27
+- Command: `CARGO_NET_OFFLINE=true nu --no-config-file -c 'source tests/test_no_real_home_plugin_registration.nu; main | to json --raw'`
+- status: passed
+- real_home_registry_unchanged: true
+- real_before.file_count: 0
+- real_after.file_count: 0
+- real_before.snapshot_sha256: `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`
+- real_after.snapshot_sha256: `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`
+- plugin_table_rows: 36

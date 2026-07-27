@@ -21,3 +21,71 @@ running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
+   Compiling equivalent v1.0.2
+   Compiling hashbrown v0.17.1
+   Compiling toml_write v0.1.2
+   Compiling winnow v0.7.15
+   Compiling toml_datetime v0.6.11
+   Compiling serde_spanned v0.6.9
+   Compiling indexmap v2.14.0
+   Compiling toml_edit v0.22.27
+   Compiling toml v0.8.23
+   Compiling codedb-core v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_core)
+   Compiling codedb-store-redb v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_store_redb)
+   Compiling codedb-store-pg v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_store_pg)
+   Compiling codedb-mcp v0.1.0 (/home/flexnetos/meta/src/nu_plugin/crates/codedb_mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.40s
+     Running unittests src/lib.rs (/run/user/1001/lifeos-json-task-cargo/20260727T033323851132Z-b4e24d277985/nu_plugin-15cfc35d9c4b27cc/debug/deps/codedb_mcp-2543596a4a7c882a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/run/user/1001/lifeos-json-task-cargo/20260727T033323851132Z-b4e24d277985/nu_plugin-15cfc35d9c4b27cc/debug/deps/codedb_mcp-a33522824173adf6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/policy_and_stdio.rs (/run/user/1001/lifeos-json-task-cargo/20260727T033323851132Z-b4e24d277985/nu_plugin-15cfc35d9c4b27cc/debug/deps/policy_and_stdio-dfe6a537592e95d8)
+
+running 24 tests
+test mcp_tool_surface_has_no_mutation_or_dynamic_execution_entrypoint ... ok
+test backend_boundary_is_read_only_and_backend_neutral ... ok
+test configuration_is_fail_closed_and_cannot_expand_compiled_maxima ... ok
+test bounded_traversal_stops_before_unbounded_repository_work ... ok
+test oversized_redb_store_is_refused_before_the_in_process_adapter_opens_it ... ok
+test postgresql_snapshot_and_materialize_summary_are_secret_safe_when_explicitly_enabled ... ok
+test pagination_is_contiguous_bounded_non_overlapping_and_terminal ... ok
+test redb_store_selector_rejects_non_normal_parent_components ... ok
+test requests_cannot_exceed_configured_or_compiled_row_and_byte_budgets ... ok
+test repository_paths_are_canonical_absolute_contained_and_nonsymlinked ... ok
+test stdio_errors_do_not_echo_secret_bearing_tool_paths_or_arguments ... ok
+test repository_traversal_stays_bound_when_an_allowed_root_ancestor_is_swapped ... ok
+test repository_traversal_stays_bound_when_the_repository_root_is_swapped ... ok
+test complete_json_rpc_wire_lines_include_envelope_wrapper_and_utf8_in_max_bytes ... ok
+test raw_source_and_blob_tools_and_tables_are_denied_without_backend_access ... ok
+test in_process_stdio_lifecycle_emits_only_json_rpc_messages_and_shuts_down_on_eof ... ok
+test stdio_flushes_each_response_and_accepts_initialized_notification ... ok
+test stdio_request_budget_shuts_down_fail_closed ... ok
+test packaged_binary_rejects_non_stdio_transport_without_writing_stdout ... ok
+test packaged_stdio_binary_handles_initialize_tools_and_eof_without_stdout_diagnostics ... ok
+test cargo_summary_can_use_the_descriptor_bound_repository_in_its_child_process ... ok
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+test packaged_binary_ignores_inherited_executable_override_for_store_access ... ok
+test exact_checked_in_codex_sample_launches_codedb_mcp_serve_frontdoor ... ok
+test redb_snapshot_is_queried_after_live_source_is_removed_without_store_mutation ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+   Doc-tests codedb_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+## 2026-07-27 replay verification summary
+
+- Command: `cargo test -p codedb-mcp`
+- Result: 24 policy/stdio tests passed; unit and doc test targets passed.
+- Gate covered: bounded table pagination, row and response-byte limits, raw-source/blob denial, read-only backend boundaries, and stdio fail-closed behavior.

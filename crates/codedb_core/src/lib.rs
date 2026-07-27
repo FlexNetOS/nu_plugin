@@ -2106,7 +2106,10 @@ pub fn scan_filesystem_tolerant(root: impl AsRef<Path>) -> Result<TolerantScan, 
     let mut unreadable = Vec::new();
     scan_path_tolerant(root, root, &mut entries, &mut unreadable)?;
     entries.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-    Ok(TolerantScan { entries, unreadable })
+    Ok(TolerantScan {
+        entries,
+        unreadable,
+    })
 }
 
 fn scan_path_tolerant(
@@ -2510,12 +2513,15 @@ mod tests {
         fs::write(root.join("readable/file.txt"), b"ok\n").expect("write readable file");
         let denied = root.join("denied");
         fs::create_dir_all(&denied).expect("create denied dir");
-        fs::write(denied.join("secret.txt"), b"secret\n").expect("write nested file before denying");
-        fs::set_permissions(&denied, fs::Permissions::from_mode(0o000)).expect("deny directory access");
+        fs::write(denied.join("secret.txt"), b"secret\n")
+            .expect("write nested file before denying");
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o000))
+            .expect("deny directory access");
 
         let result = scan_filesystem_tolerant(&root);
         // Restore permissions before any assertion can panic and skip cleanup.
-        fs::set_permissions(&denied, fs::Permissions::from_mode(0o755)).expect("restore permissions");
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o755))
+            .expect("restore permissions");
         let scan = result.expect("tolerant scan must not abort on a permission-denied directory");
 
         assert!(
@@ -2526,8 +2532,10 @@ mod tests {
             scan.entries
         );
         assert!(
-            scan.entries.iter().any(|entry| entry.relative_path == "denied"
-                && entry.kind == FilesystemEntryKind::Directory),
+            scan.entries
+                .iter()
+                .any(|entry| entry.relative_path == "denied"
+                    && entry.kind == FilesystemEntryKind::Directory),
             "the denied directory's own entry is still recorded (its own stat still succeeds): {:?}",
             scan.entries
         );
@@ -2568,9 +2576,12 @@ mod tests {
         fs::set_permissions(&denied_b, fs::Permissions::from_mode(0o000)).expect("deny denied-b");
 
         let result = scan_filesystem_tolerant(&root);
-        fs::set_permissions(&denied_a, fs::Permissions::from_mode(0o755)).expect("restore denied-a");
-        fs::set_permissions(&denied_b, fs::Permissions::from_mode(0o755)).expect("restore denied-b");
-        let scan = result.expect("tolerant scan must not abort on multiple permission-denied directories");
+        fs::set_permissions(&denied_a, fs::Permissions::from_mode(0o755))
+            .expect("restore denied-a");
+        fs::set_permissions(&denied_b, fs::Permissions::from_mode(0o755))
+            .expect("restore denied-b");
+        let scan =
+            result.expect("tolerant scan must not abort on multiple permission-denied directories");
 
         let mut unreadable_paths = scan
             .unreadable

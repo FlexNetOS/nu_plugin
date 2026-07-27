@@ -18,3 +18,12 @@
 7:CodeDB is the authority for file-to-datatable conversion and code facts. It owns blob
 11:envctl is a downstream consumer. It consumes CodeDB exports and checksums when it needs
 12:to materialize, regenerate, or reconcile files. It must not read redb internals or
+TASK-CDB035 envctl export contract verification
+
+Validation command:
+  cargo test -p codedb --test relative_repo_path -- --nocapture
+
+Result: passed (2 tests). The envctl contract test invokes `codedb export envctl`
+against an isolated fixture in JSON, NUON, and CSV formats. It verifies that every
+materialization target binds the checksum exported for its declared source table and
+that exported backend access is forbidden.

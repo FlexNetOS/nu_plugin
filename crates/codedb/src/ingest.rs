@@ -187,7 +187,11 @@ pub fn validate_envelope(json: &str) -> Result<Vec<ValidatedFile>, IngestError> 
                 )));
             }
         }
-        validated.push(ValidatedFile { file, bytes, blake3 });
+        validated.push(ValidatedFile {
+            file,
+            bytes,
+            blake3,
+        });
     }
     Ok(validated)
 }
@@ -202,9 +206,7 @@ fn validate_relative_path(path: &str) -> Result<(), IngestError> {
         )));
     }
     if path.starts_with('/') {
-        return Err(IngestError::new(format!(
-            "path {path:?} must be relative"
-        )));
+        return Err(IngestError::new(format!("path {path:?} must be relative")));
     }
     for component in path.split('/') {
         if component.is_empty() || component == "." || component == ".." {
@@ -238,7 +240,10 @@ pub fn run_ingest(
             &ast_json,
         )
         .map_err(|error| {
-            IngestError::new(format!("{}: store write failed: {error}", validated.file.path))
+            IngestError::new(format!(
+                "{}: store write failed: {error}",
+                validated.file.path
+            ))
         })?;
         if row.deduplicated {
             dedup_hit_count += 1;
@@ -471,7 +476,11 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&out).expect("metadata").permissions().mode() & 0o7777;
+            let mode = std::fs::metadata(&out)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o7777;
             assert_eq!(mode, 0o755);
         }
     }

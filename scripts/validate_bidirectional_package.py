@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 from pathlib import Path
 
@@ -32,11 +33,26 @@ EXPECTED_PHASES = [
     "Phase 5",
     "Phase 6",
 ]
+LOCAL_RELEASE_ENV = "CODEDB_REQUIREMENT_PROOF_LOCAL_RELEASE"
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
+
+
+def local_release_from_environment(parser: argparse.ArgumentParser) -> bool:
+    value = os.environ.get(LOCAL_RELEASE_ENV)
+    if value is None:
+        return False
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes"}:
+        return True
+    if normalized in {"0", "false", "no", ""}:
+        return False
+    parser.error(
+        f"{LOCAL_RELEASE_ENV} must be one of 1/true/yes or 0/false/no"
+    )
 
 
 def audit_package(
@@ -142,11 +158,21 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    local_release = args.local_release or local_release_from_environment(parser)
+    if local_release and (
+        os.environ.get("CODEDB_REQUIREMENT_PROOF_BUNDLE")
+        or os.environ.get("CODEDB_REQUIREMENT_PROOF_SIGNER_WORKFLOW")
+    ):
+        parser.error(
+            "local release is mutually exclusive with "
+            "CODEDB_REQUIREMENT_PROOF_BUNDLE and "
+            "CODEDB_REQUIREMENT_PROOF_SIGNER_WORKFLOW"
+        )
 
     failures = audit_package(
         args.root,
         direct_evidence=args.direct_evidence,
-        local_release=args.local_release,
+        local_release=local_release,
     )
     if failures:
         for failure in failures:
@@ -157,7 +183,7 @@ def main() -> int:
         "direct-evidence"
         if args.direct_evidence
         else "local-release"
-        if args.local_release
+        if local_release
         else "release"
     )
     print(

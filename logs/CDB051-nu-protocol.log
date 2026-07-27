@@ -29,3 +29,16 @@ Validation passed:
 
 Acceptance signal:
 - Nu compatibility gate exists.
+
+Review verification: 2026-07-27
+- `cargo test -p codedb --bin codedb locked_nu_packages_share_the_plugin_handshake`: 1 passed.
+- `cargo test -p codedb --bin codedb doctor_`: 3 passed, including
+  `doctor_protocol_mismatch_is_explicitly_degraded`.
+- `cargo run -q -p codedb -- doctor --nu --yazelix --format json` reported host
+  Nu `0.113.1` as protocol-compatible and reported the undiscovered Yazelix
+  runtime as `degraded` with explicit remediation. Doctor only reports the
+  registration command; it does not inspect or mutate a plugin registry.
+- `cargo fmt --check --package codedb` remains blocked by pre-existing formatting
+  differences outside CDB051-owned files (`crates/codedb/src/ingest.rs` and
+  existing regions of `crates/codedb/src/main.rs`); no formatter rewrite was
+  applied to preserve concurrent work.

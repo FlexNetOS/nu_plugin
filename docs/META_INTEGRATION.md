@@ -33,6 +33,29 @@ the command fails instead of guessing.
 The CLI emits a `meta_repo_selection` row with `repo_id`, `repo_path`, `store_path`,
 `selection_source`, and `mutation_policy = read_only_no_meta_mutation`.
 
+## Observable selection boundary
+
+`codedb scan` treats the supplied `--repo-path` as the only scan root. Its JSON
+output begins with the selection row, so a caller can verify the chosen stable
+`repo_id`, canonical scan root, supplied store label, and
+`selection_source = explicit_repo_path` before consuming the scan facts.
+
+The command does not discover projects from meta, update a meta graph, or
+materialize the supplied `--store` during this read-only scan. A positional
+repository path may be retained for direct CLI compatibility only when it
+matches `--repo-path`; otherwise CodeDB refuses the invocation with a
+conflicting-selection error.
+
+For a selected-repository integration check, run:
+
+```bash
+codedb scan --repo-id <meta_project_id> --repo-path <path> --store <path> --format json
+```
+
+Confirm that the resulting `meta_repo_selection` row has
+`mutation_policy = read_only_no_meta_mutation` and that no meta-owned artifact
+changed.
+
 ## Guard
 
 Multi-repo scanning requires explicit selected project rows and no-mutation proof. CodeDB must not perform broad meta mutations.

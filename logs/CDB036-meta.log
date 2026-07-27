@@ -1,19 +1,52 @@
 # CDB036 meta repo selection validation
-2026-07-02T06:38:26Z
-## fmt
-## build
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
-## scan with explicit meta repo selection
-6
-## export selection nuon
-1
-## export selection csv
-1
-## conflicting selection refuses
-1:codedb: conflicting repo selection: positional repo path /tmp/one differs from explicit repo path /tmp/two
-## docs boundary
-21:codedb scan --repo-id <meta_project_id> --repo-path <path> --store <path> --format json
-22:codedb export meta_repo_selection --repo-id <meta_project_id> --repo-path <path> --store <path> --format nuon
-25:`--repo-path` is the scan root. `--repo-id` is a stable label supplied by meta or
-27:future store boundary, but CDB036 does not create, open, or mutate that store.
-34:`selection_source`, and `mutation_policy = read_only_no_meta_mutation`.
+2026-07-27T15:47:01Z
+
+## isolated execution
+
+```text
+CARGO_TARGET_DIR=/tmp/cdb036-meta.07ArFN/target \
+  cargo run --quiet -p codedb -- scan \
+  --repo-id meta-cdb036 \
+  --repo-path /tmp/cdb036-meta.07ArFN/selected-repo \
+  --store /tmp/cdb036-meta.07ArFN/meta-selection.redb \
+  --format json
+```
+
+## selected repo scan result
+
+```json
+{
+  "table": "meta_repo_selection",
+  "repo_id": "meta-cdb036",
+  "repo_path": "/tmp/cdb036-meta.07ArFN/selected-repo",
+  "store_path": "/tmp/cdb036-meta.07ArFN/meta-selection.redb",
+  "selection_source": "explicit_repo_path",
+  "mutation_policy": "read_only_no_meta_mutation"
+}
+```
+
+The scan completed with one filesystem entry (the selected empty directory),
+zero Rust items, and no Cargo manifest. The supplied store path did not exist
+after the scan, proving that this read-only selection flow did not create or
+mutate a store.
+
+## export selection result
+
+`codedb export meta_repo_selection` returned one Nuon row with the same
+`repo_id`, canonical `repo_path`, `store_path`, `selection_source`, and
+`mutation_policy` fields.
+
+## conflicting selection refusal
+
+```text
+codedb: conflicting repo selection: positional repo path /tmp/cdb036-meta.07ArFN/one differs from explicit repo path /tmp/cdb036-meta.07ArFN/two
+```
+
+The command exited nonzero. No meta graph or repository artifact was mutated.
+
+## regression suite
+
+```text
+CARGO_TARGET_DIR=/tmp/cdb036-meta.07ArFN/target cargo test --quiet -p codedb
+42 + 5 + 5 + 2 + 4 tests passed; 0 failed.
+```

@@ -1,685 +1,93 @@
 {
+  "schema": "nu-plugin-codedb.navigation.v1",
   "package": "nu_plugin_codedb_execution_pack_v1_1",
   "entrypoint": "CODEDB_START_HERE.md",
   "canonical_prd": "prd/nu_plugin_codedb_v1_1_full_prd.md",
-  "task_graph": "execution/TASK_GRAPH.csv",
-  "planning_addendum_prd": "prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md",
-  "planning_task_graph": "execution/POLYGLOT_TASK_GRAPH.csv",
-  "planning_task_file_map": "execution/POLYGLOT_TASK_FILE_MAP.csv",
-  "created_at_utc": "2026-07-02T01:02:12.761439+00:00",
+  "lanes": {
+    "v1_1_implementation": {
+      "authoritative_graph": "execution/TASK_GRAPH.csv",
+      "file_map": "execution/TASK_FILE_MAP.csv"
+    },
+    "v1_2_polyglot_planning": {
+      "authoritative_graph": "execution/POLYGLOT_TASK_GRAPH.csv",
+      "file_map": "execution/POLYGLOT_TASK_FILE_MAP.csv",
+      "planning_only": true
+    },
+    "issue_212_bidirectional": {
+      "authoritative_graph": "execution/BIDIRECTIONAL_TASK_GRAPH.csv",
+      "file_map": "execution/BIDIRECTIONAL_TASK_FILE_MAP.csv"
+    }
+  },
   "files": [
-    {
-      "order": 0,
-      "path": "CODEDB_START_HERE.md",
-      "purpose": "Single session entrypoint."
-    },
-    {
-      "order": 1,
-      "path": "READINESS_GATE.md",
-      "purpose": "Pre-edit launch checklist."
-    },
-    {
-      "order": 2,
-      "path": "NAVIGATION.md",
-      "purpose": "Human file map."
-    },
-    {
-      "order": 3,
-      "path": "NAVIGATION.json",
-      "purpose": "Machine-readable file map."
-    },
-    {
-      "order": 4,
-      "path": "DOC_GRAPH.md",
-      "purpose": "Read order and dependency graph."
-    },
-    {
-      "order": 5,
-      "path": "GOAL.md",
-      "purpose": "North-star goal."
-    },
-    {
-      "order": 6,
-      "path": "SUBGOALS.md",
-      "purpose": "Linked subgoals."
-    },
-    {
-      "order": 7,
-      "path": "ACCEPTANCE.md",
-      "purpose": "Acceptance gates."
-    },
-    {
-      "order": 8,
-      "path": "DRIFT_GUARD.md",
-      "purpose": "Anti-drift rules."
-    },
-    {
-      "order": 9,
-      "path": "STOP_CONDITIONS.md",
-      "purpose": "Hard stop rules."
-    },
-    {
-      "order": 10,
-      "path": "FIRST_RUN_PROMPT.md",
-      "purpose": "Pasteable Codex prompt."
-    },
-    {
-      "order": 11,
-      "path": "prd/nu_plugin_codedb_v1_1_full_prd.md",
-      "purpose": "Canonical PRD."
-    },
-    {
-      "order": 12,
-      "path": "research/nushell_yazelix_cross_reference_report.md",
-      "purpose": "Nushell/Yazelix cross-reference evidence."
-    },
-    {
-      "order": 13,
-      "path": "nu_plugin_codedb_execution_package_checklist.md",
-      "purpose": "Professional package and execution checklist."
-    },
-    {
-      "order": 14,
-      "path": "nu_plugin_codedb_remaining_execution_checklist.md",
-      "purpose": "Remaining implementation checklist and gates."
-    },
-    {
-      "order": 15,
-      "path": "CHECKLIST_COMPLETION.md",
-      "purpose": "Checklist completion evidence summary."
-    },
-    {
-      "order": 16,
-      "path": "docs/ARCHITECTURE.md",
-      "purpose": "Architecture specification derived from PRD."
-    },
-    {
-      "order": 17,
-      "path": "docs/SCHEMA.md",
-      "purpose": "Schema/table specification derived from PRD."
-    },
-    {
-      "order": 18,
-      "path": "docs/COMMANDS.md",
-      "purpose": "CLI/Nu/MCP command reference."
-    },
-    {
-      "order": 19,
-      "path": "docs/INTEGRATION_CONTRACTS.md",
-      "purpose": "Integration ownership and boundary contracts."
-    },
-    {
-      "order": 20,
-      "path": "docs/SECURITY_AND_SECRET_POLICY.md",
-      "purpose": "Secret, source blob, and MCP leak policy."
-    },
-    {
-      "order": 21,
-      "path": "docs/UNSAFE_CAPTURE_POLICY.md",
-      "purpose": "build.rs/proc-macro unsafe capture gate."
-    },
-    {
-      "order": 22,
-      "path": "docs/NUSHELL_PLUGIN_COMPAT.md",
-      "purpose": "Host/Yazelix Nu compatibility strategy."
-    },
-    {
-      "order": 23,
-      "path": "docs/CODEX_BRIDGE.md",
-      "purpose": "Codex CLI/MCP bridge contract."
-    },
-    {
-      "order": 24,
-      "path": "docs/META_INTEGRATION.md",
-      "purpose": "meta project selection integration."
-    },
-    {
-      "order": 25,
-      "path": "docs/ENVCTL_EXPORT_CONTRACT.md",
-      "purpose": "envctl export/checksum contract."
-    },
-    {
-      "order": 26,
-      "path": "docs/YAZELIX_PLACEMENT.md",
-      "purpose": "Yazelix runtime placement and init bridge."
-    },
-    {
-      "order": 27,
-      "path": "docs/TEST_PLAN.md",
-      "purpose": "Test and validation plan."
-    },
-    {
-      "order": 28,
-      "path": "docs/FIXTURE_MATRIX.md",
-      "purpose": "Fixture coverage matrix."
-    },
-    {
-      "order": 29,
-      "path": "docs/RELEASE_GATE.md",
-      "purpose": "Release proof gates."
-    },
-    {
-      "order": 30,
-      "path": "docs/AUDIT_UPGRADE_COMPLETION.md",
-      "purpose": "Post-audit authority, upgrade-only policy, and remaining product gaps."
-    },
-    {
-      "order": 31,
-      "path": "BACKLOG.md",
-      "purpose": "MVP2 backlog and downgrade exclusions."
-    },
-    {
-      "order": 31,
-      "path": "docs/polyglot-import/README.md",
-      "purpose": "Entry point for the V1.2 polyglot planning package."
-    },
-    {
-      "order": 32,
-      "path": "docs/polyglot-import/research-ledger.md",
-      "purpose": "Official-source research ledger and current-state audit."
-    },
-    {
-      "order": 33,
-      "path": "docs/polyglot-import/language-import-surface.md",
-      "purpose": "Tiered language and package capture surface."
-    },
-    {
-      "order": 34,
-      "path": "docs/polyglot-import/polyglot-schema-extension.md",
-      "purpose": "Planned schema/table extension for polyglot import."
-    },
-    {
-      "order": 35,
-      "path": "docs/polyglot-import/parser-and-indexer-tooling-matrix.md",
-      "purpose": "Parser, indexer, and tooling comparison."
-    },
-    {
-      "order": 36,
-      "path": "docs/polyglot-import/package-manager-and-lockfile-matrix.md",
-      "purpose": "Package-manager and lockfile coverage plan."
-    },
-    {
-      "order": 37,
-      "path": "docs/polyglot-import/whole-repo-import-architecture.md",
-      "purpose": "Whole-repo import and export architecture."
-    },
-    {
-      "order": 38,
-      "path": "docs/polyglot-import/single-binary-rust-crate-export.md",
-      "purpose": "Generated Rust crate and single-binary contract."
-    },
-    {
-      "order": 39,
-      "path": "docs/polyglot-import/proof-and-round-trip-gates.md",
-      "purpose": "P0-P11 proof and round-trip gates."
-    },
-    {
-      "order": 40,
-      "path": "docs/polyglot-import/security-and-execution-policy.md",
-      "purpose": "Polyglot safety and execution policy."
-    },
-    {
-      "order": 41,
-      "path": "docs/polyglot-import/github-issue-delivery-plan.md",
-      "purpose": "Issue delivery order and dependency map."
-    },
-    {
-      "order": 42,
-      "path": "docs/polyglot-import/open-questions.md",
-      "purpose": "Remaining questions, gaps, and blockers."
-    },
-    {
-      "order": 43,
-      "path": "prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md",
-      "purpose": "V1.2 planning addendum without superseding V1.1."
-    },
-    {
-      "order": 44,
-      "path": "execution/POLYGLOT_TASK_GRAPH.csv",
-      "purpose": "Planning-only polyglot task graph."
-    },
-    {
-      "order": 45,
-      "path": "execution/POLYGLOT_TASK_FILE_MAP.csv",
-      "purpose": "Planning-only task-to-file map."
-    },
-    {
-      "order": 46,
-      "path": "execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md",
-      "purpose": "Ready-to-post GitHub issue drafts for CDB091-CDB105."
-    },
-    {
-      "order": 47,
-      "path": "execution/TASK_GRAPH.csv",
-      "purpose": "Canonical controlled V1.1 implementation task graph."
-    },
-    {
-      "order": 48,
-      "order": 32,
-      "path": "execution/TASK_GRAPH.csv",
-      "purpose": "Canonical controlled task graph table."
-    },
-    {
-      "order": 33,
-      "path": "execution/TASK_GRAPH.md",
-      "purpose": "Readable task graph projection."
-    },
-    {
-      "order": 49,
-      "order": 34,
-      "path": "execution/TASK_FILE_MAP.csv",
-      "purpose": "Task-to-file map."
-    },
-    {
-      "order": 50,
-      "order": 35,
-      "path": "execution/COMMAND_LEDGER.csv",
-      "purpose": "Command evidence ledger."
-    },
-    {
-      "order": 51,
-      "order": 36,
-      "path": "execution/WORKLOG.md",
-      "purpose": "Narrative worklog."
-    },
-    {
-      "order": 52,
-      "order": 37,
-      "path": "manifests/EXTRACTION_PROOF.json",
-      "purpose": "Source ZIP extraction proof."
-    },
-    {
-      "order": 53,
-      "order": 38,
-      "path": "manifests/CHECKLIST_COMPLETION.json",
-      "purpose": "Checklist item completion map."
-    },
-    {
-      "order": 54,
-      "order": 39,
-      "path": "manifests/PACK_MANIFEST.json",
-      "purpose": "Package manifest."
-    },
-    {
-      "order": 55,
-      "order": 40,
-      "path": "manifests/CHECKSUMS.sha256",
-      "purpose": "Package checksums."
-    },
-    {
-      "order": 56,
-      "order": 41,
-      "path": "manifests/LINK_CHECK_REPORT.md",
-      "purpose": "Local link check report."
-    },
-    {
-      "order": 57,
-      "order": 42,
-      "path": "manifests/PACKAGE_VALIDATION.json",
-      "purpose": "Package validation results."
-    },
-    {
-      "order": 58,
-      "order": 43,
-      "path": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md",
-      "purpose": "Input audit used for CSV source-of-truth repair."
-    },
-    {
-      "order": 59,
-      "order": 44,
-      "path": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json",
-      "purpose": "Machine-readable strict task/file linkage repair evidence."
-    },
-    {
-      "order": 45,
-      "path": "docs/BIDIRECTIONAL_ROADMAP.md",
-      "purpose": "Issue 212 bidirectional roadmap and phase plan."
-    },
-    {
-      "order": 46,
-      "path": "docs/BIDIRECTIONAL_ARCHITECTURE.md",
-      "purpose": "Source-to-plan-to-apply architecture and ownership boundaries."
-    },
-    {
-      "order": 47,
-      "path": "docs/ROUND_TRIP_PROOF.md",
-      "purpose": "Round-trip artifact and re-scan proof chain."
-    },
-    {
-      "order": 48,
-      "path": "docs/CHANGE_PLAN_SCHEMA.md",
-      "purpose": "Change-plan, patch-plan, conflict, decision, and apply row schema."
-    },
-    {
-      "order": 49,
-      "path": "docs/MUTATION_POLICY.md",
-      "purpose": "Bidirectional mutation gates and stop rules."
-    },
-    {
-      "order": 50,
-      "path": "docs/GAP_CLOSURE_PLAN.md",
-      "purpose": "Issue 212 V1.1 gap closure rail."
-    },
-    {
-      "order": 51,
-      "path": "execution/BIDIRECTIONAL_TASK_GRAPH.csv",
-      "purpose": "CDB070-CDB090 bidirectional task graph."
-    },
-    {
-      "order": 52,
-      "path": "execution/BIDIRECTIONAL_TASK_FILE_MAP.csv",
-      "purpose": "CDB070-CDB090 task-to-file map."
-    },
-    {
-      "order": 53,
-      "path": "scripts/validate_bidirectional_package.py",
-      "purpose": "Bidirectional package validation gate."
-    }
-  ],
-  "docs": [
-    {
-      "order": 0,
-      "path": "CODEDB_START_HERE.md",
-      "purpose": "Single session entrypoint."
-    },
-    {
-      "order": 1,
-      "path": "READINESS_GATE.md",
-      "purpose": "Pre-edit launch checklist."
-    },
-    {
-      "order": 2,
-      "path": "NAVIGATION.md",
-      "purpose": "Human file map."
-    },
-    {
-      "order": 3,
-      "path": "NAVIGATION.json",
-      "purpose": "Machine-readable file map."
-    },
-    {
-      "order": 4,
-      "path": "DOC_GRAPH.md",
-      "purpose": "Read order and dependency graph."
-    },
-    {
-      "order": 5,
-      "path": "GOAL.md",
-      "purpose": "North-star goal."
-    },
-    {
-      "order": 6,
-      "path": "SUBGOALS.md",
-      "purpose": "Linked subgoals."
-    },
-    {
-      "order": 7,
-      "path": "ACCEPTANCE.md",
-      "purpose": "Acceptance gates."
-    },
-    {
-      "order": 8,
-      "path": "DRIFT_GUARD.md",
-      "purpose": "Anti-drift rules."
-    },
-    {
-      "order": 9,
-      "path": "STOP_CONDITIONS.md",
-      "purpose": "Hard stop rules."
-    },
-    {
-      "order": 10,
-      "path": "FIRST_RUN_PROMPT.md",
-      "purpose": "Pasteable Codex prompt."
-    },
-    {
-      "order": 11,
-      "path": "prd/nu_plugin_codedb_v1_1_full_prd.md",
-      "purpose": "Canonical PRD."
-    },
-    {
-      "order": 12,
-      "path": "research/nushell_yazelix_cross_reference_report.md",
-      "purpose": "Nushell/Yazelix cross-reference evidence."
-    },
-    {
-      "order": 13,
-      "path": "nu_plugin_codedb_execution_package_checklist.md",
-      "purpose": "Professional package and execution checklist."
-    },
-    {
-      "order": 14,
-      "path": "nu_plugin_codedb_remaining_execution_checklist.md",
-      "purpose": "Remaining implementation checklist and gates."
-    },
-    {
-      "order": 15,
-      "path": "CHECKLIST_COMPLETION.md",
-      "purpose": "Checklist completion evidence summary."
-    },
-    {
-      "order": 16,
-      "path": "docs/ARCHITECTURE.md",
-      "purpose": "Architecture specification derived from PRD."
-    },
-    {
-      "order": 17,
-      "path": "docs/SCHEMA.md",
-      "purpose": "Schema/table specification derived from PRD."
-    },
-    {
-      "order": 18,
-      "path": "docs/COMMANDS.md",
-      "purpose": "CLI/Nu/MCP command reference."
-    },
-    {
-      "order": 19,
-      "path": "docs/INTEGRATION_CONTRACTS.md",
-      "purpose": "Integration ownership and boundary contracts."
-    },
-    {
-      "order": 20,
-      "path": "docs/SECURITY_AND_SECRET_POLICY.md",
-      "purpose": "Secret, source blob, and MCP leak policy."
-    },
-    {
-      "order": 21,
-      "path": "docs/UNSAFE_CAPTURE_POLICY.md",
-      "purpose": "build.rs/proc-macro unsafe capture gate."
-    },
-    {
-      "order": 22,
-      "path": "docs/NUSHELL_PLUGIN_COMPAT.md",
-      "purpose": "Host/Yazelix Nu compatibility strategy."
-    },
-    {
-      "order": 23,
-      "path": "docs/CODEX_BRIDGE.md",
-      "purpose": "Codex CLI/MCP bridge contract."
-    },
-    {
-      "order": 24,
-      "path": "docs/META_INTEGRATION.md",
-      "purpose": "meta project selection integration."
-    },
-    {
-      "order": 25,
-      "path": "docs/ENVCTL_EXPORT_CONTRACT.md",
-      "purpose": "envctl export/checksum contract."
-    },
-    {
-      "order": 26,
-      "path": "docs/YAZELIX_PLACEMENT.md",
-      "purpose": "Yazelix runtime placement and init bridge."
-    },
-    {
-      "order": 27,
-      "path": "docs/TEST_PLAN.md",
-      "purpose": "Test and validation plan."
-    },
-    {
-      "order": 28,
-      "path": "docs/FIXTURE_MATRIX.md",
-      "purpose": "Fixture coverage matrix."
-    },
-    {
-      "order": 29,
-      "path": "docs/RELEASE_GATE.md",
-      "purpose": "Release proof gates."
-    },
-    {
-      "order": 30,
-      "path": "BACKLOG.md",
-      "purpose": "MVP2 backlog and downgrade exclusions."
-    },
-    {
-      "order": 31,
-      "path": "docs/polyglot-import/README.md",
-      "purpose": "Entry point for the V1.2 polyglot planning package."
-    },
-    {
-      "order": 32,
-      "path": "docs/polyglot-import/research-ledger.md",
-      "purpose": "Official-source research ledger and current-state audit."
-    },
-    {
-      "order": 33,
-      "path": "docs/polyglot-import/language-import-surface.md",
-      "purpose": "Tiered language and package capture surface."
-    },
-    {
-      "order": 34,
-      "path": "docs/polyglot-import/polyglot-schema-extension.md",
-      "purpose": "Planned schema/table extension for polyglot import."
-    },
-    {
-      "order": 35,
-      "path": "docs/polyglot-import/parser-and-indexer-tooling-matrix.md",
-      "purpose": "Parser, indexer, and tooling comparison."
-    },
-    {
-      "order": 36,
-      "path": "docs/polyglot-import/package-manager-and-lockfile-matrix.md",
-      "purpose": "Package-manager and lockfile coverage plan."
-    },
-    {
-      "order": 37,
-      "path": "docs/polyglot-import/whole-repo-import-architecture.md",
-      "purpose": "Whole-repo import and export architecture."
-    },
-    {
-      "order": 38,
-      "path": "docs/polyglot-import/single-binary-rust-crate-export.md",
-      "purpose": "Generated Rust crate and single-binary contract."
-    },
-    {
-      "order": 39,
-      "path": "docs/polyglot-import/proof-and-round-trip-gates.md",
-      "purpose": "P0-P11 proof and round-trip gates."
-    },
-    {
-      "order": 40,
-      "path": "docs/polyglot-import/security-and-execution-policy.md",
-      "purpose": "Polyglot safety and execution policy."
-    },
-    {
-      "order": 41,
-      "path": "docs/polyglot-import/github-issue-delivery-plan.md",
-      "purpose": "Issue delivery order and dependency map."
-    },
-    {
-      "order": 42,
-      "path": "docs/polyglot-import/open-questions.md",
-      "purpose": "Remaining questions, gaps, and blockers."
-    },
-    {
-      "order": 43,
-      "path": "prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md",
-      "purpose": "V1.2 planning addendum without superseding V1.1."
-    },
-    {
-      "order": 44,
-      "path": "execution/POLYGLOT_TASK_GRAPH.csv",
-      "purpose": "Planning-only polyglot task graph."
-    },
-    {
-      "order": 45,
-      "path": "execution/POLYGLOT_TASK_FILE_MAP.csv",
-      "purpose": "Planning-only task-to-file map."
-    },
-    {
-      "order": 46,
-      "path": "execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md",
-      "purpose": "Ready-to-post GitHub issue drafts for CDB091-CDB105."
-    },
-    {
-      "order": 47,
-      "path": "execution/TASK_GRAPH.csv",
-      "purpose": "Canonical controlled V1.1 implementation task graph."
-    },
-    {
-      "order": 48,
-      "path": "execution/TASK_GRAPH.md",
-      "purpose": "Readable task graph projection."
-    },
-    {
-      "order": 49,
-      "path": "execution/TASK_FILE_MAP.csv",
-      "purpose": "Task-to-file map."
-    },
-    {
-      "order": 50,
-      "path": "execution/COMMAND_LEDGER.csv",
-      "purpose": "Command evidence ledger."
-    },
-    {
-      "order": 51,
-      "path": "execution/WORKLOG.md",
-      "purpose": "Narrative worklog."
-    },
-    {
-      "order": 52,
-      "path": "manifests/EXTRACTION_PROOF.json",
-      "purpose": "Source ZIP extraction proof."
-    },
-    {
-      "order": 53,
-      "path": "manifests/CHECKLIST_COMPLETION.json",
-      "purpose": "Checklist item completion map."
-    },
-    {
-      "order": 54,
-      "path": "manifests/PACK_MANIFEST.json",
-      "purpose": "Package manifest."
-    },
-    {
-      "order": 55,
-      "path": "manifests/CHECKSUMS.sha256",
-      "purpose": "Package checksums."
-    },
-    {
-      "order": 56,
-      "path": "manifests/LINK_CHECK_REPORT.md",
-      "purpose": "Local link check report."
-    },
-    {
-      "order": 57,
-      "path": "manifests/PACKAGE_VALIDATION.json",
-      "purpose": "Package validation results."
-    },
-    {
-      "order": 58,
-      "path": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md",
-      "purpose": "Input audit used for CSV source-of-truth repair."
-    },
-    {
-      "order": 59,
-      "path": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json",
-      "purpose": "Machine-readable strict task/file linkage repair evidence."
-    }
-  ],
-  "rules": [
-    "execution/TASK_GRAPH.csv is the source of truth for V1.1 implementation execution; exact package-relative paths in that CSV override prose summaries for the implementation lane.",
-    "execution/POLYGLOT_TASK_GRAPH.csv is the source of truth for the V1.2 planning lane; planning artifacts must not be presented as completed implementation."
+    {"order": 0, "lane": "common", "path": "CODEDB_START_HERE.md", "purpose": "Single session entrypoint."},
+    {"order": 1, "lane": "common", "path": "READINESS_GATE.md", "purpose": "Pre-edit launch checklist."},
+    {"order": 2, "lane": "common", "path": "NAVIGATION.md", "purpose": "Human-readable canonical file map."},
+    {"order": 3, "lane": "common", "path": "NAVIGATION.json", "purpose": "Machine-readable canonical file map."},
+    {"order": 4, "lane": "common", "path": "DOC_GRAPH.md", "purpose": "Read order and lane dependency graph."},
+    {"order": 5, "lane": "common", "path": "GOAL.md", "purpose": "North-star goal."},
+    {"order": 6, "lane": "common", "path": "SUBGOALS.md", "purpose": "Linked subgoals."},
+    {"order": 7, "lane": "common", "path": "ACCEPTANCE.md", "purpose": "Acceptance gates."},
+    {"order": 8, "lane": "common", "path": "DRIFT_GUARD.md", "purpose": "Anti-drift rules."},
+    {"order": 9, "lane": "common", "path": "STOP_CONDITIONS.md", "purpose": "Hard stop rules."},
+    {"order": 10, "lane": "common", "path": "FIRST_RUN_PROMPT.md", "purpose": "Session launch prompt."},
+    {"order": 11, "lane": "common", "path": "prd/nu_plugin_codedb_v1_1_full_prd.md", "purpose": "Canonical V1.1 PRD."},
+    {"order": 12, "lane": "common", "path": "nu_plugin_codedb_execution_package_checklist.md", "purpose": "Package and execution checklist."},
+    {"order": 13, "lane": "common", "path": "nu_plugin_codedb_remaining_execution_checklist.md", "purpose": "Remaining implementation gates."},
+    {"order": 14, "lane": "common", "path": "CHECKLIST_COMPLETION.md", "purpose": "Checklist completion summary."},
+    {"order": 15, "lane": "common", "path": "BACKLOG.md", "purpose": "Post-V1.1 scope and downgrade exclusions."},
+    {"order": 16, "lane": "optional", "path": "research/nushell_yazelix_cross_reference_report.md", "purpose": "Optional Nushell/Yazelix bridge evidence."},
+    {"order": 17, "lane": "v1_1_implementation", "path": "docs/ARCHITECTURE.md", "purpose": "Architecture specification."},
+    {"order": 18, "lane": "v1_1_implementation", "path": "docs/SCHEMA.md", "purpose": "Schema and table specification."},
+    {"order": 19, "lane": "v1_1_implementation", "path": "docs/COMMANDS.md", "purpose": "CLI, Nu, and MCP command reference."},
+    {"order": 20, "lane": "v1_1_implementation", "path": "docs/INTEGRATION_CONTRACTS.md", "purpose": "Integration ownership and boundary contracts."},
+    {"order": 21, "lane": "v1_1_implementation", "path": "docs/SECURITY_AND_SECRET_POLICY.md", "purpose": "Secret, source-blob, and MCP leak policy."},
+    {"order": 22, "lane": "v1_1_implementation", "path": "docs/UNSAFE_CAPTURE_POLICY.md", "purpose": "Unsafe build and proc-macro capture gate."},
+    {"order": 23, "lane": "v1_1_implementation", "path": "docs/NUSHELL_PLUGIN_COMPAT.md", "purpose": "Host and Yazelix Nu compatibility strategy."},
+    {"order": 24, "lane": "v1_1_implementation", "path": "docs/CODEX_BRIDGE.md", "purpose": "Codex CLI and MCP bridge contract."},
+    {"order": 25, "lane": "v1_1_implementation", "path": "docs/META_INTEGRATION.md", "purpose": "Meta project-selection integration."},
+    {"order": 26, "lane": "v1_1_implementation", "path": "docs/ENVCTL_EXPORT_CONTRACT.md", "purpose": "envctl export and checksum contract."},
+    {"order": 27, "lane": "v1_1_implementation", "path": "docs/YAZELIX_PLACEMENT.md", "purpose": "Yazelix runtime placement and init bridge."},
+    {"order": 28, "lane": "v1_1_implementation", "path": "docs/TEST_PLAN.md", "purpose": "Test and validation plan."},
+    {"order": 29, "lane": "v1_1_implementation", "path": "docs/FIXTURE_MATRIX.md", "purpose": "Fixture coverage matrix."},
+    {"order": 30, "lane": "v1_1_implementation", "path": "docs/RELEASE_GATE.md", "purpose": "Release proof gates."},
+    {"order": 31, "lane": "v1_1_implementation", "path": "docs/AUDIT_UPGRADE_COMPLETION.md", "purpose": "Post-audit authority and upgrade policy."},
+    {"order": 32, "lane": "v1_1_implementation", "path": "execution/TASK_GRAPH.csv", "purpose": "Authoritative V1.1 implementation task graph."},
+    {"order": 33, "lane": "v1_1_implementation", "path": "execution/TASK_GRAPH.md", "purpose": "Human-readable V1.1 task projection."},
+    {"order": 34, "lane": "v1_1_implementation", "path": "execution/TASK_FILE_MAP.csv", "purpose": "V1.1 task-to-file ownership map."},
+    {"order": 35, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/README.md", "purpose": "Polyglot planning entrypoint."},
+    {"order": 36, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/research-ledger.md", "purpose": "Official-source research ledger."},
+    {"order": 37, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/language-import-surface.md", "purpose": "Language and package capture surface."},
+    {"order": 38, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/polyglot-schema-extension.md", "purpose": "Planned schema extension."},
+    {"order": 39, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/parser-and-indexer-tooling-matrix.md", "purpose": "Parser and indexer comparison."},
+    {"order": 40, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/package-manager-and-lockfile-matrix.md", "purpose": "Package-manager and lockfile coverage."},
+    {"order": 41, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/whole-repo-import-architecture.md", "purpose": "Whole-repository import/export architecture."},
+    {"order": 42, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/single-binary-rust-crate-export.md", "purpose": "Generated Rust crate and binary contract."},
+    {"order": 43, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/proof-and-round-trip-gates.md", "purpose": "Polyglot proof and round-trip gates."},
+    {"order": 44, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/security-and-execution-policy.md", "purpose": "Polyglot safety policy."},
+    {"order": 45, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/github-issue-delivery-plan.md", "purpose": "Issue delivery dependency map."},
+    {"order": 46, "lane": "v1_2_polyglot_planning", "path": "docs/polyglot-import/open-questions.md", "purpose": "Remaining gaps and blockers."},
+    {"order": 47, "lane": "v1_2_polyglot_planning", "path": "prd/nu_plugin_codedb_v1_2_polyglot_import_prd.md", "purpose": "V1.2 planning addendum."},
+    {"order": 48, "lane": "v1_2_polyglot_planning", "path": "execution/POLYGLOT_TASK_GRAPH.csv", "purpose": "Polyglot planning task graph."},
+    {"order": 49, "lane": "v1_2_polyglot_planning", "path": "execution/POLYGLOT_TASK_FILE_MAP.csv", "purpose": "Polyglot planning task-to-file map."},
+    {"order": 50, "lane": "v1_2_polyglot_planning", "path": "execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md", "purpose": "Authoritative ready-to-post planning issue drafts for CDB091-CDB105."},
+    {"order": 51, "lane": "issue_212_bidirectional", "path": "docs/BIDIRECTIONAL_ROADMAP.md", "purpose": "Phase plan and ownership."},
+    {"order": 52, "lane": "issue_212_bidirectional", "path": "docs/BIDIRECTIONAL_ARCHITECTURE.md", "purpose": "Source-to-plan-to-apply architecture."},
+    {"order": 53, "lane": "issue_212_bidirectional", "path": "docs/ROUND_TRIP_PROOF.md", "purpose": "Round-trip and re-scan proof chain."},
+    {"order": 54, "lane": "issue_212_bidirectional", "path": "docs/CHANGE_PLAN_SCHEMA.md", "purpose": "Change-plan and apply-row schema."},
+    {"order": 55, "lane": "issue_212_bidirectional", "path": "docs/MUTATION_POLICY.md", "purpose": "Mutation approval gates and stop rules."},
+    {"order": 56, "lane": "issue_212_bidirectional", "path": "docs/GAP_CLOSURE_PLAN.md", "purpose": "Issue 212 V1.1 gap-closure rail."},
+    {"order": 57, "lane": "issue_212_bidirectional", "path": "execution/BIDIRECTIONAL_TASK_GRAPH.csv", "purpose": "CDB070-CDB090 task graph."},
+    {"order": 58, "lane": "issue_212_bidirectional", "path": "execution/BIDIRECTIONAL_TASK_FILE_MAP.csv", "purpose": "CDB070-CDB090 task ownership map."},
+    {"order": 59, "lane": "issue_212_bidirectional", "path": "scripts/validate_bidirectional_package.py", "purpose": "Bidirectional package validation gate."},
+    {"order": 60, "lane": "evidence", "path": "execution/COMMAND_LEDGER.csv", "purpose": "Command evidence ledger."},
+    {"order": 61, "lane": "evidence", "path": "execution/WORKLOG.md", "purpose": "Narrative execution worklog."},
+    {"order": 62, "lane": "evidence", "path": "manifests/EXTRACTION_PROOF.json", "purpose": "Source extraction proof."},
+    {"order": 63, "lane": "evidence", "path": "manifests/CHECKLIST_COMPLETION.json", "purpose": "Machine-readable checklist completion."},
+    {"order": 64, "lane": "evidence", "path": "manifests/PACK_MANIFEST.json", "purpose": "Package manifest."},
+    {"order": 65, "lane": "evidence", "path": "manifests/CHECKSUMS.sha256", "purpose": "Package checksums."},
+    {"order": 66, "lane": "evidence", "path": "manifests/LINK_CHECK_REPORT.md", "purpose": "Local link-check report."},
+    {"order": 67, "lane": "evidence", "path": "manifests/PACKAGE_VALIDATION.json", "purpose": "Package validation results."},
+    {"order": 68, "lane": "evidence", "path": "manifests/CSV_DOC_LINK_AUDIT_INPUT.md", "purpose": "CSV/document linkage audit input."},
+    {"order": 69, "lane": "evidence", "path": "manifests/CSV_SOURCE_OF_TRUTH_REPAIR.json", "purpose": "Strict task/file linkage repair evidence."}
   ]
 }

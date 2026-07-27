@@ -5,18 +5,6 @@ def fail [message: string] {
     error make { msg: $message }
 }
 
-def run_checked [args: list<string>] {
-    let result = (^cargo ...$args | complete)
-    if $result.exit_code != 0 {
-        fail $"cargo command failed: cargo ($args | str join ' ')\n($result.stderr)"
-    }
-    $result.stdout
-}
-
-def run_codedb [args: list<string>] {
-    run_checked ([run --quiet -p codedb --] | append $args)
-}
-
 def assert_no_raw_secret_values [label: string, output: string] {
     let forbidden = [
         "sk-placeholder-redacted-not-a-real-key",
@@ -25,10 +13,29 @@ def assert_no_raw_secret_values [label: string, output: string] {
 
     let leaked = ($forbidden | where {|secret| $output | str contains $secret })
     if ($leaked | length) > 0 {
-        fail $"($label) leaked raw secret-looking values: ($leaked | str join ', ')"
+        fail $"($label) leaked raw secret-looking values"
     }
 
     { label: $label, sha256: ($output | hash sha256), raw_secret_values: "absent" }
+}
+
+def run_checked [label: string, args: list<string>] {
+    let result = (^cargo ...$args | complete)
+    let combined = $"stdout:\n($result.stdout)\nstderr:\n($result.stderr)"
+    let proof = (assert_no_raw_secret_values $label $combined)
+    if $result.exit_code != 0 {
+        fail $"cargo command failed: cargo ($args | str join ' ')"
+    }
+    {
+        stdout: $result.stdout,
+        stderr: $result.stderr,
+        combined: $combined,
+        proof: $proof,
+    }
+}
+
+def run_codedb [label: string, args: list<string>] {
+    run_checked $label ([run --quiet -p codedb --] | append $args)
 }
 
 def main [] {
@@ -48,24 +55,24 @@ def main [] {
         let fixture = ([$temp_root secret_like] | path join)
 
         cp -r $source_fixture $fixture
-        run_checked [
+        run_checked cargo_generate_lockfile [
             generate-lockfile
             --manifest-path
             ([$fixture Cargo.toml] | path join)
             --offline
         ] | ignore
 
-        let mcp_tests = (run_checked [
+        let mcp_tests = (run_checked mcp_security_tests [
             test
             -p
             codedb-mcp
             --quiet
         ])
 
-        let scan_output = (run_codedb [scan $fixture --format json])
-        let rust_items_output = (run_codedb [export rust_items --repo-path $fixture --format json])
-        let checksum_output = (run_codedb [export codedb_table_checksums --repo-path $fixture --format json])
-        let envctl_output = (run_codedb [export envctl --repo-path $fixture --format json])
+        let scan = (run_codedb scan_summary [scan $fixture --format json])
+        let rust_items = (run_codedb rust_items [export rust_items --repo-path $fixture --format json])
+        let table_checksums = (run_codedb table_checksums [export codedb_table_checksums --repo-path $fixture --format json])
+        let envctl_export = (run_codedb envctl_export [export envctl --repo-path $fixture --format json])
 
         let source_lock = ([$source_fixture Cargo.lock] | path join)
         if ($source_lock | path exists) {
@@ -76,12 +83,13 @@ def main [] {
             {
                 label: mcp_security_tests,
                 status: "passed",
-                sha256: ($mcp_tests | hash sha256),
+                sha256: ($mcp_tests.combined | hash sha256),
+                raw_secret_values: "absent",
             },
-            (assert_no_raw_secret_values scan_summary $scan_output),
-            (assert_no_raw_secret_values rust_items $rust_items_output),
-            (assert_no_raw_secret_values table_checksums $checksum_output),
-            (assert_no_raw_secret_values envctl_export $envctl_output),
+            $scan.proof,
+            $rust_items.proof,
+            $table_checksums.proof,
+            $envctl_export.proof,
         ]
     }
 }
