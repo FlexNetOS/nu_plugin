@@ -179,13 +179,13 @@ pub fn validate_envelope(json: &str) -> Result<Vec<ValidatedFile>, IngestError> 
             )));
         }
         let blake3 = blake3::hash(&bytes).to_hex().to_string();
-        if let Some(declared) = &file.blake3 {
-            if declared != &blake3 {
-                return Err(IngestError::new(format!(
-                    "{}: declared blake3 {declared} does not match decoded bytes ({blake3})",
-                    file.path
-                )));
-            }
+        if let Some(declared) = &file.blake3
+            && declared != &blake3
+        {
+            return Err(IngestError::new(format!(
+                "{}: declared blake3 {declared} does not match decoded bytes ({blake3})",
+                file.path
+            )));
         }
         validated.push(ValidatedFile {
             file,
