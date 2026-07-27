@@ -98,10 +98,24 @@ matches the plan's stored source snapshot.
 
 ## CDB084 Identity Rows
 
-Named syntax identities are stable keys. Anonymous syntax, such as impl blocks
-without an explicit name, receives deterministic scan-order identity for repeat
-captures but is marked `unstable_anonymous`; source drift around those nodes
-must be treated as conflict-prone until a new plan is generated.
+Rust item rows carry an explicit identity classification and note. Named
+syntax uses the `stable_named` key; anonymous syntax, such as impl blocks
+without an explicit name, receives deterministic scan-order names such as
+`impl#1` and `impl#2` for repeat captures, but is marked
+`unstable_anonymous`. Those scan-order identities are distinct within a scan
+and are not promoted to permanent semantic keys.
+
+Comparing identical scans returns `repeat_scan_verified` with no conflicts.
+Named rows may continue to match across a source shift, but a shift that moves
+anonymous scan order returns `source_shift_conflict` with an
+`unstable_anonymous_source_shift` conflict. A same-source mismatch returns
+`same_source_conflict` and must fail closed. These conflicts require a new
+plan before apply; they must not be silently treated as stable identity
+matches.
+
+The CDB084 evidence gate is the repeat-scan identity test
+`anonymous_impl_identity_is_distinct_and_marked_unstable`, together with the
+full `codedb-rust-static` test suite.
 
 ## CDB085 Semantic And API Hashes
 
@@ -111,3 +125,28 @@ module path, item kind, item name, visibility, identity kind, and identity note.
 The public API hash includes only public rows. These hashes do not replace
 compiler/rustdoc proof because they exclude bodies, type layout, macro
 expansion, and rustc semantic checks.
+
+The CDB085 equivalence gate requires compiler-observed fixtures, not hash-only
+fixtures. Repeated captures must pin identical HIR, MIR, and rustdoc JSON
+artifacts under the same toolchain context. A private implementation change
+must change the semantic hash while preserving the public API hash; a public
+signature change must change the public API hash. The evidence tests are
+`compiler_and_rustdoc_semantic_evidence_tracks_public_api_source_drift`,
+`semantic_and_public_api_hashes_are_stable_for_expected_inputs`, and the
+`codedb` `compiler_capture_cli` integration suite.
+
+## CDB087 Stale Plan Conflicts
+
+An approved plan remains bound to the source snapshot recorded in its
+`change_plans` row. If the current source snapshot differs, apply fails closed
+with `ApplyGateError::SourceDrift`, even when operator approval,
+stop-condition proof, and recovery references are otherwise valid.
+
+The same comparison emits a `plan_conflicts` row with `conflict_kind` set to
+`source_drift`, the stale plan's stored `source_snapshot_id`, and the current
+snapshot in the conflict message. A stale plan must not apply silently; a new
+plan must be generated from the current source snapshot before approval.
+
+The CDB087 evidence gate is
+`stale_approved_plan_cannot_apply_silently`, which proves both the fail-closed
+apply result and the corresponding conflict row.

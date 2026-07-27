@@ -41,6 +41,11 @@ mode bits so executable source artifacts keep their executable state when
 restored into an isolated output path. Raw blob capture records an explicit
 permission-capture gap because it has no source filesystem metadata.
 
+The focused fixture gate is `cargo test -p codedb-store-redb`. It passes all 15
+tests, including `non_rust_binary_artifact_materializes_exact_bytes` and
+`source_file_materialization_restores_unix_executable_bits`; together these
+fixtures prove exact non-Rust bytes and Unix executable-mode restoration.
+
 Approved `codedb capture build` persists checksum-bound generated `OUT_DIR`
 artifacts and a content-addressed receipt. `codedb reproduce --approval-id`
 restores the exact bytes into an isolated artifact directory and verifies each
@@ -63,6 +68,19 @@ reported as captured; they produce an explicit `non_utf8_symlink_target` gap and
 make the capture summary `complete_with_gaps`. Batch rollback retains bound parent descriptors plus symlink
 device/inode identities so a later link failure removes only links created by
 that attempt and never deletes a concurrent replacement.
+
+## CDB088 Failed Attempt Recovery
+
+Failed materialization and apply attempts are recorded as auditable recovery
+evidence. Each failed attempt emits an `apply_attempts` row with `failed`
+status and a failure-evidence reference. Partial output is quarantined rather
+than treated as a successful materialization.
+
+Recovery emits a `recovery_rows` row with `recovered` status only after the
+restored source/worktree snapshot matches the plan's stored source snapshot.
+If the restored snapshot still differs, recovery fails closed with
+`SourceNotRestored`; no recovery completion is claimed and the quarantine
+reference remains available for investigation.
 
 ## CDB074 Isolated Patch Proof
 

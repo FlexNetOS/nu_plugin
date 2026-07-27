@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "1d35a548c828b863d8190732771cef9bbed40a0fd279a66d5bfe8d195771fc9a",
+  "checksum_scope_files_sha256": "f2f8927572eacaba0899f98606e3bf58028112abfc1db98c81795a4d62d1059b",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 817,
   "files": [
@@ -601,9 +601,9 @@
       "sha256": "86978a04db2744af3aa5b153073a27d5d0cf40231cfb6f8fdbdfaab9af0898bc"
     },
     {
-      "bytes": 4201,
+      "bytes": 6073,
       "path": "docs/BIDIRECTIONAL_ARCHITECTURE.md",
-      "sha256": "e213e5b1c8c0a8eb638bd0ae9b2ea5141a0e0a61538b34623646badd1a45d192"
+      "sha256": "a9b05a09644a77115f26811d71214d08321b1a0d843bf39cb7403a7ff14d1ead"
     },
     {
       "bytes": 2604,
@@ -611,9 +611,9 @@
       "sha256": "19ec08975347f551102e62b91ff05c7493f5552aa6fee0dfbaf3090948e6dba5"
     },
     {
-      "bytes": 5292,
+      "bytes": 7372,
       "path": "docs/CHANGE_PLAN_SCHEMA.md",
-      "sha256": "a2f357c00da375ff481c8e5a6340d699c03795f8e784774b31dea11bee4e19c9"
+      "sha256": "9f0a9604dce5bba2786770f0968a96a36020f44655d6e0ea046264b3269201ca"
     },
     {
       "bytes": 1063,
@@ -651,9 +651,9 @@
       "sha256": "5f8a748b8e031202cef07bd96fb1294d873fc5ffe35c12ad5ea385c5850a0fd6"
     },
     {
-      "bytes": 11528,
+      "bytes": 15364,
       "path": "docs/GAP_CLOSURE_PLAN.md",
-      "sha256": "a99ac0ab53cbab635114b46cfd17d938e8c2d8e28a31663e708a00ab6c223865"
+      "sha256": "c05ef011962afc57c5ea1a2ed863d30bb4254ba791edd53ed5b8f8f8eed1dda7"
     },
     {
       "bytes": 6999,
@@ -666,9 +666,9 @@
       "sha256": "2afd1970d2549a9833a8eb321f44ce30139aa35e2b19fdd9b4e4a97620d595a3"
     },
     {
-      "bytes": 2231,
+      "bytes": 3195,
       "path": "docs/MUTATION_POLICY.md",
-      "sha256": "a4135bc4ad2e1b5ba937c41cfd85da459988b57238565968eaebb980680ba0cd"
+      "sha256": "36c7ccacde6e3bbdf70d1b4f48e7d32ffb6c24da7f2947bbc38296fc29d2fcae"
     },
     {
       "bytes": 1406,
@@ -681,9 +681,9 @@
       "sha256": "c4d1f798110d5e6660504a520364fa0d2ce3ff79965ae10615f97433f3388b79"
     },
     {
-      "bytes": 3851,
+      "bytes": 4808,
       "path": "docs/ROUND_TRIP_PROOF.md",
-      "sha256": "b5d3dc2bc65858f707c7a6c028cc6de0c7e8964003cbc64ce66372dd21e761e1"
+      "sha256": "f28afe8eed823710023168a4449a7bb400ad9dab1b72ab90b265c464c7a5878b"
     },
     {
       "bytes": 24422,
@@ -4096,7 +4096,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-27T18:43:35+00:00",
+  "generated_at_utc": "2026-07-27T20:10:02+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"

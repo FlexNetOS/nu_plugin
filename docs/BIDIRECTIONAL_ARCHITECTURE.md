@@ -49,15 +49,41 @@ any direct source-checkout mutation path.
 
 ## Store Schema Evolution
 
-The current redb store schema is `1.0.0`. Readers support that schema only.
-Unknown future schemas fail closed with `UnsupportedSchemaVersion`; they are not
-silently coerced to the current version. The migration test matrix is:
+New redb and PostgreSQL stores emit schema `1.0.0`. Normal report, query, and
+materialization opens accept only that current schema and never run schema DDL
+or an implicit migration. Schema `0.9.0` is the only legacy version recognized
+by the explicit migration entrypoints; it is migrate-only and remains
+unreadable through normal opens.
 
-| Observed schema | Behavior |
-|---|---|
-| `1.0.0` | read metadata and tables |
-| unknown future value | refuse open/report, require migration tooling |
-| corrupt or unreadable store | use backup/restore validation before reuse |
+Both backends use the backend-neutral migration planner to resolve an ordered,
+explicitly registered path. The only registered paths are:
+
+- redb: `redb_legacy_v0_9_to_v1`;
+- PostgreSQL: `postgresql_legacy_content_rows_to_v1`.
+
+The migration and refusal policy is:
+
+| Observed schema or layout | Non-mutating open | Explicit migration | Backup and rollback |
+|---|---|---|---|
+| current `1.0.0` | validate metadata/layout, then allow data access | no migration steps and no backup | not required |
+| known legacy `0.9.0` | refuse and require an explicit migration | apply the single registered backend step, preserve captured bytes, then validate `1.0.0` | redb creates a checksum-bound file copy; PostgreSQL creates a transactional table snapshot; both expose explicit rollback |
+| unknown, future, or malformed version | refuse before captured blob/path access | no route is guessed and no store mutation is allowed | no migration backup is retained |
+| incomplete or corrupt layout/data | refuse or fail validation | abort the migration rather than publish a partial current layout | restore the validated redb backup or let the PostgreSQL migration transaction roll back its schema and backup creation |
+
+redb reports unsupported versions as `UnsupportedSchemaVersion`. PostgreSQL
+reports the unsupported version without exposing connection details. Operator
+approval cannot override either refusal, and backup/restore is recovery
+evidence rather than permission to infer an unregistered migration.
+
+The required test matrix covers:
+
+- strict schema parsing plus refusal of unknown, downgrade, ambiguous, cyclic,
+  and overshooting migration routes in the shared planner;
+- redb refusal on ordinary read, refusal before backup or mutation, exact-byte
+  migration from `0.9.0`, checksum-bound backup, and explicit rollback;
+- live PostgreSQL refusal before blob access, explicit legacy conversion,
+  transactional backup, exact-byte rollback, and atomic rollback of a failed
+  migration.
 
 ## Required Object Layers
 
