@@ -36,6 +36,7 @@
           codedb_runtime_tools = codedbRuntimeTools;
           codedb = codedbRuntimeTools;
           nu_plugin_codedb = codedbRuntimeTools;
+          flexnetos_redb_owner = codedbRuntimeTools;
         }
       );
 
@@ -67,12 +68,17 @@
           codedb_runtime_tool_smoke = pkgs.runCommand "codedb-runtime-tool-smoke" { } ''
             set -eu
             ${runtimeTools}/bin/codedb --version > codedb-version.txt
+            ${runtimeTools}/bin/codedb ingest-envelope --help > ingest-envelope-help.txt
             test -x ${runtimeTools}/bin/nu_plugin_codedb
+            test -x ${runtimeTools}/bin/flexnetos-redb-owner
+            test -f ${runtimeTools}/share/systemd/user/flexnetos-redb-owner.service
             printf '%s\n' "${runtimeTools}/bin/nu_plugin_codedb" > plugin-path.txt
             grep -F "nu_plugin_codedb" ${runtimeTools}/share/codedb/runtime-tool-metadata.json
+            grep -F "flexnetos-redb-owner" ${runtimeTools}/share/codedb/runtime-tool-metadata.json
+            grep -F "%h/meta/var/lib/redb" ${runtimeTools}/share/systemd/user/flexnetos-redb-owner.service
             grep -F "${runtimeTools.version}" codedb-version.txt
             mkdir -p "$out"
-            cp codedb-version.txt plugin-path.txt "$out"/
+            cp codedb-version.txt ingest-envelope-help.txt plugin-path.txt "$out"/
           '';
 
           repo_truth_surface =
