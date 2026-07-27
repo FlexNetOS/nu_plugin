@@ -1,0 +1,79 @@
+{
+  "proof_schema_version": "1.0",
+  "task_id": "REQ-034_PLUGIN_STATUS_STREAMS",
+  "parent_id": "REQ-010_CONTRACT_LOCK",
+  "title": "Implement status streams",
+  "status": "completed",
+  "started_at": "2026-07-27T03:57:35+00:00",
+  "completed_at": "2026-07-27T04:39:19+00:00",
+  "actor": "codex-cli-local",
+  "owner_lane": "lane_c_repo_b",
+  "owner_agent": "nu-plugin-agent",
+  "helper_id": "helper-nu-streams-01",
+  "model_tag": "gpt-5.3-spark",
+  "repo_target": "repo_b",
+  "repo_path": "/run/user/1001/lifeos-json-task-runner/20260727T212315401740Z-f7b145f5f97d/REQ-034_PLUGIN_STATUS_STREAMS/20260727T212655433046Z-7e8864d840f2/__task_root__",
+  "source_commit": "68ba17aaa62ec30a6fb23425b5258ba3cfaf6b70",
+  "files_changed": [
+    "crates/nu_plugin_codedb/src/main.rs",
+    "state/REQ-034_PLUGIN_STATUS_STREAMS.heartbeat.json",
+    "logs/REQ-034_PLUGIN_STATUS_STREAMS.log",
+    "proof_records/REQ-034_PLUGIN_STATUS_STREAMS.proof.json"
+  ],
+  "implementation": {
+    "command_name": "codedb envctl status stream",
+    "event_inputs": [
+      "json_array",
+      "json_object",
+      "jsonl"
+    ],
+    "proof_inputs": [
+      "json_file",
+      "json_directory"
+    ],
+    "output_table": "envctl_status_stream",
+    "views": [
+      "event",
+      "proof"
+    ],
+    "mutation_policy": "read_only_projection",
+    "pagination_flags": [
+      "cursor",
+      "limit"
+    ],
+    "unit_tests_added": [
+      "envctl_status_stream_rows_merge_events_and_proofs",
+      "envctl_status_stream_rows_reject_bad_jsonl"
+    ]
+  },
+  "commands_run": [
+    "cargo test -p nu_plugin_codedb envctl_status_stream_rows -- --nocapture",
+    "cargo fmt -p nu_plugin_codedb -- --check",
+    "cargo test -p nu_plugin_codedb",
+    "git diff --check"
+  ],
+  "verification_output": {
+    "status": "passed",
+    "focused_tests": "2 passed, 0 failed",
+    "crate_tests": "29 passed, 0 failed",
+    "format_check": "passed",
+    "diff_check": "passed",
+    "impact_risk": "low",
+    "gitnexus_note": "impact and detect_changes runners were unavailable because the repository wrapper requires npx, which is not installed; source-level review found low-risk additive helpers"
+  },
+  "checksums": {
+    "crates/nu_plugin_codedb/src/main.rs": "9a0fada941fb594d5134232f988df1c953c0837cca59964fb060da15bc888c6e",
+    "state/REQ-034_PLUGIN_STATUS_STREAMS.heartbeat.json": "de849b0166ca4caeabaf3bbd8e0e380344bf945516e8e4ca4452761192a97f05",
+    "logs/REQ-034_PLUGIN_STATUS_STREAMS.log": "07a7385de116cbb7746685c14c72052c6a2740e87bbe984e56af4fb624f7c990"
+  },
+  "logs_uri": "logs/REQ-034_PLUGIN_STATUS_STREAMS.log",
+  "rollback_point": "Reverse command registration and status-stream helper changes in crates/nu_plugin_codedb/src/main.rs, then remove this task's heartbeat, log, and proof artifacts.",
+  "evidence": [
+    "crates/nu_plugin_codedb/src/main.rs",
+    "state/REQ-034_PLUGIN_STATUS_STREAMS.heartbeat.json",
+    "logs/REQ-034_PLUGIN_STATUS_STREAMS.log",
+    "proof_records/REQ-034_PLUGIN_STATUS_STREAMS.proof.json"
+  ],
+  "failure_reason": "",
+  "next_action": "Run REQ-041_TWO_REPO_INTEGRATION after remaining nu_plugin gates complete."
+}

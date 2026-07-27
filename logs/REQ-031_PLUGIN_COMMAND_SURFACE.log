@@ -1,0 +1,4 @@
+[2026-07-27T21:27:35.112734Z] REQ-031_PLUGIN_COMMAND_SURFACE
+Verified envctl operator command surface in crates/nu_plugin_codedb/src/main.rs.
+Required commands registered: target list, run plan, run start, pause, resume, approve, status, proof, replay.
+Mutating operators route through envctl with --emit-event.

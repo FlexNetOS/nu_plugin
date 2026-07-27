@@ -1,0 +1,3 @@
+[2026-07-27T21:26:38.558462Z] REQ-030_PLUGIN_PROTOCOL_MANIFEST
+Wrote manifest: /home/flexnetos/meta/src/nu_plugin/manifests/ENVCTL_MIGRATION_COMMAND_MANIFEST.json
+Validation checks: command_count=28 missing_required=0

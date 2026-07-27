@@ -1,0 +1,4 @@
+[2026-07-27T21:28:12Z] REQ-032_PLUGIN_LIVE_VISUALS
+Verified live migration visual command set in crates/nu_plugin_codedb/src/main.rs against the LIVE_VISUALS requirements.
+Required commands present: status, timeline, ops, approvals, artifacts, graph, validations, replay, rollback plan, proof, visuals.
+Operator commands remain in envctl migration control with --emit-event and are unchanged.

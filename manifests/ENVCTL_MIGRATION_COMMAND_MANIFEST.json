@@ -1,0 +1,492 @@
+{
+  "plugin_name": "nu_plugin_codedb",
+  "nu_plugin_version": "0.1.0",
+  "operator_command_surface": {
+    "task_id": "REQ-031_PLUGIN_COMMAND_SURFACE",
+    "required_commands": [
+      "envctl migration target list",
+      "envctl migration run plan",
+      "envctl migration run start",
+      "envctl migration pause",
+      "envctl migration resume",
+      "envctl migration approve",
+      "envctl migration status",
+      "envctl migration proof",
+      "envctl migration replay"
+    ],
+    "state_owner": "envctl",
+    "plugin_role": "structured Nushell operator surface",
+    "mutation_rule": "mutating commands must call envctl endpoints with --emit-event and must not write durable state directly"
+  },
+  "commands": [
+    {
+      "name": "envctl migration target list",
+      "mode": "read",
+      "description": "List migration targets as a Nushell table for operator selection.",
+      "envctl_endpoint": "envctl migration target list --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "target_id",
+          "name",
+          "kind",
+          "status",
+          "repo_path",
+          "last_seen_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration targets",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration targets --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "target_id",
+          "name",
+          "kind",
+          "status",
+          "repo_path",
+          "last_seen_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration target add",
+      "mode": "mutate",
+      "envctl_endpoint": "envctl migration target add --emit-event --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "target_id",
+          "name",
+          "status",
+          "event_id",
+          "created_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration packages",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration packages --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "package_id",
+          "path",
+          "checksum",
+          "status",
+          "artifact_count",
+          "imported_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration package inspect",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration package inspect --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "package_id",
+          "path",
+          "checksum",
+          "status",
+          "summary",
+          "artifacts"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration package import",
+      "mode": "mutate",
+      "envctl_endpoint": "envctl migration package import --emit-event --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "package_id",
+          "status",
+          "artifact_count",
+          "event_id",
+          "imported_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration plan",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration plan --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "operation_id",
+          "phase",
+          "target",
+          "risk",
+          "status",
+          "requires_approval"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration run plan",
+      "mode": "read",
+      "description": "Create or preview a run plan from a target and recipe without starting execution.",
+      "envctl_endpoint": "envctl migration run plan --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "plan_id",
+          "target_id",
+          "recipe_id",
+          "mode",
+          "operation_count",
+          "approval_required",
+          "risk_summary",
+          "created_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration run start",
+      "mode": "mutate",
+      "description": "Start an approved or approval-gated migration run from a plan.",
+      "envctl_endpoint": "envctl migration run start --emit-event --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "run_id",
+          "plan_id",
+          "target_id",
+          "status",
+          "phase",
+          "mode",
+          "event_id",
+          "started_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration run",
+      "mode": "mutate",
+      "envctl_endpoint": "envctl migration run --emit-event --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "run_id",
+          "target",
+          "status",
+          "phase",
+          "event_id",
+          "started_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration status",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration status --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "run_id",
+          "target",
+          "status",
+          "phase",
+          "percent",
+          "open_approvals",
+          "failed_ops",
+          "artifact_count",
+          "last_event_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration events",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration events --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "seq",
+          "time",
+          "phase",
+          "event_type",
+          "actor",
+          "operation",
+          "status",
+          "summary"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration timeline",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration timeline --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "seq",
+          "time",
+          "phase",
+          "event_type",
+          "status",
+          "summary",
+          "next_action"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration ops",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration ops --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "operation_id",
+          "run_id",
+          "phase",
+          "target",
+          "status",
+          "risk",
+          "blocked_by"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration approvals",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration approvals --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "approval_id",
+          "run_id",
+          "operation",
+          "risk",
+          "requested_by",
+          "status",
+          "reason",
+          "created_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration approve",
+      "mode": "mutate",
+      "description": "Approve one pending operation or approval request and append an envctl event.",
+      "envctl_endpoint": "envctl migration approve --emit-event --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "approval_id",
+          "run_id",
+          "operation",
+          "status",
+          "event_id",
+          "decided_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration deny",
+      "mode": "mutate",
+      "envctl_endpoint": "envctl migration deny --emit-event --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "approval_id",
+          "run_id",
+          "operation",
+          "status",
+          "event_id",
+          "decided_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration pause",
+      "mode": "mutate",
+      "description": "Pause a run through envctl and record the operator reason.",
+      "envctl_endpoint": "envctl migration pause --emit-event --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "run_id",
+          "status",
+          "reason",
+          "event_id",
+          "paused_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration resume",
+      "mode": "mutate",
+      "description": "Resume a paused run through envctl after safety checks pass.",
+      "envctl_endpoint": "envctl migration resume --emit-event --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "run_id",
+          "status",
+          "event_id",
+          "resumed_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration artifacts",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration artifacts --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "artifact_id",
+          "run_id",
+          "kind",
+          "path",
+          "checksum",
+          "status",
+          "created_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration artifact open",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration artifact open --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "artifact_id",
+          "path",
+          "mime_type",
+          "checksum",
+          "open_hint"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration graph",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration graph --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "from",
+          "to",
+          "edge_type",
+          "source_artifact",
+          "confidence",
+          "evidence"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration validations",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration validations --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "validation_id",
+          "run_id",
+          "validator",
+          "status",
+          "score",
+          "summary",
+          "checked_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration replay",
+      "mode": "read",
+      "description": "Replay a run from recorded target, recipe, event, and proof hashes without mutating target state.",
+      "envctl_endpoint": "envctl migration replay --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "step",
+          "operation_id",
+          "phase",
+          "status",
+          "replayable",
+          "reason"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration proof",
+      "mode": "read",
+      "description": "Show run proof records, checksums, validators, and replay evidence as structured rows.",
+      "envctl_endpoint": "envctl migration proof --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "proof_id",
+          "run_id",
+          "artifact_id",
+          "checksum",
+          "validator",
+          "status",
+          "recorded_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration rollback plan",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration rollback plan --format json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "step",
+          "operation_id",
+          "phase",
+          "risk",
+          "guard",
+          "status",
+          "rollback_action"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration export",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration export --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "export_id",
+          "format",
+          "path",
+          "checksum",
+          "row_count",
+          "created_at"
+        ]
+      }
+    },
+    {
+      "name": "envctl migration visuals",
+      "mode": "read",
+      "envctl_endpoint": "envctl migration visuals --format json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "overview",
+          "lanes",
+          "parallel_groups",
+          "proof_state",
+          "blockers",
+          "task_graph",
+          "dashboard_markdown"
+        ]
+      }
+    }
+  ],
+  "$schema": "../../../meta/src/lifeos/planning-spine-v0/envctl-db-nu-plugin-migration-automation-package/schemas/nu_plugin_command_manifest.schema.json"
+}

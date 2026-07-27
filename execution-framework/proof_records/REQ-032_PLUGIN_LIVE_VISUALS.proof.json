@@ -1,0 +1,29 @@
+{
+  "proof_schema_version": "1.0",
+  "task_id": "REQ-032_PLUGIN_LIVE_VISUALS",
+  "artifact": "/home/flexnetos/meta/src/nu_plugin/manifests/ENVCTL_MIGRATION_COMMAND_MANIFEST.json",
+  "status": "completed",
+  "required_command_count": 11,
+  "required_commands": [
+    "envctl migration status",
+    "envctl migration timeline",
+    "envctl migration ops",
+    "envctl migration approvals",
+    "envctl migration artifacts",
+    "envctl migration graph",
+    "envctl migration validations",
+    "envctl migration replay",
+    "envctl migration rollback plan",
+    "envctl migration proof",
+    "envctl migration visuals"
+  ],
+  "missing_contract_commands": [],
+  "contract_file": "prompts/LIVE_VISUALS_AND_HUMAN_CONTROL.md",
+  "command_count": 28,
+  "nu_plugin_version": "0.1.0",
+  "plugin_name": "nu_plugin_codedb",
+  "schema": "schemas/nu_plugin_command_manifest.schema.json",
+  "read_command_count": 11,
+  "mutate_command_count": 0,
+  "completed_at": "2026-07-27T21:28:12Z"
+}

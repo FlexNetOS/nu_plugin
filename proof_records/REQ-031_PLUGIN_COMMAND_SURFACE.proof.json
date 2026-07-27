@@ -1,0 +1,27 @@
+{
+  "artifact": "/run/user/1001/lifeos-json-task-runner/20260727T212315401740Z-f7b145f5f97d/REQ-031_PLUGIN_COMMAND_SURFACE/20260727T212655427371Z-36120fbd01ec/manifests/ENVCTL_MIGRATION_COMMAND_MANIFEST.json",
+  "command_count": 28,
+  "completed_at": "2026-07-27T21:27:35Z",
+  "contract_file": "prompts/NU_PLUGIN_CONTRACT.md",
+  "missing_contract_commands": [],
+  "mutate_command_count": 8,
+  "nu_plugin_version": "0.1.0",
+  "plugin_name": "nu_plugin_codedb",
+  "proof_schema_version": "1.0",
+  "read_command_count": 20,
+  "required_command_count": 9,
+  "required_commands": [
+    "envctl migration target list",
+    "envctl migration run plan",
+    "envctl migration run start",
+    "envctl migration pause",
+    "envctl migration resume",
+    "envctl migration approve",
+    "envctl migration status",
+    "envctl migration proof",
+    "envctl migration replay"
+  ],
+  "schema": "schemas/nu_plugin_command_manifest.schema.json",
+  "status": "completed",
+  "task_id": "REQ-031_PLUGIN_COMMAND_SURFACE"
+}

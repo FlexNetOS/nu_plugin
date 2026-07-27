@@ -1,0 +1,16 @@
+{
+  "artifact": "/home/flexnetos/meta/src/nu_plugin/manifests/ENVCTL_MIGRATION_COMMAND_MANIFEST.json",
+  "command_count": 28,
+  "completed_at": "2026-07-27T21:26:38Z",
+  "contract_file": "prompts/NU_PLUGIN_CONTRACT.md",
+  "missing_contract_commands": [],
+  "mutate_command_count": 8,
+  "nu_plugin_version": "0.1.0",
+  "plugin_name": "nu_plugin_codedb",
+  "proof_schema_version": "1.0",
+  "read_command_count": 20,
+  "required_command_count": 23,
+  "schema": "schemas/nu_plugin_command_manifest.schema.json",
+  "status": "completed",
+  "task_id": "REQ-030_PLUGIN_PROTOCOL_MANIFEST"
+}

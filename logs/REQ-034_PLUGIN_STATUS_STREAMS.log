@@ -1,0 +1,16 @@
+REQ-034_PLUGIN_STATUS_STREAMS verification
+completed_at=2026-07-27T04:39:19+00:00
+repo=/run/user/1001/lifeos-json-task-runner/20260727T212315401740Z-f7b145f5f97d/REQ-034_PLUGIN_STATUS_STREAMS/20260727T212655433046Z-7e8864d840f2
+target=crates/nu_plugin_codedb/src/main.rs
+command=cargo test -p nu_plugin_codedb envctl_status_stream_rows -- --nocapture
+result=passed: 2 passed, 0 failed
+command=cargo fmt -p nu_plugin_codedb -- --check
+result=passed
+command=cargo test -p nu_plugin_codedb
+result=passed: 29 passed, 0 failed
+command=git diff --check
+result=passed
+gitnexus_impact=unavailable: repository runner requires npx, which is not installed
+gitnexus_detect_changes=unavailable: repository runner requires npx, which is not installed
+fallback_scope_review=low risk; additive command registration, private projection helpers, and task-local tests
+source_sha256=9a0fada941fb594d5134232f988df1c953c0837cca59964fb060da15bc888c6e
