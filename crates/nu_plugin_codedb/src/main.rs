@@ -1409,7 +1409,7 @@ fn envctl_human_approval_rows(
     mode: &str,
     span: Span,
 ) -> Result<Vec<Row>, LabeledError> {
-    validate_human_mode(mode)?;
+    validate_human_mode(mode, span)?;
     let approvals = read_json_rows(approvals_path, "approval request", span)?;
     let operations = if let Some(operations_path) = operations_path {
         read_json_rows(operations_path, "operation queue", span)?
@@ -1668,11 +1668,12 @@ fn json_nested_string(row: &JsonValue, object_key: &str, nested_key: &str) -> St
         .unwrap_or_default()
 }
 
-fn validate_human_mode(mode: &str) -> Result<(), LabeledError> {
+fn validate_human_mode(mode: &str, span: Span) -> Result<(), LabeledError> {
     match mode {
         "observer" | "approval-gated" | "operator" | "agent-only" => Ok(()),
         _ => Err(LabeledError::new("invalid human involvement mode").with_label(
             "set --mode to one of: observer, approval-gated, operator, agent-only",
+            span,
         )),
     }
 }
@@ -6288,6 +6289,30 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("failed to parse approval request JSONL"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn envctl_human_approval_rows_reject_unknown_mode() {
+        let root = temp_path("human-approval-mode");
+        fs::create_dir_all(&root).unwrap();
+        let approvals_path = root.join("approvals.json");
+        fs::write(&approvals_path, "[]").unwrap();
+
+        let error = envctl_human_approval_rows(
+            &approvals_path,
+            None,
+            "unbounded-autonomy",
+            Span::unknown(),
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("invalid human involvement mode")
+        );
 
         let _ = fs::remove_dir_all(root);
     }
