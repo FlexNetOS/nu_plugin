@@ -36,3 +36,28 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
    Compiling codedb v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb)
    Compiling nu_plugin_codedb v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/nu_plugin_codedb)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.62s
+
+## Approved deterministic replay — 2026-07-27
+
+Command:
+
+    cargo test -p codedb-core --offline
+
+Result:
+
+    PASS — 77 passed; 0 failed
+
+Suites:
+
+    src/lib.rs                    29 passed
+    tests/capture_policy.rs       21 passed
+    tests/contained_reads.rs       4 passed
+    tests/materialization_paths.rs 12 passed
+    tests/secret_classifier.rs     4 passed
+    tests/store_migrations.rs      3 passed
+    tests/store_spec.rs            4 passed
+    doc tests                      0 passed; 0 failed
+
+Completion gate:
+
+    schema structs compiled; unit tests pass

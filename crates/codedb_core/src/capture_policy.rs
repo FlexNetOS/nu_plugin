@@ -90,9 +90,11 @@ impl RawPersistenceDisposition {
 pub enum RawPersistenceReason {
     AuthorizedSafeSourceClass,
     AuthorizedExternalPolicy,
+    AuthorizedExtendedClass,
     MissingAuthorization,
     ClassifierSecretDetected,
     ClassifierUncertain,
+    UncertainPersistedByPolicy,
     HardDeniedSourceClass,
     ExternalPolicyClassNotAllowed,
     RepositoryBindingMismatch,
@@ -103,9 +105,11 @@ impl RawPersistenceReason {
         match self {
             Self::AuthorizedSafeSourceClass => "authorized-safe-source-class",
             Self::AuthorizedExternalPolicy => "authorized-external-policy",
+            Self::AuthorizedExtendedClass => "authorized-extended-class",
             Self::MissingAuthorization => "missing-authorization",
             Self::ClassifierSecretDetected => "classifier-secret-detected",
             Self::ClassifierUncertain => "classifier-uncertain",
+            Self::UncertainPersistedByPolicy => "uncertain-persisted-by-policy",
             Self::HardDeniedSourceClass => "hard-denied-source-class",
             Self::ExternalPolicyClassNotAllowed => "external-policy-class-not-allowed",
             Self::RepositoryBindingMismatch => "repository-binding-mismatch",
@@ -267,6 +271,26 @@ pub enum RawPersistenceAuthorization {
     External(ExternalPolicyBinding),
 }
 
+/// How an external policy wants classifier-uncertain bytes handled for
+/// classes it authorizes (via `allow` or `allow_extended`).
+///
+/// This never affects `secret_detected` bytes: that guard is unconditional
+/// and has no override.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassifierUncertainMode {
+    MetadataOnly,
+    PersistRaw,
+}
+
+impl ClassifierUncertainMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MetadataOnly => "metadata-only",
+            Self::PersistRaw => "persist-raw",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalPolicyBinding {
     policy_id: String,
@@ -276,6 +300,8 @@ pub struct ExternalPolicyBinding {
     binding_digest: String,
     policy_path: PathBuf,
     allowed_classes: BTreeSet<SourceClass>,
+    allowed_extended_classes: BTreeSet<SourceClass>,
+    classifier_uncertain_mode: ClassifierUncertainMode,
 }
 
 impl ExternalPolicyBinding {
@@ -305,6 +331,18 @@ impl ExternalPolicyBinding {
 
     pub fn allows(&self, source_class: SourceClass) -> bool {
         self.allowed_classes.contains(&source_class)
+            || self.allowed_extended_classes.contains(&source_class)
+    }
+
+    /// True only for `configuration`/`unknown` classes explicitly named in
+    /// this policy's `allow_extended` field. `sensitive` can never be a
+    /// member: the parser rejects it before a binding can be constructed.
+    pub fn allows_extended(&self, source_class: SourceClass) -> bool {
+        self.allowed_extended_classes.contains(&source_class)
+    }
+
+    pub fn classifier_uncertain_mode(&self) -> ClassifierUncertainMode {
+        self.classifier_uncertain_mode
     }
 }
 
@@ -429,7 +467,19 @@ impl StdError for CapturePolicyError {
 /// authority=operator:local-user
 /// repository_binding=sha256:source-snapshot
 /// allow=source-code,documentation
+/// allow_extended=configuration,unknown
+/// classifier_uncertain=persist-raw
 /// ```
+///
+/// `allow_extended` is optional and accepts only `configuration` and/or
+/// `unknown` — `sensitive` is always rejected with
+/// [`CapturePolicyError::HardDeniedClassInPolicy`], even here. `allow` keeps
+/// its original core-safe-only semantics and must remain non-empty.
+///
+/// `classifier_uncertain` is optional (`metadata-only` by default) and
+/// governs bytes the secret classifier could not confidently clear for a
+/// class this policy allows. It never affects `secret_detected` bytes, which
+/// are always metadata-only regardless of any policy field.
 pub fn load_external_policy(
     repository_root: impl AsRef<Path>,
     policy_path: impl AsRef<Path>,
@@ -489,6 +539,14 @@ pub fn load_external_policy_with_hook(
             reason: "allow must contain at least one core-safe source class".to_string(),
         });
     }
+    let allowed_extended_classes = match fields.get("allow_extended") {
+        Some(value) => parse_extended_allowed_classes(value)?,
+        None => BTreeSet::new(),
+    };
+    let classifier_uncertain_mode = match fields.get("classifier_uncertain") {
+        Some(value) => parse_classifier_uncertain_mode(value)?,
+        None => ClassifierUncertainMode::MetadataOnly,
+    };
 
     let policy_digest = prefixed_sha256(&document);
     let binding_digest = policy_binding_digest(
@@ -506,6 +564,8 @@ pub fn load_external_policy_with_hook(
         binding_digest,
         policy_path: held_policy_path,
         allowed_classes,
+        allowed_extended_classes,
+        classifier_uncertain_mode,
     })
 }
 
@@ -796,12 +856,37 @@ pub fn authorize_raw_persistence(
     };
 
     let policy = provenance_for(authorization, &repository_binding);
+    // `secret_detected` is an unconditional guard: no policy field below can
+    // override it. `classifier_uncertain` and `allow_extended` only ever
+    // widen what happens to bytes the classifier did NOT flag as a secret.
     let reason = if classification.status == SecretClassificationStatus::SecretDetected {
         RawPersistenceReason::ClassifierSecretDetected
     } else if classification.status == SecretClassificationStatus::Uncertain {
-        RawPersistenceReason::ClassifierUncertain
+        match authorization {
+            Some(RawPersistenceAuthorization::External(binding))
+                if binding.repository_binding == repository_binding
+                    && binding.allows(source_class)
+                    && binding.classifier_uncertain_mode()
+                        == ClassifierUncertainMode::PersistRaw =>
+            {
+                RawPersistenceReason::UncertainPersistedByPolicy
+            }
+            _ => RawPersistenceReason::ClassifierUncertain,
+        }
     } else if !source_class.is_core_safe() {
-        RawPersistenceReason::HardDeniedSourceClass
+        // configuration / sensitive / unknown: hard-denied unless an
+        // external policy's `allow_extended` explicitly names this exact
+        // class. `sensitive` can never appear there (rejected at parse
+        // time), so it always falls through to hard-denied here.
+        match authorization {
+            Some(RawPersistenceAuthorization::External(binding))
+                if binding.repository_binding == repository_binding
+                    && binding.allows_extended(source_class) =>
+            {
+                RawPersistenceReason::AuthorizedExtendedClass
+            }
+            _ => RawPersistenceReason::HardDeniedSourceClass,
+        }
     } else {
         match authorization {
             None => RawPersistenceReason::MissingAuthorization,
@@ -825,7 +910,9 @@ pub fn authorize_raw_persistence(
     };
     let disposition = match reason {
         RawPersistenceReason::AuthorizedSafeSourceClass
-        | RawPersistenceReason::AuthorizedExternalPolicy => RawPersistenceDisposition::PersistRaw,
+        | RawPersistenceReason::AuthorizedExternalPolicy
+        | RawPersistenceReason::AuthorizedExtendedClass
+        | RawPersistenceReason::UncertainPersistedByPolicy => RawPersistenceDisposition::PersistRaw,
         _ => RawPersistenceDisposition::MetadataOnly,
     };
 
@@ -1041,13 +1128,19 @@ fn parse_policy_document(document: &[u8]) -> Result<BTreeMap<String, String>, Ca
         let value = value.trim();
         if !matches!(
             key,
-            "version" | "policy_id" | "authority" | "repository_binding" | "allow"
+            "version"
+                | "policy_id"
+                | "authority"
+                | "repository_binding"
+                | "allow"
+                | "allow_extended"
+                | "classifier_uncertain"
         ) {
             return Err(CapturePolicyError::InvalidPolicyDocument {
                 reason: format!("unknown field {key}"),
             });
         }
-        if value.is_empty() && key != "allow" {
+        if value.is_empty() && key != "allow" && key != "allow_extended" {
             return Err(CapturePolicyError::InvalidPolicyDocument {
                 reason: format!("{key} must not be empty"),
             });
@@ -1095,6 +1188,48 @@ fn parse_allowed_classes(value: &str) -> Result<BTreeSet<SourceClass>, CapturePo
         allowed.insert(parsed);
     }
     Ok(allowed)
+}
+
+/// Parse `allow_extended`, which widens authorization to previously
+/// hard-denied classes. Only `configuration` and `unknown` are acceptable;
+/// `sensitive` is rejected the same way `parse_allowed_classes` rejects it,
+/// so no policy can ever widen persistence for sensitive-classified bytes.
+fn parse_extended_allowed_classes(
+    value: &str,
+) -> Result<BTreeSet<SourceClass>, CapturePolicyError> {
+    let mut allowed = BTreeSet::new();
+    for raw_class in value.split(',') {
+        let class = raw_class.trim();
+        let parsed = match class {
+            "configuration" => SourceClass::Configuration,
+            "unknown" => SourceClass::Unknown,
+            "sensitive" => {
+                return Err(CapturePolicyError::HardDeniedClassInPolicy {
+                    class: class.to_string(),
+                });
+            }
+            "" => continue,
+            _ => {
+                return Err(CapturePolicyError::InvalidPolicyDocument {
+                    reason: format!("unknown extended source class {class}"),
+                });
+            }
+        };
+        allowed.insert(parsed);
+    }
+    Ok(allowed)
+}
+
+fn parse_classifier_uncertain_mode(
+    value: &str,
+) -> Result<ClassifierUncertainMode, CapturePolicyError> {
+    match value {
+        "metadata-only" => Ok(ClassifierUncertainMode::MetadataOnly),
+        "persist-raw" => Ok(ClassifierUncertainMode::PersistRaw),
+        _ => Err(CapturePolicyError::InvalidPolicyDocument {
+            reason: format!("unknown classifier_uncertain mode {value}"),
+        }),
+    }
 }
 
 fn validate_public_identifier(field: &str, value: &str) -> Result<(), CapturePolicyError> {

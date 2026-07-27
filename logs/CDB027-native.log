@@ -1,50 +1,35 @@
-Using saved setting for 'extra-substituters = https://yazelix.cachix.org' from ~/.local/share/nix/trusted-settings.json.
-Using saved setting for 'extra-trusted-public-keys = yazelix.cachix.org-1:ZgxIjQvaP0VTWL8Racx27mpUNzDJ97xC2y7QWYjmGNM=' from ~/.local/share/nix/trusted-settings.json.
-warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
-warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
-warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
-evaluation warning: The xorg package set has been deprecated, 'xorg.libX11' has been renamed to 'libx11'
-evaluation warning: The xorg package set has been deprecated, 'xorg.libxcb' has been renamed to 'libxcb'
-evaluation warning: The xorg package set has been deprecated, 'xorg.libxshmfence' has been renamed to 'libxshmfence'
-building '/nix/store/61pmgpkfyh33zkl49yjb5l45mbh999jc-cargo-vendor-dir.drv'...
-building '/nix/store/hgyhrs9sa39lxfz7l2m6pi7wgvj3fjn3-yazelix-core-0.1.0.drv'...
-building '/nix/store/pw27gxmhg1kpxy41rkkbh2f2m94gz6f8-yzx.drv'...
-building '/nix/store/p687gzyix8vfh4y32glhpyfh2fj48mrx-nix-shell-env.drv'...
-warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
 # CDB027 native/link static validation
-Thu Jul  2 05:39:56 UTC 2026
 
-## cargo fmt -p codedb-rust-static --check
+## Scope
 
-## cargo test -p codedb-rust-static native_link_fixture_emits_static_rows_and_gaps
-   Compiling codedb-rust-static v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb_rust_static)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.50s
-     Running unittests src/lib.rs (target/debug/deps/codedb_rust_static-c47a5d39749741f8)
+Static native/link capture only. The fixture's `build.rs` is parsed; neither a
+build script nor a linker is executed.
 
-running 1 test
-test tests::native_link_fixture_emits_static_rows_and_gaps ... ok
+## Represented native/link facts
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+- `native_libraries`: `foo`, kind `static`
+- `link_search_paths`: `/opt/foo/lib`, kind `native`
+- `link_args`: `-Wl,--as-needed`
 
+## Explicit capture gaps
 
-## cargo test -p codedb-rust-static
-   Compiling codedb-rust-static v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb_rust_static)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
-     Running unittests src/lib.rs (target/debug/deps/codedb_rust_static-c47a5d39749741f8)
+For `build.rs`, static capture records these unobserved runtime facts as gaps:
 
-running 6 tests
-test tests::build_script_fixture_emits_static_rows_and_gaps ... ok
-test tests::native_link_fixture_emits_static_rows_and_gaps ... ok
-test tests::macro_fixture_passes_with_gaps ... ok
-test tests::include_fixture_passes ... ok
-test tests::proc_macro_fixture_emits_static_rows_and_gaps ... ok
-test tests::simple_item_fixture_passes ... ok
+- `linker_tool`
+- `library_availability`
+- `link_result`
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Reason: static native/link capture does not execute build scripts or linkers.
 
-   Doc-tests codedb_rust_static
+## Verification
 
-running 0 tests
+Command (offline with an isolated temporary target directory):
 
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```text
+CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=<temporary-dir> cargo test --offline -p codedb-rust-static native_link_fixture_emits_static_rows_and_gaps
+```
 
+Result: passed — 1 passed, 0 failed, 23 filtered out.
+
+The fixture verifies that the three native/link rows and all three capture gaps
+are emitted deterministically.

@@ -37,6 +37,15 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - Expansion, resolution metadata, hygiene, HIR, MIR, and rustdoc artifacts are
   written outside the source tree with stable context/toolchain pins.
 - Independent captures produce identical pins and preserve source bytes.
+- The tracked `macro_rules` and `proc_macro` fixtures both report
+  `collection_status=compiler_observed` for `macro_expansion`,
+  `macro_resolution`, and `macro_hygiene`, with empty `capture_gaps` in
+  `logs/compiler-observed/SUMMARY.json`.
+- The positive and fail-closed paths are covered by
+  `broker_captures_pinned_hir_mir_rustdoc_for_macro_rules_and_proc_macro`,
+  `compiler_observed_macro_evidence_is_provenanced_or_fails_closed`, and
+  `macro_expansion_gate_records_question_not_fact`; the captured 21-test
+  receipt is `logs/receipts/cdb077-stdout.log`.
 
 ## Closed By CDB078
 
@@ -45,6 +54,14 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - The approved production frontdoor records proc-macro invocation plus input
   and output token hashes, approval provenance, external raw logs, and a
   content-addressed receipt.
+- `proc_macro_execution_gate_refuses_default_and_captures_compiler_evidence`
+  proves the paired refusal and approved fixture paths, including observed
+  input/output token hashes and `compiler-executed-proc-macro-fixture`
+  provenance; the full receipt is `logs/receipts/cdb078-stdout.log`.
+- The approved capture also persists compiler-observed proc-macro HIR,
+  resolution metadata, and hygiene evidence at
+  `logs/compiler-observed/proc_macro/`, while the production CLI frontdoor
+  remains covered by the CDB078 verification command in the proof ledger.
 
 ## Closed By CDB079
 
@@ -52,6 +69,20 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - Approved capture records the build-script environment, Cargo instructions,
   bounded output metadata, external raw log, approval record, and store
   receipt without modifying the source checkout.
+- `build_script_execution_gate_refuses_default_and_captures_approved_logs`
+  proves the paired default-refusal and approved-fixture paths, including
+  `build_script_execution` gating on `--unsafe-execute-build`, approval
+  provenance, `build_script_runs`, raw-log rows, and Cargo warning evidence.
+- `approved_frontdoor_executes_with_external_log_and_preserves_source_tree`
+  proves the production frontdoor records `unsafe_execution_approval`,
+  `build_script_runs`, and `raw_log_paths`; its companion test refuses a
+  source-contained raw log before execution.
+- `approved_cli_capture_persists_receipt_and_never_mutates_source` proves the
+  CLI persists a `build_capture_receipts` row and external raw log while the
+  source snapshot remains unchanged. The focused evidence is recorded in
+  `logs/CDB079-build-script-gate.log` and the proof ledger verification is
+  `cargo test -p codedb --test build_capture_cli && cargo test
+  -p codedb-build-capture`.
 
 ## Closed By CDB080
 
@@ -60,6 +91,17 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - `codedb reproduce --approval-id` restores those bytes into an isolated
   artifact directory and verifies every checksum; integration tests prove the
   source checkout is unchanged.
+- `out_dir_manifest_is_deterministic_and_reproduces_exact_bytes` proves that
+  repeated manifests are stable, regular-file payloads are reproduced
+  byte-for-byte, and the emitted proof is
+  `reproduced-bytes-sha256-match`; traversal, checksum, and destination-safety
+  failures remain fail-closed.
+- `approved_cli_capture_persists_receipt_and_never_mutates_source` proves the
+  production CLI persists the `out_dir_artifacts` rows and
+  `build_capture_receipts` row, records a 64-character SHA-256, and reproduces
+  the generated file without changing the source snapshot. The complete
+  current-head proof is `cargo test -p codedb-build-capture` together with
+  `cargo test -p codedb --test build_capture_cli`.
 
 ## Closed By CDB081
 
@@ -69,8 +111,15 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
   preserve link targets without materializing links as regular files.
 - Linux publication is descriptor-relative, no-follow, durable, and no-replace,
   preventing a symlink target from redirecting writes into the host tree.
-- The ten-case platform matrix proves native links and deterministic metadata
-  fallback without replacing a link with an unsafe regular file.
+- The twelve-test platform matrix proves native links, deterministic
+  `metadata_only_fallback`, checksum-bound publication, no-follow/no-replace
+  safety, and identity-bound rollback without replacing a link with an unsafe
+  regular file.
+- `cargo test -p codedb-core --test materialization_paths` is the current-head
+  evidence gate; all 12 tests pass, including
+  `platform_symlink_status_matches_the_available_publication_primitive`,
+  `unsupported_platform_symlink_materialization_is_deterministic_metadata_only`,
+  and `linux_supported_symlink_materialization_restores_link_metadata_and_target`.
 
 ## Closed By CDB082
 
@@ -79,8 +128,16 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 - Native/linker facts are emitted as `native_link_facts` rows only when the
   explicit approval gate ran, and carry the same content-addressed provenance
   as the build receipt.
-- Production CLI integration proves a real linked library while the refused
-  path remains write-free.
+- `approved_cli_capture_persists_receipt_and_never_mutates_source` proves the
+  production CLI emits a `linked_lib` fact, persists the build receipt, raw log,
+  and store, and leaves the source snapshot unchanged. The companion
+  `native_linker_facts_require_approved_dynamic_capture` test proves the
+  refused path emits the CDB082 gap and does not execute the build.
+- The approved frontdoor records `unsafe_execution_approval` and its
+  content-addressed receipt provenance; focused evidence is recorded in
+  `logs/CDB082-native-linker-facts.log`. The proof-ledger verification command
+  is `cargo test -p codedb --test build_capture_cli && cargo test
+  -p codedb-build-capture -p codedb-rust-static`.
 
 ## Closed By CDB083
 
@@ -137,7 +194,10 @@ must be recorded as `QUESTION` or `GAP`, not `FACT`.
 
 ## Mandatory closure semantics
 
-A GAP proves that CodeDB detected missing truth; it never proves that the capability was delivered. Every task in this plan remains active until its positive implementation path and failure path both have executable, current-head tests. Any remaining GAP blocks CDB090 and release readiness.
+A GAP proves that CodeDB detected missing truth; it never proves that the
+capability was delivered. A task remains active until its positive
+implementation path and failure path both have executable, current-head tests.
+Any remaining GAP blocks CDB090 and release readiness.
 
 ## Exhaustive requirement-to-proof ledger
 

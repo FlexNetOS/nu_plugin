@@ -12,3 +12,8 @@ with-env {
     nu --no-config-file -c $"plugin add --plugin-config '($plugin_config)' '($plugin)'"
     nu --no-config-file --plugin-config $plugin_config -c $"plugin use --plugin-config '($plugin_config)' codedb; codedb tables"
 }
+
+rm -rf $temp_home
+if ($temp_home | path exists) {
+    error make { msg: $"temp HOME was not removed: ($temp_home)" }
+}

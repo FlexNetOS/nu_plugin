@@ -37,11 +37,30 @@ manual-decision evidence, source-snapshot stability, and recovery references are
 all present. The CDB075 implementation records apply readiness rows only; it
 does not add a default CLI, Nu, or MCP source overwrite command.
 
+The gate is covered by paired tests: incomplete operator provenance is refused,
+while a matching approval, passing stop proof, stable source snapshot, manual
+decision evidence, and recovery reference produces `operator_decisions` and
+`apply_attempts` readiness rows. These tests prove apply intent validation; they
+do not authorize direct source-checkout mutation.
+
 ## MCP Raw Data Policy
 
 MCP exposes bounded summaries only. Raw source/blob tools and raw blob/source
 table aliases are blocked by default; requests receive validation rows rather
 than file bytes or blob payloads.
+
+## CDB083 MCP Raw Source/Blob Denial
+
+The blocked-tool policy covers raw source, raw blob, source/blob, artifact-blob,
+and full-file-dump aliases. Requests for raw source/blob table pages likewise
+return one bounded `raw_blob_table_blocked` validation row without consulting
+the backend. The denial response must not contain request paths, source bytes,
+blob payloads, or secret-looking sentinel values.
+
+The evidence gate is the MCP raw-source denial test together with the Nu
+no-leak protocol test:
+`cargo test -p codedb-mcp raw_source` and
+`nu --no-config-file tests/test_security_no_leak.nu`.
 
 ## Stop Rules
 

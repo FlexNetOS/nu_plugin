@@ -1,47 +1,24 @@
-Using saved setting for 'extra-substituters = https://yazelix.cachix.org' from ~/.local/share/nix/trusted-settings.json.
-Using saved setting for 'extra-trusted-public-keys = yazelix.cachix.org-1:ZgxIjQvaP0VTWL8Racx27mpUNzDJ97xC2y7QWYjmGNM=' from ~/.local/share/nix/trusted-settings.json.
-warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
-warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
-warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
-evaluation warning: The xorg package set has been deprecated, 'xorg.libX11' has been renamed to 'libx11'
-evaluation warning: The xorg package set has been deprecated, 'xorg.libxcb' has been renamed to 'libxcb'
-evaluation warning: The xorg package set has been deprecated, 'xorg.libxshmfence' has been renamed to 'libxshmfence'
-building '/nix/store/a6mq7m4s4nmicw226mcvcri01ywgr0iv-cargo-vendor-dir.drv'...
-building '/nix/store/as0hvyscffj2rb781sbvszdchskf9adc-yazelix-core-0.1.0.drv'...
-building '/nix/store/2wg1qd1q8kaic3nz252w4vddvncs5slh-yzx.drv'...
-building '/nix/store/kxn9rasylk3asiw0qv8nn3sdp4frp1jk-nix-shell-env.drv'...
-warning: ignoring the client-specified setting 'trusted-public-keys', because it is a restricted setting and you are not a trusted user
-# CDB016 redb backup/restore validation
-Thu Jul  2 03:56:25 UTC 2026
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (/run/user/1001/yazelix/volatile/cargo-target/debug/deps/codedb_store_redb-7ee3f3832fb1abae)
 
-## cargo test -p codedb-store-redb
-    Updating crates.io index
-     Locking 8 packages to latest Rust 1.92 compatible versions
-      Adding block-buffer v0.10.4
-      Adding cpufeatures v0.2.17
-      Adding crypto-common v0.1.7
-      Adding digest v0.10.7
-      Adding generic-array v0.14.7 (available: v0.14.9)
-      Adding sha2 v0.10.9 (available: v0.11.0)
-      Adding typenum v1.20.1
-      Adding version_check v0.9.5
-   Compiling version_check v0.9.5
-   Compiling typenum v1.20.1
-   Compiling cpufeatures v0.2.17
-   Compiling generic-array v0.14.7
-   Compiling block-buffer v0.10.4
-   Compiling crypto-common v0.1.7
-   Compiling digest v0.10.7
-   Compiling sha2 v0.10.9
-   Compiling codedb-store-redb v0.1.0 (/home/flexnetos/Downloads/nu_plugin/crates/codedb_store_redb)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.26s
-     Running unittests src/lib.rs (target/debug/deps/codedb_store_redb-86206c17cffda427)
-
-running 2 tests
+running 15 tests
+test tests::migration_refuses_unknown_schema_without_creating_a_backup ... ok
 test tests::initialize_and_read_back_metadata ... ok
+test tests::symlink_metadata_is_checksum_bound_and_never_exposed_as_regular_file_bytes ... ok
+test tests::unknown_schema_version_is_refused ... ok
+test tests::concurrent_materializations_have_exactly_one_complete_winner ... ok
+test tests::non_rust_binary_artifact_materializes_exact_bytes ... ok
+test tests::materialization_refuses_replace_and_cleans_publication_temporary_file ... ok
+test tests::corrupt_blob_is_rejected_before_publication_and_cleans_temporary_file ... ok
+test tests::captured_paths_drive_resume_after_checkpoint ... ok
+test tests::source_file_materialization_restores_unix_executable_bits ... ok
+test tests::batch_capture_matches_per_file_and_is_durable ... ok
 test tests::backup_and_restore_smoke_preserves_metadata ... ok
+test tests::source_blob_persists_and_materializes_after_restore ... ok
+test tests::lock_contention_blocks_until_writer_lifecycle_release ... ok
+test tests::legacy_schema_migrates_with_backup_and_explicit_rollback ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
 
    Doc-tests codedb_store_redb
 

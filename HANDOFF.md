@@ -2,6 +2,15 @@
 
 Task: CDB105
 
+## CDB048 baseline: handoff and backlog retained
+
+The CDB048 release-handoff requirement remains satisfied by this document and
+`BACKLOG.md`: V1.1 capture gaps are kept visible, and PRD section 20 MVP2 work
+is enumerated as post-V1.1 scope. These lists are planning context only. They
+do not grant unsafe execution, unbounded MCP access, source mutation, or a
+release exception, and they do not replace direct evidence for later task
+graphs.
+
 ## Current State
 
 The V1.1 implementation graph is complete through CDB069, with CDB068's CSV
@@ -11,6 +20,19 @@ reconciliation.
 The current change set adds a separate V1.2 planning package for the polyglot-import
 lane requested by issue 215. This package is documentation, task-graph, and issue-draft
 work only. It does not claim that polyglot import implementation shipped.
+
+## V1.2 Issue Delivery
+
+Ready-to-post issue bodies for CDB091-CDB105 are sealed in
+`execution/POLYGLOT_GITHUB_ISSUE_DRAFTS.md`. They preserve the dependency order
+from `execution/POLYGLOT_TASK_GRAPH.csv` and include deliverables, acceptance
+criteria, and safety boundaries.
+
+Direct issue creation in `FlexNetOS/nu_plugin` was unavailable to the planning
+run. The checked-in drafts therefore remain the authoritative delivery artifact
+until a maintainer posts them and records the resulting URLs. Posting the
+drafts starts or tracks a future implementation wave; it does not convert this
+planning package into runtime or release proof.
 Task: CDB070
 
 ## Current State

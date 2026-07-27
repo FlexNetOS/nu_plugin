@@ -18,3 +18,20 @@
 16:- a status/report source if a later Yazelix widget consumes capture status.
 ## forbidden ownership claims absent
 no forbidden Yazelix ownership claims found
+
+## 2026-07-27 deterministic review
+
+Validated `docs/YAZELIX_PLACEMENT.md` against PRD sections 16.3 and 24.
+
+- The document names CodeDB a Yazelix runtime tool and explicitly rejects
+  Yazelix-plugin, Zellij-plugin, generated-initializer, and startup-config
+  ownership claims.
+- It distinguishes host Nushell from Yazelix runtime Nushell by binary path,
+  version, plugin protocol, registry, environment, and HOME/XDG root; it also
+  assigns separate `codedb doctor --nu` and `codedb doctor --yazelix` checks.
+- It keeps CLI fallback available for missing, degraded, or incompatible
+  plugin registries.
+- It requires temporary HOME/XDG roots for registry smoke tests and forbids
+  tracked `nushell/config/config.nu` mutation.
+
+Validation result: `host/runtime Nu distinction documented`.

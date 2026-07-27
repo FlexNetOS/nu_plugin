@@ -2068,6 +2068,153 @@ fn scan_path(
     Ok(())
 }
 
+/// One filesystem entry CodeDB could not read while walking a repository.
+///
+/// Recorded (not hashed into the repository-snapshot binding, see
+/// `repository_snapshot` in the `codedb` capture CLI) so an unreadable
+/// subtree never aborts an otherwise-successful whole-host capture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnreadableEntry {
+    pub relative_path: String,
+    pub kind: FilesystemEntryKind,
+}
+
+/// Result of [`scan_filesystem_tolerant`]: the entries that were readable,
+/// plus every entry skipped because it was permission-denied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TolerantScan {
+    pub entries: Vec<FilesystemEntry>,
+    pub unreadable: Vec<UnreadableEntry>,
+}
+
+/// Like [`scan_filesystem`], but a permission-denied directory or entry is
+/// recorded in `unreadable` and skipped instead of aborting the whole walk.
+///
+/// Every other I/O error still aborts (returns `Err`) exactly as
+/// `scan_filesystem` does; only `io::ErrorKind::PermissionDenied` is
+/// tolerated, since that is the one failure mode a whole-host capture
+/// routinely meets (unreadable overlay/container directories) and can skip
+/// without losing any byte it could otherwise have captured.
+pub fn scan_filesystem_tolerant(root: impl AsRef<Path>) -> Result<TolerantScan, ScanError> {
+    let root = root.as_ref();
+    fs::symlink_metadata(root).map_err(|source| ScanError::RootMetadata {
+        path: root.to_path_buf(),
+        source,
+    })?;
+
+    let mut entries = Vec::new();
+    let mut unreadable = Vec::new();
+    scan_path_tolerant(root, root, &mut entries, &mut unreadable)?;
+    entries.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(TolerantScan {
+        entries,
+        unreadable,
+    })
+}
+
+fn scan_path_tolerant(
+    root: &Path,
+    path: &Path,
+    entries: &mut Vec<FilesystemEntry>,
+    unreadable: &mut Vec<UnreadableEntry>,
+) -> Result<(), ScanError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(source) if source.kind() == io::ErrorKind::PermissionDenied => {
+            unreadable.push(UnreadableEntry {
+                relative_path: relative_path_string(root, path)?,
+                kind: FilesystemEntryKind::Other,
+            });
+            return Ok(());
+        }
+        Err(source) => {
+            return Err(ScanError::Metadata {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    let file_type = metadata.file_type();
+    let kind = if file_type.is_symlink() {
+        FilesystemEntryKind::Symlink
+    } else if file_type.is_dir() {
+        FilesystemEntryKind::Directory
+    } else if file_type.is_file() {
+        FilesystemEntryKind::File
+    } else {
+        FilesystemEntryKind::Other
+    };
+    let relative_path = relative_path_string(root, path)?;
+    let symlink_target = if file_type.is_symlink() {
+        fs::read_link(path)
+            .map_err(|source| ScanError::SymlinkTarget {
+                path: path.to_path_buf(),
+                source,
+            })?
+            .to_str()
+            .map(str::to_owned)
+    } else {
+        None
+    };
+
+    entries.push(FilesystemEntry {
+        relative_path: relative_path.clone(),
+        kind,
+        size_bytes: if file_type.is_file() {
+            metadata.len()
+        } else {
+            0
+        },
+        readonly: metadata.permissions().readonly(),
+        is_symlink: file_type.is_symlink(),
+        symlink_target,
+        classification: classify_path(path, kind),
+    });
+
+    if file_type.is_dir() && !file_type.is_symlink() {
+        let read_dir = match fs::read_dir(path) {
+            Ok(read_dir) => read_dir,
+            Err(source) if source.kind() == io::ErrorKind::PermissionDenied => {
+                unreadable.push(UnreadableEntry {
+                    relative_path,
+                    kind: FilesystemEntryKind::Directory,
+                });
+                return Ok(());
+            }
+            Err(source) => {
+                return Err(ScanError::ReadDir {
+                    path: path.to_path_buf(),
+                    source,
+                });
+            }
+        };
+        let mut children = Vec::new();
+        for child in read_dir {
+            match child {
+                Ok(child) => children.push(child.path()),
+                Err(source) if source.kind() == io::ErrorKind::PermissionDenied => {
+                    unreadable.push(UnreadableEntry {
+                        relative_path: relative_path.clone(),
+                        kind: FilesystemEntryKind::Other,
+                    });
+                }
+                Err(source) => {
+                    return Err(ScanError::Entry {
+                        path: path.to_path_buf(),
+                        source,
+                    });
+                }
+            }
+        }
+        children.sort();
+        for child in children {
+            scan_path_tolerant(root, &child, entries, unreadable)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn relative_path_string(root: &Path, path: &Path) -> Result<String, ScanError> {
     if root == path {
         return Ok(".".to_string());
@@ -2329,6 +2476,132 @@ mod tests {
             entry.relative_path == "README.md"
                 && entry.classification == FileClassification::NonRustAsset
         }));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default
+    // Defends: a tolerant scan of an otherwise-normal tree matches the strict
+    // scan byte-for-byte when nothing is permission-denied.
+    #[test]
+    fn tolerant_scan_matches_strict_scan_when_everything_is_readable() {
+        let root = temp_fixture_root();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(root.join("Cargo.toml"), "[package]\nname = \"fixture\"\n")
+            .expect("write manifest");
+        fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write rust source");
+
+        let strict = scan_filesystem(&root).expect("strict scan");
+        let tolerant = scan_filesystem_tolerant(&root).expect("tolerant scan");
+
+        assert_eq!(tolerant.entries, strict);
+        assert!(tolerant.unreadable.is_empty());
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default (unix only: permission bits are a POSIX concept)
+    // Defends: a permission-denied directory is recorded and skipped instead
+    // of aborting the whole-host capture walk (EVERY-BYTE engine gap G3).
+    #[test]
+    #[cfg(unix)]
+    fn tolerant_scan_records_permission_denied_directory_and_continues() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_fixture_root();
+        fs::create_dir_all(root.join("readable")).expect("create readable dir");
+        fs::write(root.join("readable/file.txt"), b"ok\n").expect("write readable file");
+        let denied = root.join("denied");
+        fs::create_dir_all(&denied).expect("create denied dir");
+        fs::write(denied.join("secret.txt"), b"secret\n")
+            .expect("write nested file before denying");
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o000))
+            .expect("deny directory access");
+
+        let result = scan_filesystem_tolerant(&root);
+        // Restore permissions before any assertion can panic and skip cleanup.
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o755))
+            .expect("restore permissions");
+        let scan = result.expect("tolerant scan must not abort on a permission-denied directory");
+
+        assert!(
+            scan.entries
+                .iter()
+                .any(|entry| entry.relative_path == "readable/file.txt"),
+            "a readable sibling must still be captured: {:?}",
+            scan.entries
+        );
+        assert!(
+            scan.entries
+                .iter()
+                .any(|entry| entry.relative_path == "denied"
+                    && entry.kind == FilesystemEntryKind::Directory),
+            "the denied directory's own entry is still recorded (its own stat still succeeds): {:?}",
+            scan.entries
+        );
+        assert!(
+            !scan
+                .entries
+                .iter()
+                .any(|entry| entry.relative_path.starts_with("denied/")),
+            "children of a permission-denied directory must never appear: {:?}",
+            scan.entries
+        );
+        assert_eq!(
+            scan.unreadable,
+            vec![UnreadableEntry {
+                relative_path: "denied".to_string(),
+                kind: FilesystemEntryKind::Directory,
+            }]
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // Test lane: default (unix only: permission bits are a POSIX concept)
+    // Defends: multiple permission-denied subtrees at different depths are
+    // each recorded independently and the walk still completes.
+    #[test]
+    #[cfg(unix)]
+    fn tolerant_scan_records_every_permission_denied_directory_independently() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_fixture_root();
+        let denied_a = root.join("denied-a");
+        let denied_b = root.join("nested/denied-b");
+        fs::create_dir_all(&denied_a).expect("create denied-a");
+        fs::create_dir_all(&denied_b).expect("create denied-b");
+        fs::write(root.join("nested/ok.txt"), b"ok\n").expect("write nested readable file");
+        fs::set_permissions(&denied_a, fs::Permissions::from_mode(0o000)).expect("deny denied-a");
+        fs::set_permissions(&denied_b, fs::Permissions::from_mode(0o000)).expect("deny denied-b");
+
+        let result = scan_filesystem_tolerant(&root);
+        fs::set_permissions(&denied_a, fs::Permissions::from_mode(0o755))
+            .expect("restore denied-a");
+        fs::set_permissions(&denied_b, fs::Permissions::from_mode(0o755))
+            .expect("restore denied-b");
+        let scan =
+            result.expect("tolerant scan must not abort on multiple permission-denied directories");
+
+        let mut unreadable_paths = scan
+            .unreadable
+            .iter()
+            .map(|entry| entry.relative_path.as_str())
+            .collect::<Vec<_>>();
+        unreadable_paths.sort_unstable();
+        assert_eq!(unreadable_paths, vec!["denied-a", "nested/denied-b"]);
+        assert!(
+            scan.unreadable
+                .iter()
+                .all(|entry| entry.kind == FilesystemEntryKind::Directory)
+        );
+        assert!(
+            scan.entries
+                .iter()
+                .any(|entry| entry.relative_path == "nested/ok.txt"),
+            "a readable file next to a denied sibling must still be captured: {:?}",
+            scan.entries
+        );
 
         fs::remove_dir_all(&root).ok();
     }

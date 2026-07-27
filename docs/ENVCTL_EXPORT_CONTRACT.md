@@ -54,6 +54,12 @@ requested files; CodeDB remains the source of blob refs, source-file rows, and
 checksums. The redb store owns source blob restore by SHA-256 before envctl
 consumes any file materialization rows.
 
+Each materialization row's `source_table_checksum` must equal the exported
+`codedb_table_checksums.sha256` value for its declared `source_table`. In
+particular, source-file rows bind `filesystem_entries`, while blob-reference
+rows bind `codedb_source_root_hashes`; consumers reject a row whose declared
+table has no matching exported checksum.
+
 ## Formats
 
 V1.1 supports JSON, NUON, and CSV projections. Each export records source table, source checksum, schema version, export timestamp, and redaction policy.

@@ -38,3 +38,32 @@
 HANDOFF.md
 BACKLOG.md
 CDB048 validation passed
+
+## 2026-07-27 handoff-ready revalidation
+
+Task graph authority:
+
+- `execution/TASK_GRAPH.csv` row `CDB048` is `complete` and declares CDB047 as
+  its only dependency.
+- CDB047 is `complete`; its release-manifest log and manifest artifacts remain
+  present.
+
+Required handoff surfaces:
+
+- `HANDOFF.md` retains the V1.1 capture-gap list and a CDB048 baseline record
+  that points to `BACKLOG.md` for the MVP2 list.
+- `BACKLOG.md` lists every PRD section 20 MVP2 item: DataFusion/Arrow, Tantivy,
+  SQLite/libSQL, DuckDB, dynamic tracing, a no-auto-apply change-plan
+  generator, generated-crate equivalence expansion, meta, Yazelix, envctl, and
+  GitKB work.
+- `BACKLOG.md` keeps the static-inventory, unsafe-execution, OUT_DIR,
+  native/linker, symlink, and bounded-MCP capture gaps explicit.
+
+Boundary check:
+
+- MVP2 listing is explicitly post-V1.1 and cannot weaken compiler-facing,
+  reproduction, no-mutation, secret, or unsafe-capture requirements.
+- No raw secret path or source/package implementation file was modified for
+  this documentation-only task.
+
+Result: handoff ready; capture gaps and MVP2 are listed.

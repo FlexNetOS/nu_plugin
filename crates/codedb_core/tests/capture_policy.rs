@@ -2,9 +2,9 @@ use std::fs::{self, File};
 use std::io::Write;
 
 use codedb_core::capture_policy::{
-    CapturePolicyError, ExternalPolicyLoadStage, RawPersistenceAuthorization,
-    RawPersistenceDisposition, RawPersistenceReason, SourceClass, authorize_raw_persistence,
-    load_external_policy, load_external_policy_with_hook,
+    CapturePolicyError, ClassifierUncertainMode, ExternalPolicyLoadStage,
+    RawPersistenceAuthorization, RawPersistenceDisposition, RawPersistenceReason, SourceClass,
+    authorize_raw_persistence, load_external_policy, load_external_policy_with_hook,
 };
 use sha2::Digest;
 
@@ -18,6 +18,25 @@ fn external_policy_document(repository_binding: &str, allow: &str) -> String {
          authority=operator:local-user\n\
          repository_binding={repository_binding}\n\
          allow={allow}\n"
+    )
+}
+
+/// Like [`external_policy_document`] but also sets the `allow_extended` and
+/// `classifier_uncertain` fields exercised by the extended-classes tests.
+fn external_policy_document_ext(
+    repository_binding: &str,
+    allow: &str,
+    allow_extended: &str,
+    classifier_uncertain: &str,
+) -> String {
+    format!(
+        "version=codedb.raw-persistence-policy.v1\n\
+         policy_id=operator-reviewed-source\n\
+         authority=operator:local-user\n\
+         repository_binding={repository_binding}\n\
+         allow={allow}\n\
+         allow_extended={allow_extended}\n\
+         classifier_uncertain={classifier_uncertain}\n"
     )
 }
 
@@ -521,4 +540,244 @@ fn exact_source_verification_debug_output_never_contains_source_bytes() {
     let debug = format!("{verified:?}");
     assert!(debug.contains("<redacted>"));
     assert!(!debug.contains("operator-supplied-only"));
+}
+
+#[test]
+fn external_policy_parses_allow_extended_configuration_and_unknown() {
+    let repository = tempfile::tempdir().expect("repository");
+    let policy_home = tempfile::tempdir().expect("external policy home");
+    let policy_path = policy_home.path().join("capture.policy");
+    fs::write(
+        &policy_path,
+        external_policy_document_ext(
+            REPOSITORY_BINDING,
+            "source-code,documentation",
+            "configuration,unknown",
+            "metadata-only",
+        ),
+    )
+    .expect("write external policy");
+
+    let binding =
+        load_external_policy(repository.path(), &policy_path, REPOSITORY_BINDING).expect("binding");
+    assert!(binding.allows_extended(SourceClass::Configuration));
+    assert!(binding.allows_extended(SourceClass::Unknown));
+    assert!(!binding.allows_extended(SourceClass::SourceCode));
+    assert!(!binding.allows_extended(SourceClass::Sensitive));
+    assert_eq!(
+        binding.classifier_uncertain_mode(),
+        ClassifierUncertainMode::MetadataOnly
+    );
+    // allows() is the union of core-safe `allow` and extended `allow_extended`.
+    assert!(binding.allows(SourceClass::SourceCode));
+    assert!(binding.allows(SourceClass::Configuration));
+    assert!(binding.allows(SourceClass::Unknown));
+}
+
+#[test]
+fn external_policy_rejects_sensitive_in_allow_extended() {
+    let repository = tempfile::tempdir().expect("repository");
+    let policy_home = tempfile::tempdir().expect("external policy home");
+    let policy_path = policy_home.path().join("invalid.policy");
+    fs::write(
+        &policy_path,
+        external_policy_document_ext(
+            REPOSITORY_BINDING,
+            "source-code,documentation",
+            "configuration,sensitive",
+            "metadata-only",
+        ),
+    )
+    .expect("write invalid policy");
+
+    let error = load_external_policy(repository.path(), &policy_path, REPOSITORY_BINDING)
+        .expect_err("sensitive cannot be widened via allow_extended");
+    assert!(matches!(
+        error,
+        CapturePolicyError::HardDeniedClassInPolicy { .. }
+    ));
+}
+
+#[test]
+fn allow_extended_authorizes_configuration_and_unknown_classes() {
+    let repository = tempfile::tempdir().expect("repository");
+    let policy_home = tempfile::tempdir().expect("external policy home");
+    let policy_path = policy_home.path().join("capture.policy");
+    fs::write(
+        &policy_path,
+        external_policy_document_ext(
+            REPOSITORY_BINDING,
+            "source-code,documentation",
+            "configuration,unknown",
+            "metadata-only",
+        ),
+    )
+    .expect("write external policy");
+    let binding =
+        load_external_policy(repository.path(), &policy_path, REPOSITORY_BINDING).expect("binding");
+    let authorization = RawPersistenceAuthorization::External(binding);
+
+    for path in ["config.toml", "assets/unclassified.data"] {
+        let decision = authorize_raw_persistence(
+            path,
+            b"benign fixture content\n",
+            REPOSITORY_BINDING,
+            Some(&authorization),
+        );
+        assert_eq!(
+            decision.disposition,
+            RawPersistenceDisposition::PersistRaw,
+            "{path}: {decision:?}"
+        );
+        assert_eq!(
+            decision.reason,
+            RawPersistenceReason::AuthorizedExtendedClass
+        );
+        assert!(decision.raw_persistence_allowed());
+    }
+
+    // Sensitive stays denied even though this same policy maxes out
+    // allow_extended for configuration and unknown.
+    let decision = authorize_raw_persistence(
+        ".ssh/config",
+        b"benign fixture content\n",
+        REPOSITORY_BINDING,
+        Some(&authorization),
+    );
+    assert_eq!(
+        decision.disposition,
+        RawPersistenceDisposition::MetadataOnly
+    );
+    assert!(matches!(
+        decision.reason,
+        RawPersistenceReason::HardDeniedSourceClass
+            | RawPersistenceReason::ClassifierSecretDetected
+    ));
+}
+
+#[test]
+fn secret_detected_is_always_metadata_only_even_with_extended_policy_maxed() {
+    let repository = tempfile::tempdir().expect("repository");
+    let policy_home = tempfile::tempdir().expect("external policy home");
+    let policy_path = policy_home.path().join("maxed.policy");
+    fs::write(
+        &policy_path,
+        external_policy_document_ext(
+            REPOSITORY_BINDING,
+            "source-code,documentation",
+            "configuration,unknown",
+            "persist-raw",
+        ),
+    )
+    .expect("write maxed external policy");
+    let binding =
+        load_external_policy(repository.path(), &policy_path, REPOSITORY_BINDING).expect("binding");
+    let authorization = RawPersistenceAuthorization::External(binding);
+
+    // Configuration class (authorized by allow_extended) but content the
+    // secret classifier flags: secret_detected must win regardless.
+    let decision = authorize_raw_persistence(
+        "config.toml",
+        b"AWS_SECRET_ACCESS_KEY=AKIAFAKE0000FAKE0000\n",
+        REPOSITORY_BINDING,
+        Some(&authorization),
+    );
+    assert_eq!(
+        decision.disposition,
+        RawPersistenceDisposition::MetadataOnly
+    );
+    assert_eq!(
+        decision.reason,
+        RawPersistenceReason::ClassifierSecretDetected
+    );
+    assert!(!decision.raw_persistence_allowed());
+}
+
+#[test]
+fn classifier_uncertain_mode_controls_disposition_when_class_is_authorized() {
+    let repository = tempfile::tempdir().expect("repository");
+    let policy_home = tempfile::tempdir().expect("external policy home");
+    let invalid_utf8 = &[0xff, 0xfe, b'a'][..];
+
+    // Default (metadata-only): uncertain bytes for an authorized class never
+    // persist raw.
+    let default_path = policy_home.path().join("default.policy");
+    fs::write(
+        &default_path,
+        external_policy_document_ext(
+            REPOSITORY_BINDING,
+            "source-code,documentation",
+            "configuration,unknown",
+            "metadata-only",
+        ),
+    )
+    .expect("write default policy");
+    let default_authorization = RawPersistenceAuthorization::External(
+        load_external_policy(repository.path(), &default_path, REPOSITORY_BINDING)
+            .expect("default binding"),
+    );
+
+    let decision = authorize_raw_persistence(
+        "assets/unclassified.data",
+        invalid_utf8,
+        REPOSITORY_BINDING,
+        Some(&default_authorization),
+    );
+    assert_eq!(
+        decision.disposition,
+        RawPersistenceDisposition::MetadataOnly
+    );
+    assert_eq!(decision.reason, RawPersistenceReason::ClassifierUncertain);
+    assert!(!decision.raw_persistence_allowed());
+
+    // persist-raw: uncertain bytes for an authorized class now persist,
+    // tagged with the distinct override reason.
+    let override_path = policy_home.path().join("override.policy");
+    fs::write(
+        &override_path,
+        external_policy_document_ext(
+            REPOSITORY_BINDING,
+            "source-code,documentation",
+            "configuration,unknown",
+            "persist-raw",
+        ),
+    )
+    .expect("write override policy");
+    let override_authorization = RawPersistenceAuthorization::External(
+        load_external_policy(repository.path(), &override_path, REPOSITORY_BINDING)
+            .expect("override binding"),
+    );
+
+    let decision = authorize_raw_persistence(
+        "assets/unclassified.data",
+        invalid_utf8,
+        REPOSITORY_BINDING,
+        Some(&override_authorization),
+    );
+    assert_eq!(decision.disposition, RawPersistenceDisposition::PersistRaw);
+    assert_eq!(
+        decision.reason,
+        RawPersistenceReason::UncertainPersistedByPolicy
+    );
+    assert!(decision.raw_persistence_allowed());
+
+    // Even under persist-raw, an unauthorized class (sensitive, via `.pem`,
+    // which is never a member of allow_extended) stays metadata-only:
+    // classifier_uncertain only ever applies to classes the policy allows.
+    let decision = authorize_raw_persistence(
+        "keys/server.pem",
+        invalid_utf8,
+        REPOSITORY_BINDING,
+        Some(&override_authorization),
+    );
+    assert_eq!(
+        decision.source_class,
+        SourceClass::Sensitive,
+        "{decision:?}"
+    );
+    assert_eq!(
+        decision.disposition,
+        RawPersistenceDisposition::MetadataOnly
+    );
+    assert_eq!(decision.reason, RawPersistenceReason::ClassifierUncertain);
 }

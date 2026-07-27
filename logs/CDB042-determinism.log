@@ -89,3 +89,29 @@ def main [] {
 ## no source fixture lockfile mutation
 none
 CDB042 validation passed
+
+## 2026-07-27 offline rerun
+
+Command (run twice from the isolated task checkout):
+
+```text
+CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=/tmp/cdb042-target.LWV5eT nu tests/test_deterministic_scan.nu
+```
+
+Both invocations passed.  In each invocation, the test copied the fixture to a
+fresh temporary directory, generated its lockfile offline, then compared two
+unchanged-fixture scans and two table-checksum exports byte-for-byte using
+SHA-256.  The no-source-lockfile-mutation assertion also passed.
+
+The per-invocation result pairs were:
+
+| invocation | scan summary SHA-256 | table checksums SHA-256 |
+| --- | --- | --- |
+| 1 | `f42f4222d4d826df412f2325e2eb97420385d19226459ee9bbc117f9d0200f8f` | `cff409442a9f106bf324790a9f56330822630a485b215c2ff94a65748842ecc2` |
+| 2 | `7c1dec3945346e59d60725fa8b273a6c4b2648ce903650595d6eda93657d4ac7` | `6ab3fedc43d2c281daf2731db9de238901bff9e5a40cdbd106959d65a3627a2c` |
+
+The values vary between invocations because each uses a new temporary absolute
+fixture path.  The asserted invariant is the required one: repeated scans and
+checksum exports against the same unchanged fixture are identical.
+
+CDB042 determinism gate passed offline.

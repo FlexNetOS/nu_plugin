@@ -15,6 +15,10 @@ Stop before proceeding if:
 - Yazelix tracked `nushell/config/config.nu` would be modified;
 - envctl would read redb internals instead of exports;
 - a planning artifact starts to imply code implementation or release proof that does not exist;
+- a CDB091-CDB105 draft would be posted without its declared dependencies,
+  acceptance criteria, safety boundaries, or planning-only framing;
+- a checked-in draft would be marked delivered without recording its posted
+  GitHub URL, or issue creation would be attempted without repository write authority;
 - raw failure logs cannot be preserved.
 - bidirectional work would apply a change plan directly to source before CDB075
   has approval provenance, stop checks, and recovery evidence;

@@ -116,3 +116,12 @@ running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
+## 2026-07-27 review verification
+### cargo test -p codedb --test relative_repo_path
+cargo test: 1 passed (1 suite, 0.09s)
+### cargo test -p codedb doctor_
+cargo test: 2 passed, 55 filtered out (5 suites, 0.02s)
+### codedb doctor --nu --yazelix --codex --format json
+host_nu: available (Nu path, version, and plugin protocol compatibility reported)
+yazelix_nu: degraded (runtime Nu not configured through explicit Yazelix environment variables; remediation reported)
+codex: available (Codex path and CodeDB export boundary reported)

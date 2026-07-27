@@ -47,3 +47,24 @@ syntax_only,struct,,Thing,src/lib.rs,45827339d619572320614a2ed1040e14172469ed8e9
 
 ## CSV parse validation
 2
+
+## Current deterministic replay — 2026-07-27
+
+```text
+$ cargo test -p codedb --test relative_repo_path --offline
+test scan_and_export_accept_nontrivial_relative_repo_paths ... ok
+test result: ok. 1 passed; 0 failed
+
+$ cargo run -p codedb --offline -- schema --format json
+JSON rows: 2
+
+$ cargo run -p codedb --offline -- scan . --format nuon
+$ nu --no-config-file -c 'open --raw scan.nuon | from nuon | length'
+7
+
+$ cargo run -p codedb --offline -- export rust_items --repo . --format csv
+CSV rows: 22221
+```
+
+All required JSON, NUON, and CSV command outputs parsed successfully. The
+relative-path frontdoor regression test also passed.

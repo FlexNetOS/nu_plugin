@@ -12,3 +12,15 @@ no forbidden auth/session patterns found in sample config
 33:- No browser/session/auth hacks.
 37:`examples/codex/codedb_mcp_config.json` is a lintable MCP server configuration
 44:codedb mcp serve --repo-path <path> --store <path> --default-limit 50 --max-bytes 65536
+
+## review validation
+2026-07-27T15:49:31Z
+- `jq` configuration lint passed: the `codedb` server launches `codedb mcp serve`
+  with `--default-limit 50`, `--max-bytes 65536`, and an empty environment map.
+- Policy lint passed: read-only access, bounded output, raw source disabled, unsafe
+  build capture blocked in MCP, mutation forbidden, and external official Codex
+  authentication only.
+- The bounded-smoke report lint passed: every CLI sample is capped at 50 rows and
+  65536 bytes; its MCP sample matches the checked-in configuration.
+- Documentation contains the required bounded/read-only/raw-source/no-session bridge
+  contract and references the sample configuration.

@@ -20,11 +20,14 @@ impl CommandRunner for FakeRunner {
         args: &[String],
         current_dir: &Path,
     ) -> Result<CommandOutput, ContextError> {
-        self.invocations.lock().unwrap().push((
-            program.to_string(),
-            args.to_vec(),
-            current_dir.to_path_buf(),
-        ));
+        self.invocations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((
+                program.to_string(),
+                args.to_vec(),
+                current_dir.to_path_buf(),
+            ));
         match (program, args) {
             ("cargo", [arg]) if arg == "--version" => {
                 Ok(CommandOutput::success("cargo 1.93.1 (fixture)\n", ""))
@@ -109,7 +112,10 @@ fn captures_locked_target_feature_and_toolchain_context() {
     assert_eq!(capture.cargo_lock_sha256.len(), 64);
     assert_eq!(capture.context_id.len(), 64);
 
-    let invocations = runner.invocations.lock().unwrap();
+    let invocations = runner
+        .invocations
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let metadata = invocations
         .iter()
         .find(|(program, args, _)| {
@@ -199,7 +205,10 @@ fn cargo_feature_modes_are_forwarded_and_change_context_identity() {
     assert_ne!(default_capture.context_id, no_default_capture.context_id);
     assert_ne!(all_capture.context_id, no_default_capture.context_id);
 
-    let invocations = runner.invocations.lock().unwrap();
+    let invocations = runner
+        .invocations
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let metadata_args = invocations
         .iter()
         .filter(|(program, args, _)| {

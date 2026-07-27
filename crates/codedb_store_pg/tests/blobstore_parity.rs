@@ -316,6 +316,10 @@ impl TestTables {
         format!("{}_blobs", self.base)
     }
 
+    fn blob_chunks(&self) -> String {
+        format!("{}_blob_chunks", self.base)
+    }
+
     fn path_refs(&self) -> String {
         format!("{}_path_refs", self.base)
     }
@@ -345,8 +349,10 @@ impl TestTables {
              DROP TABLE IF EXISTS {} CASCADE;\
              DROP TABLE IF EXISTS {} CASCADE;\
              DROP TABLE IF EXISTS {} CASCADE;\
+             DROP TABLE IF EXISTS {} CASCADE;\
              DROP TABLE IF EXISTS {} CASCADE;",
             self.path_refs(),
+            self.blob_chunks(),
             self.blobs(),
             self.schema_metadata(),
             self.migration_backup(),
@@ -368,6 +374,7 @@ fn assert_store_relations_absent(tables: &TestTables) {
     assert!(!tables.relation_exists(&tables.base));
     assert!(!tables.relation_exists(&tables.schema_metadata()));
     assert!(!tables.relation_exists(&tables.blobs()));
+    assert!(!tables.relation_exists(&tables.blob_chunks()));
     assert!(!tables.relation_exists(&tables.path_refs()));
 }
 
@@ -1226,4 +1233,346 @@ fn directory_entry_names(path: &Path) -> Vec<String> {
         .collect::<Vec<_>>();
     entries.sort();
     entries
+}
+
+// --- Capture-root identity: `path_refs` attribution and uniqueness ---
+//
+// Every repository has a README.md. Capturing many roots into one store must
+// keep each root's rows distinct instead of colliding on relative path alone.
+
+#[test]
+fn capture_root_partitions_identical_relative_paths_across_multiple_roots() {
+    let tables = TestTables::new();
+    let root_a = Path::new("/fixtures/multi-root/repo-a");
+    let root_b = Path::new("/fixtures/multi-root/repo-b");
+
+    let mut pg_a = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+    pg_a.set_capture_root(root_a).expect("root-a is absolute");
+    pg_a.persist_batch(&[("README.md".to_string(), b"root-a content\n".to_vec())])
+        .expect("persist root-a README.md");
+    drop(pg_a);
+
+    let mut pg_b =
+        PgStore::open_existing(&tables.conn, &tables.base).expect("reopen pg store for root-b");
+    pg_b.set_capture_root(root_b).expect("root-b is absolute");
+    pg_b.persist_batch(&[("README.md".to_string(), b"root-b content\n".to_vec())])
+        .expect("persist root-b README.md");
+    drop(pg_b);
+
+    let mut client = tables.connection();
+    let sql = format!(
+        "SELECT sha256, metadata->>'repo_path' FROM {} \
+         WHERE module_path = 'README.md' ORDER BY metadata->>'repo_path'",
+        tables.path_refs()
+    );
+    let rows = client
+        .query(sql.as_str(), &[])
+        .expect("query path_refs rows for README.md");
+    let observed = rows
+        .iter()
+        .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        observed,
+        vec![
+            (
+                sha256_hex(b"root-a content\n"),
+                root_a.display().to_string()
+            ),
+            (
+                sha256_hex(b"root-b content\n"),
+                root_b.display().to_string()
+            ),
+        ],
+        "each capture root must retain its own distinct row, not collide on relative path"
+    );
+}
+
+#[test]
+fn same_capture_root_upserts_without_duplicating_the_path_refs_row() {
+    let tables = TestTables::new();
+    let root = Path::new("/fixtures/single-root/repo");
+
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+    pg.set_capture_root(root).expect("root is absolute");
+    pg.persist_batch(&[("README.md".to_string(), b"first content\n".to_vec())])
+        .expect("persist first capture");
+    pg.persist_batch(&[("README.md".to_string(), b"second content\n".to_vec())])
+        .expect("persist second capture under the same root");
+
+    let mut client = tables.connection();
+    let sql = format!(
+        "SELECT sha256 FROM {} WHERE module_path = 'README.md' AND metadata->>'repo_path' = $1",
+        tables.path_refs()
+    );
+    let rows = client
+        .query(sql.as_str(), &[&root.display().to_string()])
+        .expect("query path_refs rows for README.md under root");
+    assert_eq!(
+        rows.len(),
+        1,
+        "re-capture of the same root+file must upsert, not duplicate"
+    );
+    let sha256: String = rows[0].get(0);
+    assert_eq!(sha256, sha256_hex(b"second content\n"));
+}
+
+#[test]
+fn initialize_migrates_a_legacy_module_path_primary_key_store_onto_the_repo_scoped_index() {
+    let tables = TestTables::new();
+    // Bootstrap a fresh current-layout store, then downgrade it in place to
+    // the shape written by a build that predates capture-root identity: a
+    // plain PRIMARY KEY(module_path) and no repo-scoped index.
+    drop(PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store"));
+    let legacy_index = format!("{}_repo_uidx", tables.path_refs());
+    let legacy_pkey = format!("{}_pkey", tables.path_refs());
+    let mut client = tables.connection();
+    client
+        .batch_execute(&format!(
+            "DROP INDEX {legacy_index}; \
+             ALTER TABLE {path_refs} ADD CONSTRAINT {legacy_pkey} PRIMARY KEY (module_path);",
+            path_refs = tables.path_refs(),
+        ))
+        .expect("downgrade to legacy module_path-only primary key shape");
+    drop(client);
+
+    // Re-initializing a store already in this legacy-primary-key shape must
+    // heal it: drop the legacy primary key and create the repo-scoped unique
+    // index, with no separate migration command required.
+    let mut healed = PgStore::initialize(&tables.conn, &tables.base)
+        .expect("initialize must heal a legacy-primary-key store in place");
+
+    let mut client = tables.connection();
+    let pk_rows = client
+        .query(
+            "SELECT conname FROM pg_constraint WHERE conrelid = to_regclass($1) AND contype = 'p'",
+            &[&tables.path_refs()],
+        )
+        .expect("query primary key constraints");
+    assert!(
+        pk_rows.is_empty(),
+        "legacy module_path primary key must be dropped"
+    );
+    let index_rows = client
+        .query(
+            "SELECT indexname FROM pg_indexes WHERE tablename = $1 AND indexname = $2",
+            &[&tables.path_refs(), &legacy_index],
+        )
+        .expect("query repo-scoped unique index");
+    assert_eq!(
+        index_rows.len(),
+        1,
+        "repo-scoped unique index must exist after healing"
+    );
+    drop(client);
+
+    // Behavioral proof, not just catalog introspection: multi-root writes
+    // must now partition correctly through the healed store.
+    let root_a = Path::new("/fixtures/legacy-heal/repo-a");
+    let root_b = Path::new("/fixtures/legacy-heal/repo-b");
+    healed.set_capture_root(root_a).expect("root-a is absolute");
+    healed
+        .persist_batch(&[("README.md".to_string(), b"legacy-heal a\n".to_vec())])
+        .expect("persist root-a after healing");
+    drop(healed);
+    let mut healed_b =
+        PgStore::open_existing(&tables.conn, &tables.base).expect("reopen healed store for root-b");
+    healed_b
+        .set_capture_root(root_b)
+        .expect("root-b is absolute");
+    healed_b
+        .persist_batch(&[("README.md".to_string(), b"legacy-heal b\n".to_vec())])
+        .expect("persist root-b after healing");
+    drop(healed_b);
+
+    let mut client = tables.connection();
+    let sql = format!(
+        "SELECT count(*) FROM {} WHERE module_path = 'README.md'",
+        tables.path_refs()
+    );
+    let count: i64 = client
+        .query_one(sql.as_str(), &[])
+        .expect("count README.md rows")
+        .get(0);
+    assert_eq!(
+        count, 2,
+        "healed store must retain one row per capture root, not collide"
+    );
+}
+
+// --- EVERY-BYTE engine gap G1: chunked large-blob storage ---
+//
+// A deliberately small `chunk_threshold_bytes` (via
+// `persist_batch_with_chunk_threshold_for_tests`) exercises the real
+// chunked-storage SQL path -- schema, insert, dedup-skip, and read-side
+// reassembly -- against a live disposable PostgreSQL service without
+// persisting hundreds of megabytes to prove it. The real
+// `CHUNK_THRESHOLD_BYTES` constant is exercised by the fixpack2 e2e capture
+// of an actual multi-hundred-megabyte file.
+
+#[test]
+fn chunked_blob_round_trips_through_read_and_materialize_across_every_boundary() {
+    let tables = TestTables::new();
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+
+    let threshold = 8usize;
+    let files: Vec<(String, Vec<u8>)> = vec![
+        ("empty.bin".to_string(), Vec::new()), // 0 bytes: unchunked
+        ("exact.bin".to_string(), b"exactly8".to_vec()), // == threshold: unchunked
+        ("over.bin".to_string(), b"exactly8+".to_vec()), // threshold + 1: 2 chunks
+        ("multi.bin".to_string(), b"abcdefghijklmnopqrstu".to_vec()), // 21 bytes = 2.5x: 3 chunks
+    ];
+    codedb_store_pg::persist_batch_with_chunk_threshold_for_tests(&mut pg, &files, threshold)
+        .expect("persist batch with a lowered chunk threshold");
+
+    let mut client = tables.connection();
+    let expected_chunk_counts = [
+        ("empty.bin", 0i32),
+        ("exact.bin", 0),
+        ("over.bin", 2),
+        ("multi.bin", 3),
+    ];
+    for (name, expected_chunk_count) in expected_chunk_counts {
+        let sql = format!(
+            "SELECT b.chunk_count, b.content IS NULL FROM {} p \
+             JOIN {} b ON b.sha256 = p.sha256 WHERE p.module_path = $1",
+            tables.path_refs(),
+            tables.blobs(),
+        );
+        let row = client
+            .query_one(sql.as_str(), &[&name])
+            .unwrap_or_else(|_| panic!("query blobs row for {name}"));
+        let chunk_count: i32 = row.get(0);
+        let content_is_null: bool = row.get(1);
+        assert_eq!(chunk_count, expected_chunk_count, "chunk_count for {name}");
+        assert_eq!(
+            content_is_null,
+            expected_chunk_count > 0,
+            "content must be NULL exactly when chunked, for {name}"
+        );
+    }
+
+    // Read side: `read_source_file_blob` reassembles chunked blobs
+    // transparently and returns byte-identical content either way.
+    for (name, bytes) in &files {
+        assert_eq!(
+            pg.read_source_file_blob(name).expect("read blob"),
+            Some(bytes.clone()),
+            "read_source_file_blob must reassemble {name} byte-for-byte"
+        );
+    }
+
+    // Materialize side: publication also reassembles transparently, and
+    // `atomic_materialize_file`'s mandatory sha256 check proves roundtrip
+    // integrity end to end.
+    let output = tempfile::tempdir().expect("output root");
+    for (name, bytes) in &files {
+        let output_path = output.path().join(name);
+        let materialized = pg
+            .materialize_source_file(name, &output_path)
+            .unwrap_or_else(|error| panic!("materialize {name}: {error}"));
+        assert_eq!(materialized.sha256, sha256_hex(bytes));
+        assert_eq!(materialized.bytes, bytes.len() as u64);
+        assert_eq!(
+            std::fs::read(&output_path)
+                .unwrap_or_else(|error| panic!("read materialized {name}: {error}")),
+            *bytes,
+            "materialized {name} must be byte-identical to the captured content"
+        );
+    }
+}
+
+#[test]
+fn chunked_blob_shared_by_two_paths_is_chunked_exactly_once() {
+    let tables = TestTables::new();
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+
+    let threshold = 8usize;
+    let shared_content = b"abcdefghijklmnopqrstu".to_vec(); // 21 bytes = 2.5x threshold: 3 chunks
+
+    // Two distinct captured paths with byte-identical content: the
+    // content-addressed blob (and its chunks) must be written once, not
+    // duplicated, even though `persist_batch_with_chunk_threshold_for_tests`
+    // is called twice.
+    codedb_store_pg::persist_batch_with_chunk_threshold_for_tests(
+        &mut pg,
+        &[("first-copy.bin".to_string(), shared_content.clone())],
+        threshold,
+    )
+    .expect("persist first copy");
+    codedb_store_pg::persist_batch_with_chunk_threshold_for_tests(
+        &mut pg,
+        &[("second-copy.bin".to_string(), shared_content.clone())],
+        threshold,
+    )
+    .expect("persist second copy of identical content");
+
+    let sha256 = sha256_hex(&shared_content);
+    let mut client = tables.connection();
+    let chunk_row_count: i64 = client
+        .query_one(
+            format!(
+                "SELECT count(*) FROM {} WHERE sha256 = $1",
+                tables.blob_chunks()
+            )
+            .as_str(),
+            &[&sha256],
+        )
+        .expect("count blob_chunks rows for the shared blob")
+        .get(0);
+    assert_eq!(
+        chunk_row_count, 3,
+        "the shared blob's 3 chunks must be stored exactly once, not duplicated per path"
+    );
+
+    assert_eq!(
+        pg.read_source_file_blob("first-copy.bin").unwrap(),
+        Some(shared_content.clone())
+    );
+    assert_eq!(
+        pg.read_source_file_blob("second-copy.bin").unwrap(),
+        Some(shared_content)
+    );
+}
+
+#[test]
+fn chunked_blob_reassembly_rejects_a_tampered_chunk_before_publication() {
+    let tables = TestTables::new();
+    let mut pg = PgStore::initialize(&tables.conn, &tables.base).expect("initialize pg store");
+
+    let threshold = 8usize;
+    let content = b"exactly8+".to_vec(); // threshold + 1: 2 chunks
+    codedb_store_pg::persist_batch_with_chunk_threshold_for_tests(
+        &mut pg,
+        &[("tampered.bin".to_string(), content.clone())],
+        threshold,
+    )
+    .expect("persist chunked blob");
+
+    let sha256 = sha256_hex(&content);
+    let mut admin = tables.connection();
+    admin
+        .execute(
+            format!(
+                "UPDATE {} SET chunk = $1 WHERE sha256 = $2 AND seq = 0",
+                tables.blob_chunks()
+            )
+            .as_str(),
+            &[&b"CORRUPT!".as_slice(), &sha256],
+        )
+        .expect("inject a corrupt first chunk");
+
+    let output = tempfile::tempdir().expect("output root");
+    let output_path = output.path().join("tampered.bin");
+    let error = pg
+        .materialize_source_file("tampered.bin", &output_path)
+        .expect_err("a tampered chunk must fail the mandatory sha256 roundtrip check");
+    assert!(
+        error.message().contains("checksum"),
+        "unexpected error for a tampered chunk: {error}"
+    );
+    assert!(
+        !output_path.exists(),
+        "corrupt reassembled bytes were published"
+    );
 }

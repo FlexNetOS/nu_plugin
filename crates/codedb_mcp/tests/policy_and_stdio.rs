@@ -355,7 +355,13 @@ fn raw_source_and_blob_tools_and_tables_are_denied_without_backend_access() {
         );
     }
 
-    assert!(backend.calls.lock().expect("calls").is_empty());
+    assert!(
+        backend
+            .calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty()
+    );
     remove_dir(root);
 }
 
@@ -375,7 +381,11 @@ fn backend_boundary_is_read_only_and_backend_neutral() {
         Some(&"fixture".to_string())
     );
     assert_eq!(
-        backend.calls.lock().expect("calls").as_slice(),
+        backend
+            .calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_slice(),
         ["codedb_list_tables"]
     );
     remove_dir(root);
@@ -1075,7 +1085,10 @@ impl ReadOnlyBackend for FixtureBackend {
         _repo_path: Option<&Path>,
         _limits: WorkLimits,
     ) -> Result<Vec<Row>, McpError> {
-        self.calls.lock().expect("calls").push(tool.to_string());
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(tool.to_string());
         Ok(vec![BTreeMap::from([
             ("backend".to_string(), "fixture".to_string()),
             ("status".to_string(), "available".to_string()),

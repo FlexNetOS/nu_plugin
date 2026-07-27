@@ -77,6 +77,7 @@ impl Plugin for CodeDbPlugin {
             Box::new(Export),
             Box::new(AgentHarnessImport),
             Box::new(EnvctlInventoryImport),
+            Box::new(EnvctlStatusStream),
             Box::new(NixFlakeImport),
             Box::new(Tables),
             Box::new(Gaps),
@@ -85,7 +86,27 @@ impl Plugin for CodeDbPlugin {
             Box::new(Doctor),
             Box::new(EnvctlDbRoots),
             Box::new(EnvctlDbQuery),
+            Box::new(EnvctlDbSymbols),
             Box::new(EnvctlDbRefactor),
+            Box::new(EnvctlDbDeploy),
+            Box::new(EnvctlMigrationStatus),
+            Box::new(EnvctlMigrationTargetList),
+            Box::new(EnvctlMigrationRunPlan),
+            Box::new(EnvctlMigrationRunStart),
+            Box::new(EnvctlMigrationPause),
+            Box::new(EnvctlMigrationResume),
+            Box::new(EnvctlMigrationApprove),
+            Box::new(EnvctlMigrationDeny),
+            Box::new(EnvctlMigrationTimeline),
+            Box::new(EnvctlMigrationOps),
+            Box::new(EnvctlMigrationApprovals),
+            Box::new(EnvctlMigrationArtifacts),
+            Box::new(EnvctlMigrationGraph),
+            Box::new(EnvctlMigrationValidations),
+            Box::new(EnvctlMigrationReplay),
+            Box::new(EnvctlMigrationRollbackPlan),
+            Box::new(EnvctlMigrationProof),
+            Box::new(EnvctlMigrationVisuals),
             Box::new(IngestEnvelope),
             Box::new(IngestReport),
         ]
@@ -110,6 +131,7 @@ struct BuildScripts;
 struct Export;
 struct AgentHarnessImport;
 struct EnvctlInventoryImport;
+struct EnvctlStatusStream;
 struct NixFlakeImport;
 struct Tables;
 struct Gaps;
@@ -1319,6 +1341,230 @@ fn nix_flake_import_rows(
     }
 
     Ok(rows)
+}
+
+fn envctl_status_stream_rows(
+    events_path: &Path,
+    proof_path: Option<&Path>,
+    span: Span,
+) -> Result<Vec<Row>, LabeledError> {
+    let mut rows = Vec::new();
+    for event in read_json_stream(events_path, span)? {
+        rows.push(envctl_event_status_row(&event, span)?);
+    }
+    if let Some(proof_path) = proof_path {
+        for proof in read_proof_records(proof_path, span)? {
+            rows.push(envctl_proof_status_row(&proof, span)?);
+        }
+    }
+    Ok(rows)
+}
+
+fn read_json_stream(path: &Path, span: Span) -> Result<Vec<JsonValue>, LabeledError> {
+    let raw = fs::read_to_string(path).map_err(|source| {
+        LabeledError::new("failed to read envctl event stream")
+            .with_label(format!("{}: {source}", path.display()), span)
+    })?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    if trimmed.starts_with('[') {
+        return serde_json::from_str(trimmed).map_err(|source| {
+            LabeledError::new("failed to parse envctl event stream array")
+                .with_label(format!("{}: {source}", path.display()), span)
+        });
+    }
+    if trimmed.starts_with('{') && serde_json::from_str::<JsonValue>(trimmed).is_ok() {
+        return serde_json::from_str(trimmed)
+            .map(|value| vec![value])
+            .map_err(|source| {
+                LabeledError::new("failed to parse envctl event stream object")
+                    .with_label(format!("{}: {source}", path.display()), span)
+            });
+    }
+
+    trimmed
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .map(|(index, line)| {
+            serde_json::from_str(line).map_err(|source| {
+                LabeledError::new("failed to parse envctl event stream JSONL")
+                    .with_label(format!("{}:{}: {source}", path.display(), index + 1), span)
+            })
+        })
+        .collect()
+}
+
+fn read_proof_records(path: &Path, span: Span) -> Result<Vec<JsonValue>, LabeledError> {
+    if path.is_file() {
+        let bytes = fs::read(path).map_err(|source| {
+            LabeledError::new("failed to read proof record")
+                .with_label(format!("{}: {source}", path.display()), span)
+        })?;
+        return serde_json::from_slice(&bytes)
+            .map(|value| vec![value])
+            .map_err(|source| {
+                LabeledError::new("failed to parse proof record")
+                    .with_label(format!("{}: {source}", path.display()), span)
+            });
+    }
+
+    let mut proof_paths = collect_files_recursive(path)?;
+    proof_paths.retain(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"));
+    proof_paths.sort();
+
+    let mut proofs = Vec::new();
+    for proof_path in proof_paths {
+        let bytes = fs::read(&proof_path).map_err(|source| {
+            LabeledError::new("failed to read proof record")
+                .with_label(format!("{}: {source}", proof_path.display()), span)
+        })?;
+        let proof = serde_json::from_slice(&bytes).map_err(|source| {
+            LabeledError::new("failed to parse proof record")
+                .with_label(format!("{}: {source}", proof_path.display()), span)
+        })?;
+        proofs.push(proof);
+    }
+    Ok(proofs)
+}
+
+fn envctl_event_status_row(event: &JsonValue, span: Span) -> Result<Row, LabeledError> {
+    let payload = event.get("payload").unwrap_or(&JsonValue::Null);
+    let status = json_object_string(payload, "status");
+    let summary = first_non_empty([
+        json_object_string(payload, "summary"),
+        json_object_string(payload, "message"),
+        json_object_string(payload, "title"),
+        json_object_string(event, "event_type"),
+    ]);
+    Ok(vec![
+        ("table", string("envctl_status_stream", span)),
+        ("view", string("event", span)),
+        ("run_id", string(json_object_string(event, "run_id"), span)),
+        (
+            "event_seq",
+            int(json_i64(event, "event_seq").unwrap_or_default(), span)?,
+        ),
+        (
+            "time",
+            string(json_object_string(event, "timestamp_utc"), span),
+        ),
+        ("phase", string(json_object_string(event, "phase"), span)),
+        (
+            "event_type",
+            string(json_object_string(event, "event_type"), span),
+        ),
+        (
+            "actor",
+            string(json_object_string(event, "actor_type"), span),
+        ),
+        (
+            "actor_id",
+            string(json_object_string(event, "actor_id"), span),
+        ),
+        (
+            "operation",
+            string(json_object_string(event, "operation_id"), span),
+        ),
+        ("status", string(status.clone(), span)),
+        ("summary", string(summary, span)),
+        (
+            "blocked",
+            bool_value(
+                matches!(status.as_str(), "blocked" | "failed" | "error"),
+                span,
+            ),
+        ),
+        (
+            "next_action",
+            string(json_object_string(payload, "next_action"), span),
+        ),
+        ("proof_task_id", string("", span)),
+        ("proof_status", string("", span)),
+        ("proof_uri", string("", span)),
+        (
+            "evidence_count",
+            int(json_array_len(event, "evidence_refs"), span)?,
+        ),
+    ])
+}
+
+fn envctl_proof_status_row(proof: &JsonValue, span: Span) -> Result<Row, LabeledError> {
+    let status = json_object_string(proof, "status");
+    Ok(vec![
+        ("table", string("envctl_status_stream", span)),
+        ("view", string("proof", span)),
+        ("run_id", string("", span)),
+        ("event_seq", int(0, span)?),
+        (
+            "time",
+            string(
+                first_non_empty([
+                    json_object_string(proof, "completed_at"),
+                    json_object_string(proof, "started_at"),
+                ]),
+                span,
+            ),
+        ),
+        ("phase", string("", span)),
+        ("event_type", string("proof_status", span)),
+        ("actor", string(json_object_string(proof, "actor"), span)),
+        (
+            "actor_id",
+            string(json_object_string(proof, "helper_id"), span),
+        ),
+        (
+            "operation",
+            string(json_object_string(proof, "task_id"), span),
+        ),
+        ("status", string(status.clone(), span)),
+        (
+            "summary",
+            string(json_object_string(proof, "failure_reason"), span),
+        ),
+        (
+            "blocked",
+            bool_value(
+                !matches!(
+                    status.as_str(),
+                    "completed" | "passed" | "success" | "proven" | "satisfied"
+                ),
+                span,
+            ),
+        ),
+        (
+            "next_action",
+            string(json_object_string(proof, "next_action"), span),
+        ),
+        (
+            "proof_task_id",
+            string(json_object_string(proof, "task_id"), span),
+        ),
+        ("proof_status", string(status, span)),
+        (
+            "proof_uri",
+            string(json_object_string(proof, "logs_uri"), span),
+        ),
+        (
+            "evidence_count",
+            int(json_array_len(proof, "evidence"), span)?,
+        ),
+    ])
+}
+
+fn json_array_len(row: &JsonValue, key: &str) -> usize {
+    row.get(key)
+        .and_then(JsonValue::as_array)
+        .map_or(0, Vec::len)
+}
+
+fn first_non_empty<const N: usize>(values: [String; N]) -> String {
+    values
+        .into_iter()
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
 }
 
 fn nix_flake_summary_row(
@@ -3272,10 +3518,12 @@ impl SimplePluginCommand for IngestEnvelope {
         input: &Value,
     ) -> Result<Value, LabeledError> {
         if matches!(input, Value::Nothing { .. }) {
-            return Err(LabeledError::new("missing typed envelope input").with_label(
-                "pipe the ingest envelope record into this command",
-                call.head,
-            ));
+            return Err(
+                LabeledError::new("missing typed envelope input").with_label(
+                    "pipe the ingest envelope record into this command",
+                    call.head,
+                ),
+            );
         }
         let envelope = nu_value_to_json(input).map_err(|message| {
             LabeledError::new("invalid typed envelope").with_label(message, call.head)
@@ -3299,10 +3547,8 @@ impl SimplePluginCommand for IngestEnvelope {
             std::process::id()
         ));
         std::fs::write(&temp_path, &json).map_err(|error| {
-            LabeledError::new("failed to stage envelope").with_label(
-                format!("{}: {error}", temp_path.display()),
-                call.head,
-            )
+            LabeledError::new("failed to stage envelope")
+                .with_label(format!("{}: {error}", temp_path.display()), call.head)
         })?;
         let mut argv = vec![
             "ingest-envelope".to_string(),
@@ -3505,6 +3751,52 @@ impl SimplePluginCommand for EnvctlInventoryImport {
     }
 }
 
+impl SimplePluginCommand for EnvctlStatusStream {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb envctl status stream"
+    }
+
+    fn description(&self) -> &str {
+        "Convert envctl run events and proof records into a Nushell status stream table."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required(
+                "events_path",
+                SyntaxShape::Filepath,
+                "Envctl run event JSON array/object or JSONL stream",
+            )
+            .named(
+                "proof",
+                SyntaxShape::Filepath,
+                "Optional proof record JSON file or directory",
+                None,
+            )
+            .named("store", SyntaxShape::Filepath, "CodeDB store path", None)
+            .named("limit", SyntaxShape::Int, "Maximum rows to return", None)
+            .named("cursor", SyntaxShape::Int, "Zero-based row cursor", None)
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let events_path = path_from_positional(engine, call, 0)?;
+        let proof_path = call
+            .get_flag::<String>("proof")?
+            .map(|path| path_from_engine_cwd(Path::new(&path), engine, call.head))
+            .transpose()?;
+        let rows = envctl_status_stream_rows(&events_path, proof_path.as_deref(), call.head)?;
+        Ok(rows_to_value(page_rows(rows, call)?, call.head))
+    }
+}
+
 impl SimplePluginCommand for NixFlakeImport {
     type Plugin = CodeDbPlugin;
 
@@ -3651,10 +3943,10 @@ static_table_command!(
 //
 // The plugin is a CONTROL / VISUAL surface only. It shells out to the `envctl db`
 // CLI — the source of truth — and renders its `--json` output as Nushell-native
-// tables. It owns NO db state and NEVER applies a refactor/deploy: apply is
-// routed through the envctl boundary (confirm + approval), which this plugin
-// surfaces (the fail-closed plan) but does not perform. The envctl binary is
-// resolved from `ENVCTL_BIN` (default `envctl` on PATH).
+// tables. It owns NO db state. Plans and gated refactor/deploy approvals are
+// routed through envctl itself, so the plugin cannot bypass envctl's
+// confirm+approval checks. The envctl binary is resolved from `ENVCTL_BIN`
+// (default `envctl` on PATH).
 // ---------------------------------------------------------------------------
 
 fn envctl_bin() -> String {
@@ -3662,8 +3954,8 @@ fn envctl_bin() -> String {
 }
 
 /// Build the envctl argv for a db subcommand. Pure, so routing is unit-testable.
-/// Always requests `--json`; NEVER includes apply/confirm — the plugin is
-/// read/plan-only and cannot mutate through the boundary.
+/// Always requests `--json`. Callers may add envctl's gated mutation flags,
+/// but all state transitions still happen behind the envctl boundary.
 fn envctl_db_argv(repo: Option<&str>, sub: &[&str]) -> Vec<String> {
     let mut argv = vec!["--json".to_string(), "db".to_string()];
     if let Some(r) = repo {
@@ -3733,7 +4025,10 @@ fn nu_value_to_json(value: &Value) -> Result<JsonValue, String> {
 fn json_value_to_nu(json: &JsonValue, span: Span) -> Value {
     match json {
         JsonValue::Array(items) => Value::list(
-            items.iter().map(|item| json_value_to_nu(item, span)).collect(),
+            items
+                .iter()
+                .map(|item| json_value_to_nu(item, span))
+                .collect(),
             span,
         ),
         JsonValue::Object(map) => {
@@ -3910,6 +4205,42 @@ impl SimplePluginCommand for EnvctlDbQuery {
     }
 }
 
+struct EnvctlDbSymbols;
+
+impl SimplePluginCommand for EnvctlDbSymbols {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb envctl-db symbols"
+    }
+
+    fn description(&self) -> &str {
+        "Render envctl's symbol and occurrence indexes as Nushell-native tables. Read-only via the envctl boundary."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self)).named(
+            "repo",
+            SyntaxShape::Filepath,
+            "Repository root to index",
+            None,
+        )
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let repo = repo_flag_or_cwd_string(call)?;
+        let argv = envctl_db_argv(Some(&repo), &["symbols"]);
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_value_to_nu(&json, call.head))
+    }
+}
+
 struct EnvctlDbRefactor;
 
 impl SimplePluginCommand for EnvctlDbRefactor {
@@ -3920,7 +4251,7 @@ impl SimplePluginCommand for EnvctlDbRefactor {
     }
 
     fn description(&self) -> &str {
-        "Render the fail-closed envctl root-alias refactor PLAN (e.g. META_ROOT -> LIFE_OS_ROOT) as a table of proposed changes. The plugin never applies: apply is routed through the envctl boundary (confirm + approval)."
+        "Plan or approve a fail-closed envctl root-alias refactor (e.g. META_ROOT -> LIFE_OS_ROOT). Gated apply is performed only by envctl with confirm + approval."
     }
 
     fn signature(&self) -> Signature {
@@ -3944,7 +4275,25 @@ impl SimplePluginCommand for EnvctlDbRefactor {
             .named(
                 "render-out",
                 SyntaxShape::Filepath,
-                "Record a render-out target tree (plan-only here)",
+                "Render rewritten files into a new tree",
+                None,
+            )
+            .switch("apply", "Request envctl's gated in-place apply", None)
+            .switch(
+                "confirm",
+                "Confirm the in-place rewrite (required with --apply)",
+                None,
+            )
+            .named(
+                "approve",
+                SyntaxShape::String,
+                "Approver id (required with --apply)",
+                None,
+            )
+            .named(
+                "note",
+                SyntaxShape::String,
+                "Approval note recorded by envctl",
                 None,
             )
     }
@@ -3964,19 +4313,614 @@ impl SimplePluginCommand for EnvctlDbRefactor {
             argv.push("--render-out".into());
             argv.push(out);
         }
+        if call.has_flag("apply")? {
+            argv.push("--apply".into());
+        }
+        if call.has_flag("confirm")? {
+            argv.push("--confirm".into());
+        }
+        if let Some(approver) = call.get_flag::<String>("approve")? {
+            argv.push("--approve".into());
+            argv.push(approver);
+        }
+        if let Some(note) = call.get_flag::<String>("note")? {
+            argv.push("--note".into());
+            argv.push(note);
+        }
         let json = run_envctl_json(&argv, call.head)?;
-        // Current envctl emits `{plan:{changes:[...]}, rendered, mutated}`.
-        // Accept the earlier direct-plan shape as well to preserve protocol
-        // compatibility while rendering the same native rows.
-        let changes = json
-            .get("plan")
-            .and_then(|plan| plan.get("changes"))
-            .or_else(|| json.get("changes"))
-            .cloned()
-            .unwrap_or(JsonValue::Array(vec![]));
-        Ok(json_array_to_table(&changes, call.head))
+        Ok(json_value_to_nu(&json, call.head))
     }
 }
+
+struct EnvctlDbDeploy;
+
+impl SimplePluginCommand for EnvctlDbDeploy {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb envctl-db deploy"
+    }
+
+    fn description(&self) -> &str {
+        "Plan or approve a fail-closed hook/wrapper deploy. Gated promotion is performed only by envctl with confirm + approval."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required("target", SyntaxShape::Filepath, "Target layout root")
+            .named(
+                "kind",
+                SyntaxShape::String,
+                "Artifact kind (default: hooks)",
+                None,
+            )
+            .named(
+                "stage",
+                SyntaxShape::Filepath,
+                "Directory containing staged artifacts",
+                None,
+            )
+            .switch("apply", "Request envctl's gated promotion", None)
+            .switch(
+                "confirm",
+                "Confirm the promotion (required with --apply)",
+                None,
+            )
+            .named(
+                "approve",
+                SyntaxShape::String,
+                "Approver id (required with --apply)",
+                None,
+            )
+            .named(
+                "note",
+                SyntaxShape::String,
+                "Approval note recorded by envctl",
+                None,
+            )
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let target: String = call.req(0)?;
+        let mut argv = envctl_db_argv(None, &["deploy", "--target", &target]);
+        if let Some(kind) = call.get_flag::<String>("kind")? {
+            argv.push("--kind".into());
+            argv.push(kind);
+        }
+        if let Some(stage) = call.get_flag::<String>("stage")? {
+            argv.push("--stage".into());
+            argv.push(stage);
+        }
+        if call.has_flag("apply")? {
+            argv.push("--apply".into());
+        }
+        if call.has_flag("confirm")? {
+            argv.push("--confirm".into());
+        }
+        if let Some(approver) = call.get_flag::<String>("approve")? {
+            argv.push("--approve".into());
+            argv.push(approver);
+        }
+        if let Some(note) = call.get_flag::<String>("note")? {
+            argv.push("--note".into());
+            argv.push(note);
+        }
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_value_to_nu(&json, call.head))
+    }
+}
+
+// REQ-032: live migration visuals.
+//
+// These commands deliberately preserve envctl's JSON response as typed Nushell
+// values. envctl remains the sole source of truth; the plugin neither caches nor
+// derives status, proof state, blockers, graph edges, or readiness.
+fn envctl_migration_argv(before_run: &[&str], run: &str, after_run: &[&str]) -> Vec<String> {
+    let mut argv = vec!["--json".to_string(), "migration".to_string()];
+    argv.extend(before_run.iter().map(|part| (*part).to_string()));
+    argv.push(run.to_string());
+    argv.extend(after_run.iter().map(|part| (*part).to_string()));
+    argv
+}
+
+macro_rules! envctl_migration_visual_command {
+    (
+        $command:ident,
+        $name:literal,
+        [$($before_run:literal),+ $(,)?],
+        [$($after_run:literal),* $(,)?],
+        $field:expr,
+        $description:literal
+    ) => {
+        struct $command;
+
+        impl SimplePluginCommand for $command {
+            type Plugin = CodeDbPlugin;
+
+            fn name(&self) -> &str {
+                $name
+            }
+
+            fn description(&self) -> &str {
+                $description
+            }
+
+            fn signature(&self) -> Signature {
+                command_signature(PluginCommand::name(self)).required(
+                    "run",
+                    SyntaxShape::String,
+                    "Migration run identifier",
+                )
+            }
+
+            fn run(
+                &self,
+                _plugin: &CodeDbPlugin,
+                _engine: &EngineInterface,
+                call: &EvaluatedCall,
+                _input: &Value,
+            ) -> Result<Value, LabeledError> {
+                let run: String = call.req(0)?;
+                let argv =
+                    envctl_migration_argv(&[$($before_run),+], &run, &[$($after_run),*]);
+                let mut json = run_envctl_json(&argv, call.head)?;
+                if let Some(field) = $field {
+                    json = json.get(field).cloned().ok_or_else(|| {
+                        LabeledError::new("envctl migration response is missing a required field")
+                            .with_label(field, call.head)
+                    })?;
+                }
+                Ok(json_value_to_nu(&json, call.head))
+            }
+        }
+    };
+}
+
+fn envctl_migration_mutating_argv(before_run: &[&str], after_run: &[&str]) -> Vec<String> {
+    let mut argv = vec!["--json".to_string(), "migration".to_string()];
+    argv.extend(before_run.iter().map(|part| (*part).to_string()));
+    argv.extend(after_run.iter().map(|part| (*part).to_string()));
+    argv.push("--emit-event".to_string());
+    argv
+}
+
+fn envctl_migration_query_argv(parts: &[&str]) -> Vec<String> {
+    let mut argv = vec!["--json".to_string(), "migration".to_string()];
+    argv.extend(parts.iter().map(|part| (*part).to_string()));
+    argv
+}
+
+struct EnvctlMigrationTargetList;
+
+impl SimplePluginCommand for EnvctlMigrationTargetList {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "envctl migration target list"
+    }
+
+    fn description(&self) -> &str {
+        "Render the available migration targets as a Nushell table."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let argv = envctl_migration_query_argv(&["target", "list"]);
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_array_to_table(&json, call.head))
+    }
+}
+
+struct EnvctlMigrationRunPlan;
+
+impl SimplePluginCommand for EnvctlMigrationRunPlan {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "envctl migration run plan"
+    }
+
+    fn description(&self) -> &str {
+        "Create or preview a migration run plan."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required("target", SyntaxShape::String, "Target identifier")
+            .required("recipe", SyntaxShape::String, "Recipe identifier")
+            .named("mode", SyntaxShape::String, "Run approval mode", None)
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let target: String = call.req(0)?;
+        let recipe: String = call.req(1)?;
+        let mut argv =
+            envctl_migration_query_argv(&["run", "plan", "--target", &target, "--recipe", &recipe]);
+        if let Some(mode) = call.get_flag::<String>("mode")? {
+            argv.push("--mode".into());
+            argv.push(mode);
+        }
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_value_to_nu(&json, call.head))
+    }
+}
+
+struct EnvctlMigrationRunStart;
+
+impl SimplePluginCommand for EnvctlMigrationRunStart {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "envctl migration run start"
+    }
+
+    fn description(&self) -> &str {
+        "Start a previously planned migration run."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required("plan", SyntaxShape::String, "Migration plan identifier")
+            .named("mode", SyntaxShape::String, "Run execution mode", None)
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let plan: String = call.req(0)?;
+        let mut argv = envctl_migration_mutating_argv(&["run", "start", "--plan", &plan], &[]);
+        if let Some(mode) = call.get_flag::<String>("mode")? {
+            argv.push("--mode".into());
+            argv.push(mode);
+        }
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_value_to_nu(&json, call.head))
+    }
+}
+
+struct EnvctlMigrationPause;
+
+impl SimplePluginCommand for EnvctlMigrationPause {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "envctl migration pause"
+    }
+
+    fn description(&self) -> &str {
+        "Pause a running migration run."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self)).required(
+            "run",
+            SyntaxShape::String,
+            "Migration run identifier",
+        )
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let run: String = call.req(0)?;
+        let argv = envctl_migration_mutating_argv(&["control", "pause", &run], &[]);
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_value_to_nu(&json, call.head))
+    }
+}
+
+struct EnvctlMigrationResume;
+
+impl SimplePluginCommand for EnvctlMigrationResume {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "envctl migration resume"
+    }
+
+    fn description(&self) -> &str {
+        "Resume a paused migration run."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self)).required(
+            "run",
+            SyntaxShape::String,
+            "Migration run identifier",
+        )
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let run: String = call.req(0)?;
+        let argv = envctl_migration_mutating_argv(&["control", "resume", &run], &[]);
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_value_to_nu(&json, call.head))
+    }
+}
+
+struct EnvctlMigrationApprove;
+
+impl SimplePluginCommand for EnvctlMigrationApprove {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "envctl migration approve"
+    }
+
+    fn description(&self) -> &str {
+        "Approve a pending migration action through envctl."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required("approval", SyntaxShape::String, "Approval identifier")
+            .named("by", SyntaxShape::String, "Approver identity", None)
+            .named("reason", SyntaxShape::String, "Approval reason", None)
+            .named(
+                "approver",
+                SyntaxShape::String,
+                "Approver identity (legacy alias)",
+                None,
+            )
+            .named(
+                "note",
+                SyntaxShape::String,
+                "Approval reason (legacy alias)",
+                None,
+            )
+            .named("evidence", SyntaxShape::String, "JSON evidence list", None)
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let approval: String = call.req(0)?;
+        let mut argv =
+            envctl_migration_mutating_argv(&["approval", "approve", "--approval", &approval], &[]);
+        let by = {
+            let by = call.get_flag::<String>("by")?;
+            let approver = call.get_flag::<String>("approver")?;
+            by.or(approver)
+        }
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            LabeledError::new("missing approver identity").with_label(
+                "set --by <identity> (or --approver for compatibility)",
+                call.head,
+            )
+        })?;
+        argv.push("--by".into());
+        argv.push(by);
+        let reason = {
+            let reason = call.get_flag::<String>("reason")?;
+            let note = call.get_flag::<String>("note")?;
+            reason.or(note)
+        }
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            LabeledError::new("missing approval reason").with_label(
+                "set --reason <text> (or --note for compatibility)",
+                call.head,
+            )
+        })?;
+        argv.push("--reason".into());
+        argv.push(reason);
+        if let Some(evidence) = call.get_flag::<String>("evidence")? {
+            argv.push("--evidence".into());
+            argv.push(evidence);
+        }
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_value_to_nu(&json, call.head))
+    }
+}
+
+struct EnvctlMigrationDeny;
+
+impl SimplePluginCommand for EnvctlMigrationDeny {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "envctl migration deny"
+    }
+
+    fn description(&self) -> &str {
+        "Deny a pending migration action through envctl."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required("approval", SyntaxShape::String, "Approval identifier")
+            .named("by", SyntaxShape::String, "Approver identity", None)
+            .named("reason", SyntaxShape::String, "Denial reason", None)
+            .named(
+                "approver",
+                SyntaxShape::String,
+                "Approver identity (legacy alias)",
+                None,
+            )
+            .named(
+                "note",
+                SyntaxShape::String,
+                "Denial reason (legacy alias)",
+                None,
+            )
+            .named("evidence", SyntaxShape::String, "JSON evidence list", None)
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let approval: String = call.req(0)?;
+        let mut argv =
+            envctl_migration_mutating_argv(&["approval", "deny", "--approval", &approval], &[]);
+        let by = {
+            let by = call.get_flag::<String>("by")?;
+            let approver = call.get_flag::<String>("approver")?;
+            by.or(approver)
+        }
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            LabeledError::new("missing approver identity").with_label(
+                "set --by <identity> (or --approver for compatibility)",
+                call.head,
+            )
+        })?;
+        argv.push("--by".into());
+        argv.push(by);
+        let reason = {
+            let reason = call.get_flag::<String>("reason")?;
+            let note = call.get_flag::<String>("note")?;
+            reason.or(note)
+        }
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            LabeledError::new("missing denial reason").with_label(
+                "set --reason <text> (or --note for compatibility)",
+                call.head,
+            )
+        })?;
+        argv.push("--reason".into());
+        argv.push(reason);
+        if let Some(evidence) = call.get_flag::<String>("evidence")? {
+            argv.push("--evidence".into());
+            argv.push(evidence);
+        }
+        let json = run_envctl_json(&argv, call.head)?;
+        Ok(json_value_to_nu(&json, call.head))
+    }
+}
+
+envctl_migration_visual_command!(
+    EnvctlMigrationStatus,
+    "envctl migration status",
+    ["run", "status"],
+    [],
+    None::<&str>,
+    "Render the run overview and phase progress from envctl database records."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationTimeline,
+    "envctl migration timeline",
+    ["run", "events"],
+    [],
+    None::<&str>,
+    "Render the ordered migration event timeline from envctl database records."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationOps,
+    "envctl migration ops",
+    ["run", "ops"],
+    ["--queue"],
+    None::<&str>,
+    "Render queued operations, phases, parallel lanes, and operation blockers."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationApprovals,
+    "envctl migration approvals",
+    ["approval", "list", "--run"],
+    [],
+    None::<&str>,
+    "Render open human approval records."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationArtifacts,
+    "envctl migration artifacts",
+    ["run", "artifacts"],
+    [],
+    None::<&str>,
+    "Render the migration artifact index and provenance records."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationGraph,
+    "envctl migration graph",
+    ["run", "export"],
+    [],
+    Some("graph_edges"),
+    "Render durable dependency graph edges for the migration run."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationValidations,
+    "envctl migration validations",
+    ["run", "validations"],
+    [],
+    None::<&str>,
+    "Render the validation scorecard and evidence links."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationReplay,
+    "envctl migration replay",
+    ["run", "readiness"],
+    [],
+    None::<&str>,
+    "Render replay steps and hash-verification readiness without mutating state."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationRollbackPlan,
+    "envctl migration rollback plan",
+    ["rollback", "list"],
+    [],
+    None::<&str>,
+    "Render rollback steps, checkpoints, blockers, and readiness."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationProof,
+    "envctl migration proof",
+    ["run", "export"],
+    [],
+    Some("evidence"),
+    "Render proof and evidence records with their recorded checksums."
+);
+envctl_migration_visual_command!(
+    EnvctlMigrationVisuals,
+    "envctl migration visuals",
+    ["run", "export"],
+    [],
+    None::<&str>,
+    "Render the consolidated overview, parallel lanes, proof state, blockers, and task graph."
+);
 
 fn main() {
     serve_plugin(&CodeDbPlugin, MsgPackSerializer)
@@ -3986,11 +4930,9 @@ fn main() {
 mod envctl_db_tests {
     use super::*;
 
-    // Defends REQ-061: the plugin routes through the envctl boundary and is
-    // read/plan-only — the argv it builds never carries apply/confirm, so the
-    // plugin cannot mutate through the boundary.
+    // Defends REQ-061: every db operation starts at the envctl JSON boundary.
     #[test]
-    fn envctl_db_argv_routes_read_only_through_boundary() {
+    fn envctl_db_argv_routes_through_json_boundary() {
         let argv = envctl_db_argv(Some("/repo"), &["query", "--preset", "root-meta"]);
         assert_eq!(
             argv,
@@ -4003,12 +4945,6 @@ mod envctl_db_tests {
                 "--preset",
                 "root-meta"
             ]
-        );
-        // Read-only invariant: no mutating flags reach envctl from the plugin.
-        assert!(
-            !argv
-                .iter()
-                .any(|a| a == "apply" || a == "--apply" || a == "--confirm")
         );
         // roots needs no repo.
         assert_eq!(
@@ -4047,8 +4983,7 @@ mod envctl_db_tests {
         );
     }
 
-    // Defends REQ-061: the refactor PLAN's changes render as a table; the plugin
-    // surfaces the fail-closed plan (safe + refused rows) but performs no apply.
+    // Defends REQ-061: the refactor PLAN's changes render as a table.
     #[test]
     fn refactor_plan_changes_render_as_table() {
         let plan: JsonValue = serde_json::from_str(
@@ -4063,7 +4998,7 @@ mod envctl_db_tests {
             }"#,
         )
         .unwrap();
-        // Plan is fail-closed and un-approved — the plugin renders, never applies.
+        // Plan is fail-closed and un-approved.
         assert_eq!(plan["approved"], serde_json::json!(false));
         let changes = plan.get("changes").cloned().unwrap();
         let table = json_array_to_table(&changes, Span::unknown());
@@ -4081,10 +5016,9 @@ mod envctl_db_tests {
         );
     }
 
-    // Defends REQ-061: the plugin registers the three envctl-db commands and none
-    // of them are mutating (no `apply` verb in the plugin's command surface).
+    // Defends REQ-061: read views and gated controls are all registered.
     #[test]
-    fn plugin_registers_envctl_db_commands_read_only() {
+    fn plugin_registers_complete_envctl_db_surface() {
         let plugin = CodeDbPlugin;
         let names: Vec<String> = plugin
             .commands()
@@ -4093,11 +5027,250 @@ mod envctl_db_tests {
             .collect();
         assert!(names.iter().any(|n| n == "codedb envctl-db roots"));
         assert!(names.iter().any(|n| n == "codedb envctl-db query"));
+        assert!(names.iter().any(|n| n == "codedb envctl-db symbols"));
         assert!(names.iter().any(|n| n == "codedb envctl-db refactor"));
-        assert!(
-            !names.iter().any(|n| n.contains("apply")),
-            "plugin must expose no mutating apply command"
+        assert!(names.iter().any(|n| n == "codedb envctl-db deploy"));
+    }
+
+    // Defends the ownership boundary: gated mutation flags are passed to
+    // envctl, never interpreted as plugin-owned state.
+    #[test]
+    fn refactor_and_deploy_approval_argv_stays_inside_envctl() {
+        assert_eq!(
+            envctl_db_argv(
+                Some("/repo"),
+                &[
+                    "refactor",
+                    "--from",
+                    "META_ROOT",
+                    "--to",
+                    "LIFE_OS_ROOT",
+                    "--apply",
+                    "--confirm",
+                    "--approve",
+                    "operator",
+                ],
+            ),
+            vec![
+                "--json",
+                "db",
+                "--repo-root",
+                "/repo",
+                "refactor",
+                "--from",
+                "META_ROOT",
+                "--to",
+                "LIFE_OS_ROOT",
+                "--apply",
+                "--confirm",
+                "--approve",
+                "operator",
+            ]
         );
+        assert_eq!(
+            envctl_db_argv(
+                None,
+                &[
+                    "deploy",
+                    "--target",
+                    "/release",
+                    "--apply",
+                    "--confirm",
+                    "--approve",
+                    "operator",
+                ],
+            ),
+            vec![
+                "--json",
+                "db",
+                "deploy",
+                "--target",
+                "/release",
+                "--apply",
+                "--confirm",
+                "--approve",
+                "operator",
+            ]
+        );
+    }
+
+    #[test]
+    fn migration_visual_argv_routes_to_envctl_json_without_mutation() {
+        let argv = envctl_migration_argv(&["run", "ops"], "run-42", &["--queue"]);
+        assert_eq!(
+            argv,
+            vec!["--json", "migration", "run", "ops", "run-42", "--queue"]
+        );
+        assert_eq!(
+            envctl_migration_argv(&["approval", "list", "--run"], "run-42", &[]),
+            vec!["--json", "migration", "approval", "list", "--run", "run-42"]
+        );
+        assert_eq!(
+            envctl_migration_argv(&["run", "export"], "run-42", &[]),
+            vec!["--json", "migration", "run", "export", "run-42"]
+        );
+        assert!(
+            !argv.iter().any(|arg| matches!(
+                arg.as_str(),
+                "start" | "pause" | "resume" | "approve" | "deny" | "--emit-event"
+            )),
+            "live visual commands must remain read-only"
+        );
+    }
+
+    #[test]
+    fn migration_operator_command_args_are_distinguished_by_mutation_mode() {
+        assert_eq!(
+            envctl_migration_query_argv(&["target", "list"]),
+            vec!["--json", "migration", "target", "list"]
+        );
+        assert_eq!(
+            envctl_migration_mutating_argv(&["control", "pause", "run-42"], &[]),
+            vec![
+                "--json",
+                "migration",
+                "control",
+                "pause",
+                "run-42",
+                "--emit-event"
+            ]
+        );
+        assert_eq!(
+            envctl_migration_mutating_argv(
+                &[
+                    "approval",
+                    "approve",
+                    "--approval",
+                    "approval-42",
+                    "--by",
+                    "operator",
+                    "--reason",
+                    "risk check"
+                ],
+                &[]
+            ),
+            vec![
+                "--json",
+                "migration",
+                "approval",
+                "approve",
+                "--approval",
+                "approval-42",
+                "--by",
+                "operator",
+                "--reason",
+                "risk check",
+                "--emit-event"
+            ]
+        );
+        assert_eq!(
+            envctl_migration_mutating_argv(
+                &[
+                    "approval",
+                    "deny",
+                    "--approval",
+                    "approval-42",
+                    "--by",
+                    "operator",
+                    "--reason",
+                    "rejected"
+                ],
+                &[]
+            ),
+            vec![
+                "--json",
+                "migration",
+                "approval",
+                "deny",
+                "--approval",
+                "approval-42",
+                "--by",
+                "operator",
+                "--reason",
+                "rejected",
+                "--emit-event"
+            ]
+        );
+    }
+
+    #[test]
+    fn plugin_registers_complete_live_visual_surface() {
+        let names: Vec<String> = CodeDbPlugin
+            .commands()
+            .iter()
+            .map(|command| PluginCommand::name(command.as_ref()).to_string())
+            .collect();
+        for required in [
+            "envctl migration status",
+            "envctl migration timeline",
+            "envctl migration ops",
+            "envctl migration approvals",
+            "envctl migration artifacts",
+            "envctl migration graph",
+            "envctl migration validations",
+            "envctl migration replay",
+            "envctl migration rollback plan",
+            "envctl migration proof",
+            "envctl migration visuals",
+        ] {
+            assert!(
+                names.iter().any(|name| name == required),
+                "missing live visual command {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn plugin_registers_complete_operator_surface() {
+        let names: Vec<String> = CodeDbPlugin
+            .commands()
+            .iter()
+            .map(|command| PluginCommand::name(command.as_ref()).to_string())
+            .collect();
+        for required in [
+            "envctl migration target list",
+            "envctl migration run plan",
+            "envctl migration run start",
+            "envctl migration pause",
+            "envctl migration resume",
+            "envctl migration approve",
+            "envctl migration deny",
+        ] {
+            assert!(
+                names.iter().any(|name| name == required),
+                "missing operator command {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn consolidated_visuals_preserve_nested_typed_records() {
+        let json = serde_json::json!({
+            "overview": {"run_id": "run-42", "percent": 75, "blocked": true},
+            "lanes": [{"lane": "lane-c", "active": 2}],
+            "parallel_groups": ["nu_plugin_parallel"],
+            "proof_state": {"verified": 3, "missing": 1},
+            "blockers": [{"task_id": "REQ-041", "reason": "proof missing"}],
+            "task_graph": [{"from": "REQ-032", "to": "REQ-041"}],
+            "dashboard_markdown": "# Migration run-42"
+        });
+        let value = json_value_to_nu(&json, Span::unknown());
+        let Value::Record { val, .. } = value else {
+            panic!("expected consolidated visuals record");
+        };
+        assert!(matches!(
+            val.get("overview"),
+            Some(Value::Record { val, .. })
+                if matches!(val.get("percent"), Some(Value::Int { val, .. }) if *val == 75)
+        ));
+        assert!(matches!(
+            val.get("lanes"),
+            Some(Value::List { vals, .. }) if vals.len() == 1
+        ));
+        assert!(matches!(
+            val.get("blockers"),
+            Some(Value::List { vals, .. }) if vals.len() == 1
+        ));
     }
 }
 
@@ -4630,6 +5803,105 @@ mod tests {
         }
         assert!(names.iter().any(|name| name == "codedb scan"));
         assert!(names.iter().any(|name| name == "codedb export"));
+        assert!(
+            names
+                .iter()
+                .any(|name| name == "codedb envctl status stream")
+        );
+    }
+
+    // Defends: envctl run events and proof records become one native Nushell status table.
+    #[test]
+    fn envctl_status_stream_rows_merge_events_and_proofs() {
+        let root = temp_path("envctl-status-stream");
+        let proof_dir = root.join("proof_records");
+        fs::create_dir_all(&proof_dir).unwrap();
+        let events_path = root.join("events.jsonl");
+        fs::write(
+            &events_path,
+            r#"{"run_id":"run-1","event_seq":1,"event_type":"operation_started","phase":"scan","actor_type":"agent","actor_id":"helper-1","operation_id":"op-1","timestamp_utc":"2026-07-04T23:00:00Z","payload":{"status":"running","summary":"scan started"},"evidence_refs":["logs/scan.log"]}
+{"run_id":"run-1","event_seq":2,"event_type":"approval_required","phase":"apply","actor_type":"system","actor_id":null,"operation_id":"op-2","timestamp_utc":"2026-07-04T23:01:00Z","payload":{"status":"blocked","summary":"approval required","next_action":"approve or deny"},"evidence_refs":[]}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            proof_dir.join("REQ-034_PLUGIN_STATUS_STREAMS.proof.json"),
+            r#"{
+  "task_id": "REQ-034_PLUGIN_STATUS_STREAMS",
+  "status": "completed",
+  "completed_at": "2026-07-04T23:02:00+00:00",
+  "actor": "codex-cli-local",
+  "helper_id": "helper-nu-streams-01",
+  "logs_uri": "logs/REQ-034_PLUGIN_STATUS_STREAMS.log",
+  "evidence": ["crates/nu_plugin_codedb/src/main.rs"],
+  "failure_reason": ""
+}"#,
+        )
+        .unwrap();
+
+        let rows =
+            envctl_status_stream_rows(&events_path, Some(&proof_dir), Span::unknown()).unwrap();
+
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "view", "event")
+                && row_has_string(row, "run_id", "run-1")
+                && row_has_string(row, "operation", "op-1")
+                && row_has_string(row, "status", "running")
+                && row_has_string(row, "summary", "scan started")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "view", "event")
+                && row_has_string(row, "status", "blocked")
+                && row.iter().any(|(key, value)| {
+                    *key == "blocked" && matches!(value, Value::Bool { val, .. } if *val)
+                })
+                && row_has_string(row, "next_action", "approve or deny")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "view", "proof")
+                && row_has_string(row, "proof_task_id", "REQ-034_PLUGIN_STATUS_STREAMS")
+                && row_has_string(row, "proof_status", "completed")
+                && row_has_string(row, "proof_uri", "logs/REQ-034_PLUGIN_STATUS_STREAMS.log")
+        }));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    // Defends: malformed status streams fail before the plugin claims a partial view.
+    #[test]
+    fn envctl_status_stream_rows_reject_bad_jsonl() {
+        let root = temp_path("envctl-status-stream-bad-jsonl");
+        fs::create_dir_all(&root).unwrap();
+        let events_path = root.join("events.jsonl");
+        fs::write(&events_path, "{\"run_id\":\"run-1\"}\n{not json\n").unwrap();
+
+        let error = envctl_status_stream_rows(&events_path, None, Span::unknown()).unwrap_err();
+
+        assert!(error.to_string().contains("failed to parse"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn envctl_proof_status_row_marks_proven_as_non_blocking() {
+        let proof = serde_json::json!({
+            "task_id": "REQ-034_PLUGIN_STATUS_STREAMS",
+            "status": "proven",
+            "actor": "test-agent",
+            "helper_id": "helper-nu-streams-01",
+            "logs_uri": "logs/REQ-034_PLUGIN_STATUS_STREAMS.log",
+            "evidence": [],
+        });
+        let row = envctl_proof_status_row(&proof, Span::unknown()).unwrap();
+        let blocked = row
+            .iter()
+            .find(|(key, _)| *key == "blocked")
+            .and_then(|(_, value)| match value {
+                Value::Bool { val, .. } => Some(*val),
+                _ => None,
+            });
+
+        assert_eq!(blocked, Some(false));
     }
 
     // Defends: safe structured inventory targets expose native datatable payload rows.

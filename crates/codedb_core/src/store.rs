@@ -30,21 +30,48 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StoreError(String);
+pub struct StoreError {
+    message: String,
+    /// Set only via [`StoreError::permission_denied`], from an
+    /// `io::ErrorKind::PermissionDenied` observed while opening/reading a
+    /// contained file. Callers use [`StoreError::is_permission_denied`] to
+    /// record-and-continue past an unreadable file instead of aborting an
+    /// entire whole-host capture (EVERY-BYTE engine gap G3).
+    permission_denied: bool,
+}
 
 impl StoreError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self(message.into())
+        Self {
+            message: message.into(),
+            permission_denied: false,
+        }
+    }
+
+    /// Same as [`StoreError::new`], but marked so [`Self::is_permission_denied`]
+    /// reports `true`.
+    pub(crate) fn permission_denied(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            permission_denied: true,
+        }
     }
 
     pub fn message(&self) -> &str {
-        &self.0
+        &self.message
+    }
+
+    /// Whether this error was raised because a contained file could not be
+    /// opened or read due to filesystem permissions (`EACCES`/`EPERM`), as
+    /// opposed to any other failure (I/O error, corruption, policy refusal).
+    pub fn is_permission_denied(&self) -> bool {
+        self.permission_denied
     }
 }
 
 impl Display for StoreError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
@@ -1275,9 +1302,12 @@ fn open_contained_regular_file(
         ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
     )
     .map_err(|error| {
-        StoreError::new(format!(
-            "contained regular-file open refused {relative_path:?}: {error}"
-        ))
+        let message = format!("contained regular-file open refused {relative_path:?}: {error}");
+        if error.kind() == std::io::ErrorKind::PermissionDenied {
+            StoreError::permission_denied(message)
+        } else {
+            StoreError::new(message)
+        }
     })?;
     let file = File::from(descriptor);
     let before = file.metadata().map_err(|error| {

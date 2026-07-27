@@ -25,3 +25,11 @@ Validation passed:
 
 Acceptance signal:
 - transient plugin load proven.
+
+Revalidation — 2026-07-27
+
+- Executed locally with the pinned `/home/flexnetos/.nix-profile/bin/nu` (0.113.1):
+  `/home/flexnetos/.nix-profile/bin/nu tests/test_transient_plugin.nu`
+- Result: passed; `row_count: 36`, `relative_row_count: 5`, and first table `codedb_contexts`.
+- The test uses a fresh temporary `HOME` and explicit temporary `--plugin-config`, then compares
+  real-HOME plugin-registry snapshots before and after. No persistent registry mutation was observed.

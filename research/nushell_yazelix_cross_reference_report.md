@@ -1,116 +1,106 @@
-# Nushell Deep Research + FlexNetOS/yazelix Cross-Reference
+# Nushell/Yazelix Cross-Reference Report
 
-Generated: 2026-07-01
-Scope: current Nushell behavior, plugin integration, and live `FlexNetOS/yazelix` repository surfaces under `nushell/`, packaging, runtime, Home Manager, and validators.
+Generated: 2026-07-27
+Task: CDB049
+Source checked: `/home/flexnetos/meta/src/yazelix` at `6762324414c5e7515f8d424cde6d4c3bd44e7270`
 
 ## Executive verdict
 
-Yazelix already treats Nushell as a curated runtime surface, not as the core runtime owner. The tracked `nushell/config/config.nu` is intentionally small, guarded, generated-initializer based, and extern-oriented. The right CodeDB path is therefore:
+Yazelix owns Nushell process launch, packaged runtime selection, layered startup
+configuration, and profile state directories. Nushell remains the interactive
+table and plugin host; CodeDB should integrate as an optional packaged CLI and
+`nu_plugin_codedb` executable. The bridge must not make CodeDB the owner of
+Yazelix startup configuration or profile state.
+
+## Runtime `nu` boundary
+
+The packaged `runtime/yzx-nu.rs` launcher is the runtime boundary:
+
+- it resolves `YAZELIX_CONFIG_HOME` (then `XDG_CONFIG_HOME`/`HOME`) for user Nu
+  files (`runtime/yzx-nu.rs:27-30,75-81`);
+- it resolves `YAZELIX_STATE_DIR` (then `XDG_RUNTIME_DIR/yazelix`) and creates a
+  runtime-local `nu/` directory (`runtime/yzx-nu.rs:31-35,83-95`);
+- it layers packaged and user `env.nu`/`config.nu` files into that directory,
+  using `source-env` for environment setup and `source` for config
+  (`runtime/yzx-nu.rs:47-61,97-115`);
+- it execs the substituted packaged `nu` with those explicit config paths and a
+  runtime-prefixed `PATH` (`runtime/yzx-nu.rs:63-71,159-169`).
+
+The Nix package substitutes the Nushell executable, packaged config, and PATH
+prefix into this launcher (`flake.nix:276-281`). The LifeOS foundation adds its
+tool bundle through `extraPathPrefix` and selects its layered Nu config
+(`flake.nix:1401-1410`). CodeDB should therefore discover the runtime through
+the explicit Yazelix package/environment contract rather than assuming that
+host `nu` and runtime `nu` share a registry or protocol version.
+
+## Config and initializer boundary
+
+The current checkout does not use the older `yazelix_init.nu` or
+`yazelix_extern.nu` generated-initializer paths. Its durable source files are:
+
+- `defaults/nu/config.nu`, which sources Nix-generated carapace/zoxide snippets
+  and configures the prompt/banner (`defaults/nu/config.nu:1-10`);
+- `nushell/config/config.nu`, which is Nix-substituted with the tracked
+  `stack_prompt_guard.nu` and `scripts/flexnetos_init.nu`, then establishes the
+  profile shell and runtime/cache environment (`nushell/config/config.nu:1-45`);
+- `nushell/system/profile_environment_frontdoor.nu`, which sets
+  `YAZELIX_CONFIG_HOME`, XDG roots, `YAZELIX_STATE_DIR`, and `SHELL` only for
+  the real profile home (`nushell/system/profile_environment_frontdoor.nu:1-49`);
+- `nushell/scripts/flexnetos_init.nu`, the tracked FlexNetOS initialization
+  layer referenced by the substituted config.
+
+The Nix build materializes these sources into the foundation and checks their
+presence and source relationship (`flake.nix:1419-1424,2217-2225`). This is the
+initializer boundary for the current source: generated runtime config is
+launch-local and Nix-owned, while the tracked Nu files remain source inputs.
+CodeDB must not patch `nushell/config/config.nu`, `defaults/nu/config.nu`, or
+the generated runtime files as an installation side effect.
+
+## CodeDB integration shape
+
+The safe placement is:
 
 ```text
-nu_plugin_codedb binary
-+ codedb CLI/MCP sidecar
-+ generated Yazelix Nushell initializer/extern bridge
-+ packaged runtime tool integration
-+ clean-shell proof through runner
+Yazelix packaged runtime
+  -> packaged nu + layered runtime config
+  -> optional CodeDB CLI/plugin on the runtime PATH
+  -> transient or explicitly isolated Nu registration
+  -> Nushell tables and pipelines
 ```
 
-Do not patch `nushell/config/config.nu` directly as the durable fix. Add CodeDB support through generated initializer/extern files and package/runtime manifests.
+Recommended registration modes remain:
 
-## Researched Nushell facts that matter
+1. Transient proof mode: use `nu --plugins` with a temporary HOME/XDG state
+   root when supported by the selected Nushell version.
+2. Explicit user registry mode: require the user to run `plugin add`/`plugin
+   use`; never perform this against the real HOME in package tests.
+3. Yazelix package mode: expose the CodeDB binaries through the package PATH
+   or an explicitly generated, provenance-bearing bridge owned by Yazelix.
 
-- Nushell plugins communicate through the versioned `nu-plugin` protocol and must match the Nushell-provided plugin version.
-- Plugin binaries must be added to the plugin registry with `plugin add`; plugin file names must start with `nu_plugin_`.
-- `plugin use` imports the plugin into the current session; previously registered plugins are auto-loaded at startup.
-- For controlled execution without persistent registry state, Nu supports `nu --plugins '[./path/to/plugin]'`.
-- Plugins are separate executables launched by Nu over stdin/stdout or local sockets, with JSON or MessagePack encoding.
-- Nu can directly load tables from formats including CSV, JSON, NUON, TOML, XML, Excel, and SQLite databases.
-- Nu startup order is `env.nu`, `config.nu`, vendor autoload, user autoload, then `login.nu`.
+The host-Nu and packaged-runtime-Nu versions must be checked separately. A
+protocol mismatch should degrade to the CodeDB CLI, with no startup-config or
+registry mutation.
 
-## FlexNetOS/yazelix facts found
+## Ownership and safety
 
-- The repository packaging includes the entire `nushell` root as a runtime input and links it into the built runtime.
-- The runtime tool registry bundles Nushell as a first-class runtime tool with command `nu`.
-- The generated `yzx` wrapper prepends the packaged Nix Nushell to `PATH`.
-- Runtime environment resolution sets `YAZELIX_NU_BIN` to the bundled runtime `nu` if available, otherwise to host `nu`.
-- The tracked `nushell/config/config.nu` is minimal, guarded by `IN_YAZELIX_SHELL` or `YAZELIX_RUNTIME_DIR`, imports standard modules, disables banner, sources generated initializer files, clears right prompt, defines a tiny alias/function surface, and uses a generated extern bridge instead of loading the full Yazelix Nushell command implementation path.
-- `.gitignore` excludes `nushell/initializers`, confirming generated/local initializer state is intentionally untracked.
-- The maintainer validator has `validate-nushell-syntax`; it recursively collects `.nu` files under `nushell/`, runs `nu --no-config-file --ide-check 100`, sets a temp HOME and `IN_YAZELIX_SHELL=1`, and stubs the generated initializer files so syntax checks do not depend on a real user home.
-- `.nu-lint.toml` exists and intentionally disables noisy/high-churn lint groups while preserving higher-signal safety/correctness checks.
-- Home Manager activation runs `yzx_control generate_shell_initializers` after runtime materialization and terminal generation.
+- CodeDB owns typed source capture, compiler/Cargo evidence, blobs, and query
+  semantics.
+- Nushell owns table display, pipelines, filtering, joins, and interactive
+  composition.
+- Yazelix owns the packaged runtime, launcher, layered config, PATH, and
+  profile state roots.
+- envctl may consume CodeDB exports and materialize environment/config outputs;
+  it does not own CodeDB source truth.
 
-## CodeDB integration conclusion
+For CDB049, no runtime session was started, no real HOME plugin registry was
+modified, and no Yazelix source was changed. Follow-on work must use temporary
+state and prove that the tracked config and profile-owned state are unchanged.
 
-### Best fit
+## Conclusion
 
-CodeDB should fit as:
-
-```text
-Yazelix package/runtime tool -> nu_plugin_codedb + codedb CLI
-Yazelix generated initializer -> optional plugin path/export/extern wiring
-Nushell plugin -> interactive table cockpit
-Codex/MCP -> bounded non-interactive agent interface
-runner -> proof gates
-```
-
-### CDB049 current-source verification
-
-Verified on 2026-07-02 against `/home/flexnetos/FlexNetOS/src/yazelix`:
-
-- `packaging/runtime_tool_registry.nix` declares `nushell` as a bundled runtime tool with command `nu`.
-- `packaging/mk_runtime_tree.nix` links the repo `nushell/` tree into the runtime and makes the generated `yzx` wrapper put packaged `nu` on `PATH`.
-- `shells/posix/runtime_env.sh` exports `YAZELIX_NU_BIN` from `$runtime_dir/libexec/nu` when present, then falls back to host `nu`.
-- `shells/posix/yazelix_nu.sh` writes `$YAZELIX_STATE_DIR/generated/nushell/config.nu`, sources the managed config, optional user `shell_nu.nu`, and stack prompt guard, then executes `"$YAZELIX_NU_BIN" --login --env-config /dev/null --config "$generated_config"`.
-- `nushell/config/config.nu` sources generated `yazelix_init.nu` and `yazelix_extern.nu`; it remains the thin runtime startup bridge and should not become CodeDB's durable install surface.
-- `rust_core/yazelix_core/src/initializer_commands.rs` generates `~/.local/share/yazelix/initializers/nushell/yazelix_init.nu` and tool initializer files, including Nu-specific `carapace` and `zoxide` shell names.
-- `home_manager/runtime_integration.nix` runs `yzx_control generate_shell_initializers` during activation after runtime materialization.
-- `docs/contracts/rust_nushell_bridge_contract.md` defines generated extern ownership as Rust metadata/startup glue, not public command business logic.
-
-This confirms the safe bridge shape: CodeDB should be packaged beside Yazelix runtime tools, exposed to Nu through generated or transient plugin wiring, and tested without mutating tracked Yazelix config or the user's persistent Nu registry.
-
-### Not a fit
-
-CodeDB should not be implemented as:
-
-- a direct edit to `nushell/config/config.nu`,
-- a Zellij wasm plugin,
-- a meta plugin first,
-- an envctl submodule that owns code truth,
-- a Nu script-only implementation pretending to capture compiler truth.
-
-## Execution-package checklist additions
-
-1. Add `YAZELIX_NUSHELL_RUNTIME.md` explaining runtime `nu`, `YAZELIX_NU_BIN`, generated initializers, and extern bridge.
-2. Add `CODEDB_NU_PLUGIN_REGISTRATION.md` with three modes:
-   - transient: `nu --plugins '[.../nu_plugin_codedb]'`
-   - user registry: `plugin add`, then `plugin use codedb`
-   - Yazelix generated initializer/extern bridge.
-3. Add `CODEDB_YAZELIX_RUNTIME_TOOL.md` defining bundled/host/off policy, package path, `YAZELIX_CODEDB_BIN`, and `YAZELIX_CODEDB_PLUGIN_BIN`.
-4. Add task rows for:
-   - Nu version/protocol compatibility check,
-   - host Nu vs Yazelix runtime Nu compatibility,
-   - plugin registry isolation under temp HOME,
-   - generated initializer checksum/provenance,
-   - syntax validator extension,
-   - linter alignment with `.nu-lint.toml`,
-   - clean-shell `nu --plugins` smoke,
-   - Yazelix launch smoke with CodeDB disabled and enabled.
-5. Add runner gates:
-   - `nu --version`,
-   - `plugin add` in temp HOME,
-   - `plugin use codedb`,
-   - `codedb doctor --format nuon`,
-   - `codedb scan --read-only`,
-   - before/after Git status unchanged.
-
-## Risks
-
-- Nu plugin protocol mismatch between host Nu and Yazelix runtime Nu.
-- Plugin registry pollution if tests use the real user HOME.
-- redb locks if the plugin runs long-lived under Nu plugin GC.
-- Source/secret leakage through plugin stderr, traces, or MCP.
-- Overloading `config.nu` and slowing all Yazelix shells.
-
-## Recommended next task
-
-Update the CodeDB execution-package checklist and task graph with a `Yazelix Nushell Bridge` section and add dedicated task IDs for plugin registration, transient plugin smoke, generated initializer contract, runtime Nu compatibility, and no-mutation proof.
+The Yazelix/Nu bridge is understood: the runtime `nu` boundary is
+`runtime/yzx-nu.rs`, the config boundary is the layered Nix-substituted
+`env.nu`/`config.nu` pair, and the initializer boundary is the tracked
+`flexnetos_init.nu` plus generated launch-local config. CodeDB belongs beside
+that boundary as an optional runtime tool/plugin, not inside the durable
+Yazelix startup implementation.

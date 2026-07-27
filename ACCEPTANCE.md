@@ -26,8 +26,11 @@ The polyglot planning package is acceptable only when:
 
 - research, schema, language-surface, package-manager, proof-gate, and security docs exist;
 - `execution/POLYGLOT_TASK_GRAPH.csv` and `execution/POLYGLOT_TASK_FILE_MAP.csv` parse cleanly;
-- GitHub issue delivery drafts exist for CDB091-CDB105;
+- independently postable GitHub issue delivery drafts exist for every ID from
+  CDB091 through CDB105 and preserve graph dependencies, deliverables,
+  acceptance criteria, and safety boundaries;
 - the addendum and navigation surfaces say clearly that V1.2 is planning-only;
+- checked-in drafts remain the issue-delivery authority until posted URLs are recorded;
 - no planning artifact is presented as completed code, runner proof, or release implementation.
 The bidirectional roadmap package is acceptable only when:
 

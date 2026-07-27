@@ -114,7 +114,7 @@ def main [] {
             fail $"isolated plugin registration changed real HOME registry\nbefore: ($real_before_report | to json --raw)\nafter: ($real_after_report | to json --raw)"
         }
 
-        {
+        let result = {
             status: passed,
             real_home_registry_unchanged: true,
             real_before: $real_before_report,
@@ -123,5 +123,10 @@ def main [] {
             temp_plugin_config_sha256: (open --raw $temp_plugin_config | hash sha256),
             plugin_table_rows: ($rows | length),
         }
+        rm -rf $temp_home
+        if ($temp_home | path exists) {
+            fail $"temp HOME was not removed: ($temp_home)"
+        }
+        $result
     }
 }

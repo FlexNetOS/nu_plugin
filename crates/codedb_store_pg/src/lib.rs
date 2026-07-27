@@ -6,7 +6,10 @@
 //! A logical store name expands to three tables:
 //!
 //! - `<store>_blobs` contains one byte-exact blob per SHA-256 digest.
-//! - `<store>_path_refs` maps captured relative paths to blob digests.
+//! - `<store>_path_refs` maps captured relative paths to blob digests, scoped
+//!   by capture root (`metadata->>'repo_path'`) so multi-root ingestion of a
+//!   whole host tree into one store never collides on relative path alone
+//!   (see [`PgStore::set_capture_root`]).
 //! - `<store>_schema_metadata` records the schema version and migration state.
 //!
 //! [`PgStore::open_existing`] is deliberately read-only: it validates that
@@ -40,21 +43,41 @@ const ORIGIN: &str = "codedb";
 const CURRENT_MIGRATION_STATE: &str = "current";
 const SCHEMA_LAYOUT: &str = "content_addressed_blobs_plus_path_refs";
 const MAX_IDENTIFIER_BYTES: usize = 63;
-const LONGEST_COMPONENT_SUFFIX: &str = "_migration_backup";
+// The longest suffix appended to `base` across every derived identifier
+// (schema_metadata/blobs/path_refs/migration_backup/path_refs_repo_index);
+// `sanitize_table` reserves this much headroom so no generated identifier can
+// exceed PostgreSQL's 63-byte NAMEDATALEN limit.
+const LONGEST_COMPONENT_SUFFIX: &str = "_path_refs_repo_uidx";
 const POSTGRESQL_MIGRATIONS: [StoreMigrationStep; 1] = [StoreMigrationStep::new(
     "postgresql_legacy_content_rows_to_v1",
     LEGACY_STORE_SCHEMA_VERSION,
     CURRENT_STORE_SCHEMA_VERSION,
 )];
-const BATCH_METADATA_JSON: &str =
-    "{\"artifact_kind\":\"raw_blob\",\"permission_capture\":\"gap_not_available_for_raw_blob\"}";
+/// Shared bucket for `path_refs` writes that never set a capture root (legacy
+/// call sites that predate [`PgStore::set_capture_root`]). Every such row
+/// collapses onto this one value, so `module_path` stays effectively unique
+/// among them — identical to the pre-repo-path-identity behavior.
+const NO_CAPTURE_ROOT_SENTINEL: &str = "";
+/// The `path_refs` uniqueness/conflict expression. Used verbatim in both the
+/// unique index definition ([`ensure_repo_path_unique_index`]) and every
+/// `ON CONFLICT` target so PostgreSQL matches the conflict target to the
+/// index; the two must stay textually identical.
+const REPO_PATH_METADATA_EXPR: &str = "(metadata->>'repo_path')";
+/// PostgreSQL `bytea` values are capped near 1 GiB (`content` is TOASTed but
+/// still bounded), while captured host files run up to several GiB. A blob
+/// at or above this size is split across `{blobs}_chunks`-style rows instead
+/// of a single `content` value (EVERY-BYTE engine gap G1); a blob at or below
+/// it is stored exactly as before, in `content`, with `chunk_count = 0`.
+const CHUNK_THRESHOLD_BYTES: usize = 256 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 struct StoreTables {
     base: String,
     schema_metadata: String,
     blobs: String,
+    blob_chunks: String,
     path_refs: String,
+    path_refs_repo_index: String,
     migration_backup: String,
 }
 
@@ -64,7 +87,9 @@ impl StoreTables {
         Ok(Self {
             schema_metadata: format!("{base}_schema_metadata"),
             blobs: format!("{base}_blobs"),
+            blob_chunks: format!("{base}_blob_chunks"),
             path_refs: format!("{base}_path_refs"),
+            path_refs_repo_index: format!("{base}_path_refs_repo_uidx"),
             migration_backup: format!("{base}_migration_backup"),
             base,
         })
@@ -83,12 +108,19 @@ enum StoreLayout {
 pub struct PgStore {
     client: RefCell<Client>,
     tables: StoreTables,
+    /// Absolute capture root attributed to every `path_refs` write from this
+    /// handle, set via [`PgStore::set_capture_root`]. `None` until set;
+    /// [`persist_batch`](BlobStore::persist_batch) and
+    /// [`persist_symlink`](BlobStore::persist_symlink) fall back to
+    /// [`NO_CAPTURE_ROOT_SENTINEL`] so the metadata field is never absent.
+    capture_root: Option<String>,
 }
 
 impl fmt::Debug for PgStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PgStore")
             .field("tables", &self.tables)
+            .field("capture_root", &self.capture_root)
             .finish_non_exhaustive()
     }
 }
@@ -110,7 +142,21 @@ impl PgStore {
             StoreLayout::Fresh => {
                 create_current_schema(&mut tx, &tables, "initialize_v1")?;
             }
-            StoreLayout::Current => {}
+            StoreLayout::Current => {
+                // Idempotent bootstrap repair: a store created before capture-root
+                // identity existed still has the legacy `module_path`-only primary
+                // key. Converge it onto the repo-scoped unique index every time so
+                // every existing installation heals on its next capture, with no
+                // separate migration command required.
+                ensure_repo_path_unique_index(&mut tx, &tables)?;
+                // Idempotent bootstrap repair: a store created before chunked
+                // large-blob storage existed still has `content bytea NOT
+                // NULL` and no `chunk_count` column or chunks table. Heal it
+                // in place every time, same pattern as the repo-path index
+                // above, so an existing installation can accept files above
+                // `CHUNK_THRESHOLD_BYTES` on its very next capture.
+                ensure_blob_chunking_schema(&mut tx, &tables)?;
+            }
             StoreLayout::LegacyContentRows => {
                 return Err(StoreError::new(format!(
                     "legacy PostgreSQL CodeDB store {} requires explicit PgStore::migrate",
@@ -127,6 +173,7 @@ impl PgStore {
         Ok(Self {
             client: RefCell::new(client),
             tables,
+            capture_root: None,
         })
     }
 
@@ -158,6 +205,7 @@ impl PgStore {
                 )));
             }
             StoreLayout::Current => {
+                ensure_repo_path_unique_index(&mut tx, &tables)?;
                 validate_current_schema(&mut tx, &tables)?;
                 CURRENT_STORE_SCHEMA_VERSION
             }
@@ -209,6 +257,7 @@ impl PgStore {
             Self {
                 client: RefCell::new(client),
                 tables,
+                capture_root: None,
             },
             report,
         ))
@@ -256,10 +305,16 @@ impl PgStore {
         tx.batch_execute(
             format!(
                 "DROP TABLE {path_refs};\
+                 DROP TABLE {blob_chunks};\
                  DROP TABLE {blobs};\
                  DROP TABLE {schema_metadata};\
                  ALTER TABLE {backup} RENAME TO {base};",
                 path_refs = tables.path_refs,
+                // Dropped before `blobs`: chunked large-blob storage
+                // (EVERY-BYTE engine gap G1) added a `blob_chunks` table with
+                // a foreign key to `blobs`, so `blobs` cannot be dropped
+                // while it still exists.
+                blob_chunks = tables.blob_chunks,
                 blobs = tables.blobs,
                 schema_metadata = tables.schema_metadata,
                 backup = tables.migration_backup,
@@ -312,6 +367,7 @@ impl PgStore {
         Ok(Self {
             client: RefCell::new(client),
             tables,
+            capture_root: None,
         })
     }
 
@@ -319,42 +375,95 @@ impl PgStore {
     pub fn table(&self) -> &str {
         &self.tables.base
     }
-}
 
-impl BlobStore for PgStore {
-    fn persist_batch(
+    /// Attribute every subsequent `path_refs` write from this handle to
+    /// `root` (recorded as `metadata->>'repo_path'`), so multi-root ingestion
+    /// of a whole host tree into one store reconciles unambiguously instead
+    /// of colliding on relative path alone (every repository has a
+    /// `README.md`). `root` must already be absolute; every capture call site
+    /// canonicalizes its repository path before a store is opened.
+    pub fn set_capture_root(&mut self, root: &Path) -> Result<(), StoreError> {
+        if !root.is_absolute() {
+            return Err(StoreError::new(
+                "PostgreSQL CodeDB capture root must be an absolute path",
+            ));
+        }
+        self.capture_root = Some(root.display().to_string());
+        Ok(())
+    }
+
+    /// Shared implementation of [`BlobStore::persist_batch`], parameterized
+    /// on the chunk threshold so `#[cfg(feature = "pg-integration")]` tests
+    /// can exercise the chunked-storage path (see
+    /// [`persist_batch_with_chunk_threshold_for_tests`]) without persisting
+    /// hundreds of megabytes; production always calls this through
+    /// [`CHUNK_THRESHOLD_BYTES`] via the trait method.
+    fn persist_batch_at_threshold(
         &mut self,
         files: &[(String, Vec<u8>)],
+        chunk_threshold_bytes: usize,
     ) -> Result<Vec<SourceFileRow>, StoreError> {
         let mut client = self.client.borrow_mut();
         let mut tx = client
             .transaction()
             .map_err(|_| database_error("begin batch transaction"))?;
         let blob_sql = format!(
-            "INSERT INTO {} (sha256, content, bytes) VALUES ($1, $2, $3) \
+            "INSERT INTO {} (sha256, content, bytes, chunk_count) VALUES ($1, $2, $3, $4) \
              ON CONFLICT (sha256) DO NOTHING",
             self.tables.blobs
         );
+        let chunk_sql = format!(
+            "INSERT INTO {} (sha256, seq, chunk) VALUES ($1, $2, $3) \
+             ON CONFLICT (sha256, seq) DO NOTHING",
+            self.tables.blob_chunks
+        );
         let path_sql = format!(
             "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::text::jsonb) \
-             ON CONFLICT (module_path) DO UPDATE SET \
+             ON CONFLICT ({}, module_path) DO UPDATE SET \
                  sha256 = EXCLUDED.sha256, metadata = EXCLUDED.metadata",
-            self.tables.path_refs
+            self.tables.path_refs, REPO_PATH_METADATA_EXPR
         );
+        let metadata_json = raw_blob_metadata_json(self.capture_root.as_deref());
 
         let mut rows = Vec::with_capacity(files.len());
         for (relative_path, bytes) in files {
             let sha256 = sha256_hex(bytes);
-            let content = bytes.as_slice();
             let byte_count = i64::try_from(bytes.len())
                 .map_err(|_| StoreError::new("captured blob exceeds PostgreSQL bigint size"))?;
-            tx.execute(blob_sql.as_str(), &[&sha256, &content, &byte_count])
-                .map_err(|_| database_error("insert content-addressed blob"))?;
-            tx.execute(
-                path_sql.as_str(),
-                &[relative_path, &sha256, &BATCH_METADATA_JSON],
-            )
-            .map_err(|_| database_error("upsert path reference"))?;
+            // PostgreSQL `bytea` values are capped near 1 GiB; a blob at or
+            // above the chunk threshold is split across `blob_chunks` rows
+            // instead of a single `content` value (EVERY-BYTE engine gap
+            // G1). `ON CONFLICT (sha256) DO NOTHING` reports whether this
+            // call inserted the row (content-addressed dedup): the chunks
+            // are only written when it did, so a blob shared by multiple
+            // captured paths is never re-chunked and re-sent to PostgreSQL.
+            let chunk_count = chunk_count_for(bytes.len(), chunk_threshold_bytes);
+            if chunk_count > 0 {
+                let chunk_count_param = i32::try_from(chunk_count)
+                    .map_err(|_| StoreError::new("captured blob exceeds supported chunk count"))?;
+                let content: Option<&[u8]> = None;
+                let inserted = tx
+                    .execute(
+                        blob_sql.as_str(),
+                        &[&sha256, &content, &byte_count, &chunk_count_param],
+                    )
+                    .map_err(|_| database_error("insert content-addressed blob"))?;
+                if inserted == 1 {
+                    for (seq, chunk) in bytes.chunks(chunk_threshold_bytes).enumerate() {
+                        let seq = i32::try_from(seq).map_err(|_| {
+                            StoreError::new("captured blob exceeds supported chunk count")
+                        })?;
+                        tx.execute(chunk_sql.as_str(), &[&sha256, &seq, &chunk])
+                            .map_err(|_| database_error("insert content-addressed blob chunk"))?;
+                    }
+                }
+            } else {
+                let content = Some(bytes.as_slice());
+                tx.execute(blob_sql.as_str(), &[&sha256, &content, &byte_count, &0i32])
+                    .map_err(|_| database_error("insert content-addressed blob"))?;
+            }
+            tx.execute(path_sql.as_str(), &[relative_path, &sha256, &metadata_json])
+                .map_err(|_| database_error("upsert path reference"))?;
             rows.push(SourceFileRow {
                 relative_path: relative_path.clone(),
                 blob_ref: format!("sha256:{sha256}"),
@@ -366,6 +475,15 @@ impl BlobStore for PgStore {
             .map_err(|_| database_error("commit batch transaction"))?;
         Ok(rows)
     }
+}
+
+impl BlobStore for PgStore {
+    fn persist_batch(
+        &mut self,
+        files: &[(String, Vec<u8>)],
+    ) -> Result<Vec<SourceFileRow>, StoreError> {
+        self.persist_batch_at_threshold(files, CHUNK_THRESHOLD_BYTES)
+    }
 
     fn persist_symlink(
         &mut self,
@@ -376,6 +494,7 @@ impl BlobStore for PgStore {
         let metadata = serde_json::json!({
             "artifact_kind": "symlink",
             "symlink_target_sha256": row.target_sha256,
+            "repo_path": self.capture_root.as_deref().unwrap_or(NO_CAPTURE_ROOT_SENTINEL),
         })
         .to_string();
         let mut client = self.client.borrow_mut();
@@ -389,9 +508,9 @@ impl BlobStore for PgStore {
         );
         let path_sql = format!(
             "INSERT INTO {} (module_path, sha256, metadata) VALUES ($1, $2, $3::text::jsonb) \
-             ON CONFLICT (module_path) DO UPDATE SET \
+             ON CONFLICT ({}, module_path) DO UPDATE SET \
                  sha256 = EXCLUDED.sha256, metadata = EXCLUDED.metadata",
-            self.tables.path_refs
+            self.tables.path_refs, REPO_PATH_METADATA_EXPR
         );
         let target_bytes = target.as_bytes();
         let target_len = i64::try_from(target_bytes.len()).map_err(|_| {
@@ -427,7 +546,7 @@ impl BlobStore for PgStore {
     fn read_source_file_blob(&self, relative_path: &str) -> Result<Option<Vec<u8>>, StoreError> {
         let mut client = self.client.borrow_mut();
         let sql = format!(
-            "SELECT p.sha256, b.content, p.metadata->>'artifact_kind' FROM {} p \
+            "SELECT p.sha256, b.content, b.chunk_count, p.metadata->>'artifact_kind' FROM {} p \
              LEFT JOIN {} b ON b.sha256 = p.sha256 WHERE p.module_path = $1",
             self.tables.path_refs, self.tables.blobs
         );
@@ -439,13 +558,19 @@ impl BlobStore for PgStore {
         };
         let sha256: String = row.get(0);
         let content: Option<Vec<u8>> = row.get(1);
-        let artifact_kind: Option<String> = row.get(2);
+        let chunk_count: Option<i32> = row.get(2);
+        let artifact_kind: Option<String> = row.get(3);
         if artifact_kind.as_deref() == Some("symlink") {
             return Ok(None);
         }
-        content
-            .ok_or_else(|| corrupt_path_reference_error(relative_path, &sha256))
-            .map(Some)
+        match chunk_count {
+            Some(count) if count > 0 => {
+                read_chunked_blob(&mut client, &self.tables.blob_chunks, &sha256, count).map(Some)
+            }
+            _ => content
+                .ok_or_else(|| corrupt_path_reference_error(relative_path, &sha256))
+                .map(Some),
+        }
     }
 
     fn list_source_files(&self) -> Result<Vec<SourceFileRow>, StoreError> {
@@ -529,7 +654,7 @@ impl BlobStore for PgStore {
     ) -> Result<MaterializedFile, StoreError> {
         let mut client = self.client.borrow_mut();
         let sql = format!(
-            "SELECT p.sha256, b.content, p.metadata::text, \
+            "SELECT p.sha256, b.content, b.chunk_count, p.metadata::text, \
                     p.metadata->>'artifact_kind' FROM {} p \
              LEFT JOIN {} b ON b.sha256 = p.sha256 WHERE p.module_path = $1",
             self.tables.path_refs, self.tables.blobs
@@ -541,18 +666,29 @@ impl BlobStore for PgStore {
             .first()
             .ok_or_else(|| StoreError::new(format!("missing source file: {relative_path}")))?;
         let sha256: String = row.get(0);
-        let artifact_kind: Option<String> = row.get(3);
+        let artifact_kind: Option<String> = row.get(4);
         if artifact_kind.as_deref() == Some("symlink") {
             return Err(StoreError::new(format!(
                 "captured symlink {relative_path:?} cannot be materialized as a regular file"
             )));
         }
         let content: Option<Vec<u8>> = row.get(1);
-        let content =
-            content.ok_or_else(|| corrupt_path_reference_error(relative_path, &sha256))?;
+        let chunk_count: Option<i32> = row.get(2);
+        // Reassembly is verified structurally here (declared chunk count and
+        // contiguous sequence) and cryptographically by
+        // `atomic_materialize_file` below, which refuses to publish unless
+        // `sha256(content) == sha256` — the roundtrip integrity guarantee is
+        // mandatory for both the direct and the chunked-reassembly path
+        // (EVERY-BYTE engine gap G1).
+        let content = match chunk_count {
+            Some(count) if count > 0 => {
+                read_chunked_blob(&mut client, &self.tables.blob_chunks, &sha256, count)?
+            }
+            _ => content.ok_or_else(|| corrupt_path_reference_error(relative_path, &sha256))?,
+        };
         #[cfg(unix)]
         let unix_mode = {
-            let metadata_text: String = row.get(2);
+            let metadata_text: String = row.get(3);
             parse_unix_mode(&metadata_text)
         };
         #[cfg(not(unix))]
@@ -627,6 +763,20 @@ fn connect_client(conn: &str) -> Result<Client, StoreError> {
 #[doc(hidden)]
 pub fn connect_for_integration_tests(conn: &str) -> Result<Client, StoreError> {
     connect_client(conn)
+}
+
+/// Test-only override of [`CHUNK_THRESHOLD_BYTES`] so integration tests can
+/// exercise the real chunked-storage SQL path (split, dedup-skip, reassemble
+/// on read) against a real PostgreSQL service without persisting hundreds of
+/// megabytes to prove it.
+#[cfg(feature = "pg-integration")]
+#[doc(hidden)]
+pub fn persist_batch_with_chunk_threshold_for_tests(
+    store: &mut PgStore,
+    files: &[(String, Vec<u8>)],
+    chunk_threshold_bytes: usize,
+) -> Result<Vec<SourceFileRow>, StoreError> {
+    store.persist_batch_at_threshold(files, chunk_threshold_bytes)
 }
 
 fn connection_error(_conn: &str) -> StoreError {
@@ -957,7 +1107,7 @@ fn create_current_schema<C: GenericClient>(
              bytes bigint NOT NULL CHECK (bytes >= 0)\
          );\
          CREATE TABLE {path_refs} (\
-             module_path text PRIMARY KEY,\
+             module_path text NOT NULL,\
              sha256 text NOT NULL REFERENCES {blobs}(sha256),\
              metadata jsonb NOT NULL DEFAULT '{{}}'::jsonb\
          );",
@@ -968,6 +1118,8 @@ fn create_current_schema<C: GenericClient>(
     client
         .batch_execute(&ddl)
         .map_err(|_| database_error("create current schema"))?;
+    ensure_repo_path_unique_index(client, tables)?;
+    ensure_blob_chunking_schema(client, tables)?;
 
     let metadata_sql = format!(
         "INSERT INTO {} (key, value) VALUES ($1, $2) \
@@ -994,6 +1146,74 @@ fn create_current_schema<C: GenericClient>(
         maybe_inject_initialization_failure(client, last_migration, key)?;
     }
     Ok(())
+}
+
+/// Idempotently converge `path_refs` uniqueness onto
+/// `(metadata->>'repo_path', module_path)` instead of `module_path` alone:
+/// many capture roots share relative paths (every repository has a
+/// `README.md`), so per-root attribution must also be the conflict/upsert
+/// key or multi-root ingestion into one store silently corrupts.
+///
+/// Safe to call unconditionally: on a table just created by
+/// [`create_current_schema`] there is no legacy primary key to drop and the
+/// index does not yet exist; on a store bootstrapped by a build that
+/// predates capture-root identity, this drops that legacy `module_path`
+/// primary key (PostgreSQL's default name for an unnamed single-column
+/// primary key on this table is deterministic — every such key was created
+/// by this same crate's DDL) and creates the new index. Called from every
+/// [`PgStore::initialize`] so an existing installation heals on its very
+/// next capture; no separate migration command is required.
+fn ensure_repo_path_unique_index<C: GenericClient>(
+    client: &mut C,
+    tables: &StoreTables,
+) -> Result<(), StoreError> {
+    let legacy_pkey = format!("{}_pkey", tables.path_refs);
+    let ddl = format!(
+        "ALTER TABLE {path_refs} DROP CONSTRAINT IF EXISTS {legacy_pkey}; \
+         CREATE UNIQUE INDEX IF NOT EXISTS {repo_index} ON {path_refs} ({repo_path_expr}, module_path);",
+        path_refs = tables.path_refs,
+        repo_index = tables.path_refs_repo_index,
+        repo_path_expr = REPO_PATH_METADATA_EXPR,
+    );
+    client
+        .batch_execute(&ddl)
+        .map_err(|_| database_error("ensure repo-path unique index"))
+}
+
+/// Idempotently add chunked large-blob storage: relax `{blobs}.content` from
+/// `NOT NULL` (a blob at/above [`CHUNK_THRESHOLD_BYTES`] stores `NULL` there
+/// instead) and add the `chunk_count` column plus the companion
+/// `{blobs}_chunks`-style table that holds its content in ordered pieces.
+///
+/// Safe to call unconditionally: on a table just created by
+/// [`create_current_schema`], `content` is still `NOT NULL` and there is no
+/// `chunk_count` column or chunks table yet, so this only adds them; on a
+/// store bootstrapped by a build that predates chunked storage, this heals
+/// it in place. Called from every [`PgStore::initialize`] so an existing
+/// installation heals on its very next capture; no separate migration
+/// command is required. `chunk_count = 0` (the default, and every row
+/// written before this change) means "read `content` directly"; `> 0` means
+/// "reassemble that many ordered rows from `{blobs}_chunks`" — existing rows
+/// and existing readers of an unchanged store are unaffected either way.
+fn ensure_blob_chunking_schema<C: GenericClient>(
+    client: &mut C,
+    tables: &StoreTables,
+) -> Result<(), StoreError> {
+    let ddl = format!(
+        "ALTER TABLE {blobs} ALTER COLUMN content DROP NOT NULL; \
+         ALTER TABLE {blobs} ADD COLUMN IF NOT EXISTS chunk_count integer NOT NULL DEFAULT 0 CHECK (chunk_count >= 0); \
+         CREATE TABLE IF NOT EXISTS {blob_chunks} (\
+             sha256 text NOT NULL REFERENCES {blobs}(sha256),\
+             seq integer NOT NULL CHECK (seq >= 0),\
+             chunk bytea NOT NULL,\
+             PRIMARY KEY (sha256, seq)\
+         );",
+        blobs = tables.blobs,
+        blob_chunks = tables.blob_chunks,
+    );
+    client
+        .batch_execute(&ddl)
+        .map_err(|_| database_error("ensure blob chunking schema"))
 }
 
 #[cfg(feature = "pg-integration")]
@@ -1047,7 +1267,13 @@ fn validate_current_schema<C: GenericClient>(
             ("sha256", "text"),
             ("content", "bytea"),
             ("bytes", "bigint"),
+            ("chunk_count", "integer"),
         ],
+    )?;
+    validate_relation_shape(
+        client,
+        &tables.blob_chunks,
+        &[("sha256", "text"), ("seq", "integer"), ("chunk", "bytea")],
     )?;
     validate_relation_shape(
         client,
@@ -1244,8 +1470,90 @@ fn corrupt_path_reference_error(relative_path: &str, sha256: &str) -> StoreError
     ))
 }
 
+/// Number of `blob_chunks` rows a `total_bytes`-byte blob splits into at
+/// `threshold`: `0` means "not chunked, read `content` directly" (used when
+/// `total_bytes <= threshold`, so a blob of exactly `threshold` bytes is
+/// still stored whole); otherwise the ceiling division, so a blob one byte
+/// over `threshold` still gets a (very unbalanced) second chunk. Pure and
+/// infallible so EVERY-BYTE engine gap G1's boundary conditions (0 bytes,
+/// exactly `threshold`, `threshold + 1`, `2.5 * threshold`) are
+/// unit-testable with a small `threshold` instead of allocating real
+/// megabytes; the astronomically large chunk count that would overflow
+/// `u32` saturates instead of panicking.
+fn chunk_count_for(total_bytes: usize, threshold: usize) -> u32 {
+    if total_bytes <= threshold {
+        0
+    } else {
+        u32::try_from(total_bytes.div_ceil(threshold)).unwrap_or(u32::MAX)
+    }
+}
+
+/// Reassemble a blob from its ordered `(seq, chunk)` rows, already fetched
+/// from `blob_chunks` in ascending `seq` order (EVERY-BYTE engine gap G1).
+///
+/// Verifies the stored chunk count matches what was declared and that
+/// sequence numbers are exactly `0..chunk_count` with no gap or duplicate
+/// before concatenating; the caller (`read_source_file_blob` /
+/// `materialize_source_file`) already verifies the reassembled bytes hash to
+/// `sha256`, so together the roundtrip is fully integrity-checked
+/// structurally and cryptographically. Pure (no I/O) so it is unit-testable
+/// directly with hand-built chunk vectors.
+fn reassemble_chunks(
+    chunks: Vec<(i32, Vec<u8>)>,
+    sha256: &str,
+    chunk_count: i32,
+) -> Result<Vec<u8>, StoreError> {
+    if chunks.len() != chunk_count as usize {
+        return Err(StoreError::new(format!(
+            "PostgreSQL CodeDB blob {sha256} declares {chunk_count} chunks but {} are stored",
+            chunks.len()
+        )));
+    }
+    let mut bytes = Vec::new();
+    for (expected_seq, (seq, chunk)) in chunks.into_iter().enumerate() {
+        if seq != expected_seq as i32 {
+            return Err(StoreError::new(format!(
+                "PostgreSQL CodeDB blob {sha256} has a non-contiguous chunk sequence at position {expected_seq}"
+            )));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+/// Fetch a chunked blob's ordered rows from `blob_chunks` and reassemble
+/// them via [`reassemble_chunks`] (EVERY-BYTE engine gap G1).
+fn read_chunked_blob(
+    client: &mut Client,
+    blob_chunks_table: &str,
+    sha256: &str,
+    chunk_count: i32,
+) -> Result<Vec<u8>, StoreError> {
+    let sql = format!("SELECT seq, chunk FROM {blob_chunks_table} WHERE sha256 = $1 ORDER BY seq");
+    let chunks = client
+        .query(sql.as_str(), &[&sha256])
+        .map_err(|_| database_error("read content-addressed blob chunks"))?
+        .into_iter()
+        .map(|row| (row.get::<_, i32>(0), row.get::<_, Vec<u8>>(1)))
+        .collect();
+    reassemble_chunks(chunks, sha256, chunk_count)
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+/// Metadata for a raw-blob `path_refs` row, tagged with the store's capture
+/// root when [`PgStore::set_capture_root`] has set one. Call sites that never
+/// set a capture root all collapse onto [`NO_CAPTURE_ROOT_SENTINEL`],
+/// reproducing today's single-bucket-per-store behavior exactly.
+fn raw_blob_metadata_json(capture_root: Option<&str>) -> String {
+    serde_json::json!({
+        "artifact_kind": "raw_blob",
+        "permission_capture": "gap_not_available_for_raw_blob",
+        "repo_path": capture_root.unwrap_or(NO_CAPTURE_ROOT_SENTINEL),
+    })
+    .to_string()
 }
 
 #[cfg(unix)]
@@ -1279,6 +1587,142 @@ mod tests {
         assert!(sanitize_table("").is_err());
         assert!(sanitize_table("9abc").is_err());
         assert!(sanitize_table(&"a".repeat(MAX_IDENTIFIER_BYTES)).is_err());
+    }
+
+    #[test]
+    fn sanitize_table_reserves_headroom_for_the_longest_generated_identifier() {
+        // 43 + "_path_refs_repo_uidx".len() (20) == 63, exactly PostgreSQL's
+        // NAMEDATALEN limit; one byte longer must be rejected up front rather
+        // than silently truncated by PostgreSQL later.
+        let fits = "a".repeat(43);
+        let base = sanitize_table(&fits).expect("43-byte base name must fit");
+        let tables = StoreTables::new(&base).expect("StoreTables must build for a fitting base");
+        assert_eq!(tables.path_refs_repo_index.len(), 63);
+
+        let overflow = "a".repeat(44);
+        assert!(sanitize_table(&overflow).is_err());
+    }
+
+    // --- EVERY-BYTE engine gap G1: chunked large-blob storage boundaries ---
+    //
+    // A lowered `threshold` (never the real `CHUNK_THRESHOLD_BYTES`) exercises
+    // exactly the same pure math and reassembly code the real 256 MiB
+    // threshold uses in production, without allocating real megabytes.
+
+    #[test]
+    fn chunk_count_for_is_zero_at_and_below_the_threshold() {
+        let threshold = 8;
+        assert_eq!(
+            chunk_count_for(0, threshold),
+            0,
+            "an empty blob is never chunked"
+        );
+        assert_eq!(
+            chunk_count_for(threshold, threshold),
+            0,
+            "a blob exactly at the threshold is stored whole, not chunked"
+        );
+    }
+
+    #[test]
+    fn chunk_count_for_splits_one_byte_over_the_threshold_into_two_chunks() {
+        let threshold = 8;
+        assert_eq!(chunk_count_for(threshold + 1, threshold), 2);
+    }
+
+    #[test]
+    fn chunk_count_for_rounds_a_fractional_multiple_up() {
+        let threshold = 8;
+        // 2.5 * threshold: two full chunks plus one half-size final chunk.
+        assert_eq!(chunk_count_for(threshold * 2 + threshold / 2, threshold), 3);
+    }
+
+    #[test]
+    fn persisted_chunk_boundaries_match_chunk_count_for() {
+        // The same `.chunks(threshold)` iterator `persist_batch_at_threshold`
+        // uses to split bytes for insertion must always agree with
+        // `chunk_count_for`'s prediction, across every boundary the fixpack2
+        // spec calls out (0, exactly threshold, threshold + 1, 2.5x).
+        let threshold = 8usize;
+        for total_bytes in [
+            0usize,
+            threshold,
+            threshold + 1,
+            threshold * 2 + threshold / 2,
+        ] {
+            let bytes = vec![0xABu8; total_bytes];
+            let expected = chunk_count_for(total_bytes, threshold);
+            if expected == 0 {
+                assert!(
+                    bytes.len() <= threshold,
+                    "chunk_count_for said unchunked for {total_bytes} bytes at threshold {threshold}"
+                );
+                continue;
+            }
+            let actual = u32::try_from(bytes.chunks(threshold).count()).unwrap();
+            assert_eq!(
+                actual, expected,
+                "chunk_count_for disagreed with the real splitting iterator for {total_bytes} bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn reassemble_chunks_concatenates_contiguous_ordered_chunks() {
+        let chunks = vec![
+            (0, b"abcdefgh".to_vec()),
+            (1, b"ijklmnop".to_vec()),
+            (2, b"qr".to_vec()),
+        ];
+        let bytes = reassemble_chunks(chunks, "test-sha", 3).expect("reassemble contiguous chunks");
+        assert_eq!(bytes, b"abcdefghijklmnopqr");
+    }
+
+    #[test]
+    fn reassemble_chunks_rejects_a_declared_count_mismatch() {
+        let chunks = vec![(0, b"only-one".to_vec())];
+        let error = reassemble_chunks(chunks, "test-sha", 2)
+            .expect_err("declaring 2 chunks but storing 1 must be rejected");
+        assert!(
+            error
+                .message()
+                .contains("declares 2 chunks but 1 are stored")
+        );
+    }
+
+    #[test]
+    fn reassemble_chunks_rejects_a_gap_in_the_sequence() {
+        let chunks = vec![(0, b"first".to_vec()), (2, b"third".to_vec())];
+        let error = reassemble_chunks(chunks, "test-sha", 2)
+            .expect_err("a gap in the sequence (0, 2) must be rejected");
+        assert!(error.message().contains("non-contiguous"));
+    }
+
+    #[test]
+    fn reassemble_chunks_handles_the_empty_case() {
+        // Mirrors the `total_bytes == 0` boundary: zero declared chunks,
+        // zero stored chunks, empty result.
+        let bytes = reassemble_chunks(Vec::new(), "test-sha", 0).expect("reassemble zero chunks");
+        assert!(bytes.is_empty());
+    }
+
+    #[test]
+    fn raw_blob_metadata_json_includes_the_capture_root_when_set() {
+        let json = raw_blob_metadata_json(Some("/captures/repo-a"));
+        let value: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert_eq!(value["artifact_kind"], "raw_blob");
+        assert_eq!(
+            value["permission_capture"],
+            "gap_not_available_for_raw_blob"
+        );
+        assert_eq!(value["repo_path"], "/captures/repo-a");
+    }
+
+    #[test]
+    fn raw_blob_metadata_json_falls_back_to_the_sentinel_when_capture_root_is_unset() {
+        let json = raw_blob_metadata_json(None);
+        let value: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert_eq!(value["repo_path"], NO_CAPTURE_ROOT_SENTINEL);
     }
 
     #[test]

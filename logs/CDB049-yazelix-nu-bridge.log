@@ -1,40 +1,36 @@
 CDB049 - Inspect Yazelix Nushell runtime bridge
-Date: 2026-07-02
+Date: 2026-07-27
 Status: passed
 
 Scope:
-- Source-only inspection of /home/flexnetos/FlexNetOS/src/yazelix runtime, packaging, Home Manager, and Nu bridge surfaces.
+- Source-only inspection of /home/flexnetos/meta/src/yazelix runtime, packaging, and Nu bridge surfaces.
+- Current Yazelix source: 6762324414c5e7515f8d424cde6d4c3bd44e7270.
 - No tracked Yazelix runtime config edits.
 - No real HOME Nu plugin registry mutation.
 - No runtime restart.
 
 Evidence:
+- Read runtime/yzx-nu.rs
+  - Resolves YAZELIX_CONFIG_HOME and YAZELIX_STATE_DIR
+  - Layers packaged/user env.nu and config.nu under runtime state
+  - Execs packaged nu with explicit config paths and a prefixed PATH
+- Read flake.nix
+  - Substitutes packaged nu/config/PATH into yzx-nu
+  - Adds the LifeOS tool bundle through extraPathPrefix
+  - Materializes and checks the FlexNetOS Nu config and initializer source
 - Read nushell/config/config.nu
-  - Guarded by IN_YAZELIX_SHELL or YAZELIX_RUNTIME_DIR
-  - Sources ~/.local/share/yazelix/initializers/nushell/yazelix_init.nu
-  - Sources ~/.local/share/yazelix/initializers/nushell/yazelix_extern.nu
-- Read shells/posix/yazelix_nu.sh
-  - Requires YAZELIX_NU_BIN
-  - Writes $YAZELIX_STATE_DIR/generated/nushell/config.nu
-  - Runs nu --login --env-config /dev/null --config <generated-config>
-- Read shells/posix/runtime_env.sh
-  - Exports YAZELIX_NU_BIN from runtime libexec/nu when available
-  - Falls back to host nu when runtime nu is absent
-- Read packaging/runtime_tool_registry.nix
-  - Runtime tool registry includes nushell with command nu
-- Read packaging/mk_runtime_tree.nix
-  - Runtime links the nushell tree and puts packaged nu on the yzx PATH
-- Read home_manager/runtime_integration.nix
-  - Activation runs yzx_control generate_shell_initializers
-- Read rust_core/yazelix_core/src/initializer_commands.rs
-  - Generates ~/.local/share/yazelix/initializers/nushell/yazelix_init.nu
-  - Applies Nu-specific zoxide/carapace shell name overrides
-- Read docs/contracts/rust_nushell_bridge_contract.md
-  - Generated extern bridge is Rust metadata/startup glue, not public command business logic
+  - Sources stack_prompt_guard.nu and flexnetos_init.nu after Nix substitution
+  - Establishes profile-owned XDG/cache/runtime roots
+- Read nushell/system/profile_environment_frontdoor.nu
+  - Owns profile-only YAZELIX_CONFIG_HOME/XDG/YAZELIX_STATE_DIR setup
+- Read defaults/nu/config.nu
+  - Sources generated carapace/zoxide snippets and configures the prompt
+- Confirmed the current checkout has no durable yazelix_init.nu/yazelix_extern.nu
+  initializer contract; generated config is launch-local and Nix-owned
 
 Artifacts:
-- docs/YAZELIX_NUSHELL_RUNTIME.md
-- research/nushell_yazelix_cross_reference_report.md
+  - docs/YAZELIX_NUSHELL_RUNTIME.md
+  - research/nushell_yazelix_cross_reference_report.md
 
 Conclusion:
-Yazelix/Nu bridge understood. CodeDB should be the higher-fidelity typed store and Nushell table plugin surface. Envctl remains the environment/export and file materialization layer. Integration should use packaged runtime variables and generated/transient plugin wiring, not direct edits to tracked Yazelix config.nu.
+Yazelix/Nu bridge understood. CodeDB should be the higher-fidelity typed store and Nushell table/plugin surface. Yazelix owns packaged nu, layered runtime config, PATH, and profile state. Envctl remains the environment/export and file materialization layer. Integration should use packaged runtime paths plus transient or explicitly isolated plugin wiring, not direct edits to tracked Yazelix config.nu.

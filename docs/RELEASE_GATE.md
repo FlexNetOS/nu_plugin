@@ -185,8 +185,14 @@ There are two provenance lanes:
   "github-actions"` receipt is rejected in this mode, a `provider == "local"`
   receipt still cannot satisfy the default public lane, and `--local-release`
   is mutually exclusive with `--attestation-bundle` / `--signer-workflow`. No
-  ledger row may use `--local-release` as its own gate; the mode is reachable
-  only through the explicit opt-in flag.
+  ledger row may use `--local-release` as its own gate.
+
+Noninteractive, immutable task runners may select the same mode by exporting
+`CODEDB_REQUIREMENT_PROOF_LOCAL_RELEASE=1` for the package validator process.
+This is an explicit opt-in equivalent to `--local-release`, not an automatic
+fallback. The external provider-local receipt and every integrity check above
+remain mandatory, and the validator rejects the environment mode if a GitHub
+attestation bundle or signer workflow is also configured.
 
 Receipt generation may invoke a row command with `--direct-evidence`. This
 non-recursive mode still requires every mandatory ledger row and graph-backed

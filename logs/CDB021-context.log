@@ -45,3 +45,15 @@ running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
+## TASK-CDB021 execution receipt (2026-07-27)
+
+- Approval: `APPROVAL-TASK-CDB021` (digest-bound owner authorization).
+- Dependency: CDB019 is complete; this receipt preserves the declared block on CDB022.
+- Output surface: `codedb_contexts`; context identity includes the locked Cargo
+  resolution, requested target, feature mode, and toolchain/cfg observations.
+- Verification: `cargo test --offline -p codedb-context --test runtime_context`
+  passed (6/6): locked target/feature/toolchain capture, lockfile+target identity,
+  feature-mode identity, nearest lockfile resolution, and fixture-root isolation.
+- Network access: disabled by `--offline`. No source files were changed by this
+  verification; this log is the sole task-owned modification.
+- Completion gate: context captured. Validation gate: context rows deterministic.
