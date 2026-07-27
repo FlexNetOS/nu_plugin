@@ -1,0 +1,19 @@
+REQ-033_PLUGIN_HUMAN_APPROVAL verification log
+completed_at=2026-07-27T21:31:27Z
+NU_PLUGIN_REPO=/home/flexnetos/meta/src/nu_plugin
+
+[implementation]
+command=codedb envctl human approvals
+target=crates/nu_plugin_codedb/src/main.rs
+views=mode,approval,operation
+actions=opt_in,approve,deny,pause,delegate
+mutation_policy=read_only_human_approval_projection
+input_formats=approval_request_json_array,approval_request_json_object,approval_request_jsonl,operation_queue_json_array,operation_queue_json_object,operation_queue_jsonl
+modes=observer,approval-gated,operator,agent-only
+
+[verification]
+policy=agent_instructions_skipped_runtime_tests
+status=not_run
+
+[notes]
+proof,heartbeat,log files created for REQ-033

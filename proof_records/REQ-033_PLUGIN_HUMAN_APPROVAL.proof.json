@@ -1,0 +1,71 @@
+{
+  "proof_schema_version": "1.0",
+  "task_id": "REQ-033_PLUGIN_HUMAN_APPROVAL",
+  "parent_id": "REQ-010_CONTRACT_LOCK",
+  "title": "Implement human approval commands",
+  "status": "completed",
+  "started_at": "2026-07-27T03:57:35+00:00",
+  "completed_at": "2026-07-27T21:31:27Z",
+  "actor": "codex-cli-local",
+  "owner_lane": "lane_c_repo_b",
+  "owner_agent": "nu-plugin-agent",
+  "helper_id": "helper-nu-approval-01",
+  "model_tag": "gpt-5.3-spark",
+  "repo_target": "repo_b",
+  "repo_path": "/home/flexnetos/meta/src/nu_plugin",
+  "source_commit": "b2d1c486db6ff2b93e24d1f40a2e4de0218759d7",
+  "files_changed": [
+    "crates/nu_plugin_codedb/src/main.rs",
+    "state/REQ-033_PLUGIN_HUMAN_APPROVAL.heartbeat.json",
+    "logs/REQ-033_PLUGIN_HUMAN_APPROVAL.log",
+    "proof_records/REQ-033_PLUGIN_HUMAN_APPROVAL.proof.json"
+  ],
+  "implementation": {
+    "command_name": "codedb envctl human approvals",
+    "input_formats": [
+      "approval_request_json_array",
+      "approval_request_json_object",
+      "approval_request_jsonl",
+      "operation_queue_json_array",
+      "operation_queue_json_object",
+      "operation_queue_jsonl"
+    ],
+    "human_modes": [
+      "observer",
+      "approval-gated",
+      "operator",
+      "agent-only"
+    ],
+    "mutation_policy": "read_only_human_approval_projection",
+    "output_table": "envctl_human_approval_surface",
+    "views": [
+      "mode",
+      "approval",
+      "operation"
+    ],
+    "unit_tests_added": [
+      "plugin_registers_human_approval_projection_surface",
+      "envctl_human_approval_rows_project_mode_and_actions",
+      "envctl_human_approval_rows_reject_bad_jsonl"
+    ]
+  },
+  "verification_output": {
+    "status": "skipped_by_policy",
+    "notes": "Rust tests were not executed in this session by instruction."
+  },
+  "checksums": {
+    "crates/nu_plugin_codedb/src/main.rs": "859e6e98850c2f0942c0f61043a80c4bd686bf3ba9a6cbe469cfd952727955ad",
+    "state/REQ-033_PLUGIN_HUMAN_APPROVAL.heartbeat.json": "25ed461e840653e597a49ef83c39a083ac78ba110fd293a3fb351b76075f9aa0",
+    "logs/REQ-033_PLUGIN_HUMAN_APPROVAL.log": "d0b3859bdcf059357745343e471f3df842346f3436a5153d2ffd76f5b9a6c70f"
+  },
+  "logs_uri": "logs/REQ-033_PLUGIN_HUMAN_APPROVAL.log",
+  "rollback_point": "Remove `EnvctlHumanApproval` command registration and helpers in crates/nu_plugin_codedb/src/main.rs, then remove this task heartbeat/log/proof",
+  "evidence": [
+    "crates/nu_plugin_codedb/src/main.rs",
+    "state/REQ-033_PLUGIN_HUMAN_APPROVAL.heartbeat.json",
+    "logs/REQ-033_PLUGIN_HUMAN_APPROVAL.log",
+    "proof_records/REQ-033_PLUGIN_HUMAN_APPROVAL.proof.json"
+  ],
+  "failure_reason": "",
+  "next_action": "REQ-041_TWO_REPO_INTEGRATION can consume the verified human approval surface."
+}

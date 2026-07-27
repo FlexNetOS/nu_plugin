@@ -77,6 +77,7 @@ impl Plugin for CodeDbPlugin {
             Box::new(Export),
             Box::new(AgentHarnessImport),
             Box::new(EnvctlInventoryImport),
+            Box::new(EnvctlHumanApproval),
             Box::new(EnvctlStatusStream),
             Box::new(NixFlakeImport),
             Box::new(Tables),
@@ -131,6 +132,7 @@ struct BuildScripts;
 struct Export;
 struct AgentHarnessImport;
 struct EnvctlInventoryImport;
+struct EnvctlHumanApproval;
 struct EnvctlStatusStream;
 struct NixFlakeImport;
 struct Tables;
@@ -1361,8 +1363,12 @@ fn envctl_status_stream_rows(
 }
 
 fn read_json_stream(path: &Path, span: Span) -> Result<Vec<JsonValue>, LabeledError> {
+    read_json_rows(path, "envctl event stream", span)
+}
+
+fn read_json_rows(path: &Path, label: &str, span: Span) -> Result<Vec<JsonValue>, LabeledError> {
     let raw = fs::read_to_string(path).map_err(|source| {
-        LabeledError::new("failed to read envctl event stream")
+        LabeledError::new(format!("failed to read {label} artifact"))
             .with_label(format!("{}: {source}", path.display()), span)
     })?;
     let trimmed = raw.trim();
@@ -1371,7 +1377,7 @@ fn read_json_stream(path: &Path, span: Span) -> Result<Vec<JsonValue>, LabeledEr
     }
     if trimmed.starts_with('[') {
         return serde_json::from_str(trimmed).map_err(|source| {
-            LabeledError::new("failed to parse envctl event stream array")
+            LabeledError::new(format!("failed to parse {label} array"))
                 .with_label(format!("{}: {source}", path.display()), span)
         });
     }
@@ -1379,7 +1385,7 @@ fn read_json_stream(path: &Path, span: Span) -> Result<Vec<JsonValue>, LabeledEr
         return serde_json::from_str(trimmed)
             .map(|value| vec![value])
             .map_err(|source| {
-                LabeledError::new("failed to parse envctl event stream object")
+                LabeledError::new(format!("failed to parse {label} object"))
                     .with_label(format!("{}: {source}", path.display()), span)
             });
     }
@@ -1390,11 +1396,285 @@ fn read_json_stream(path: &Path, span: Span) -> Result<Vec<JsonValue>, LabeledEr
         .filter(|(_, line)| !line.trim().is_empty())
         .map(|(index, line)| {
             serde_json::from_str(line).map_err(|source| {
-                LabeledError::new("failed to parse envctl event stream JSONL")
+                LabeledError::new(format!("failed to parse {label} JSONL"))
                     .with_label(format!("{}:{}: {source}", path.display(), index + 1), span)
             })
         })
         .collect()
+}
+
+fn envctl_human_approval_rows(
+    approvals_path: &Path,
+    operations_path: Option<&Path>,
+    mode: &str,
+    span: Span,
+) -> Result<Vec<Row>, LabeledError> {
+    validate_human_mode(mode)?;
+    let approvals = read_json_rows(approvals_path, "approval request", span)?;
+    let operations = if let Some(operations_path) = operations_path {
+        read_json_rows(operations_path, "operation queue", span)?
+    } else {
+        Vec::new()
+    };
+
+    let mut rows = Vec::new();
+    rows.push(envctl_human_mode_row(
+        mode,
+        approvals.len(),
+        operations.len(),
+        span,
+    )?);
+    for (index, request) in approvals.iter().enumerate() {
+        rows.push(envctl_human_approval_request_row(index, request, mode, span)?);
+    }
+    for (index, operation) in operations.iter().enumerate() {
+        rows.push(envctl_human_approval_operation_row(index, operation, mode, span)?);
+    }
+    Ok(rows)
+}
+
+fn envctl_human_mode_row(
+    mode: &str,
+    approval_count: usize,
+    operation_count: usize,
+    span: Span,
+) -> Result<Row, LabeledError> {
+    let allowed_actions = mode_actions(mode, "mode", "", "");
+    let next_safe_action = first_action(&allowed_actions);
+    Ok(vec![
+        ("table", string("envctl_human_approval_surface", span)),
+        ("view", string("mode", span)),
+        ("mode", string(mode, span)),
+        ("run_id", string("", span)),
+        ("operation_id", string("", span)),
+        ("approval_id", string("", span)),
+        ("risk", string("", span)),
+        ("status", string("active", span)),
+        ("requested_by", string("", span)),
+        ("decided_by", string("", span)),
+        ("reason", string("", span)),
+        ("blocked", bool_value(false, span)),
+        ("requires_human", bool_value(mode_requires_human(mode), span)),
+        ("allowed_actions", string(allowed_actions, span)),
+        ("next_safe_action", string(next_safe_action, span)),
+        ("delegate_target", string("", span)),
+        (
+            "summary",
+            string(
+                format!(
+                    "mode {mode} with {approval_count} approvals and {operation_count} operations",
+                ),
+                span,
+            ),
+        ),
+    ])
+}
+
+fn envctl_human_approval_request_row(
+    index: usize,
+    request: &JsonValue,
+    mode: &str,
+    span: Span,
+) -> Result<Row, LabeledError> {
+    let risk = json_string(request, "risk");
+    let status = json_string(request, "status");
+    let allowed_actions = mode_actions(mode, "approval", &status, &risk);
+    let next_safe_action = next_safe_human_action(mode, "approval", &status, &risk);
+    let decided_by = json_object_string(request, "decided_by");
+    let reason = json_object_string(request, "reason");
+    Ok(vec![
+        ("table", string("envctl_human_approval_surface", span)),
+        ("view", string("approval", span)),
+        ("mode", string(mode, span)),
+        ("run_id", string(json_object_string(request, "run_id"), span)),
+        (
+            "operation_id",
+            string(json_object_string(request, "operation_id"), span),
+        ),
+        (
+            "approval_id",
+            string(
+                non_empty_or_fallback(json_object_string(request, "approval_id"), index),
+                span,
+            ),
+        ),
+        ("risk", string(risk.clone(), span)),
+        ("status", string(status.clone(), span)),
+        ("requested_by", string(json_object_string(request, "requested_by"), span)),
+        ("decided_by", string(decided_by.clone(), span)),
+        ("reason", string(reason.clone(), span)),
+        (
+            "blocked",
+            bool_value(status == "open" && risk_requires_human(&risk), span),
+        ),
+        (
+            "requires_human",
+            bool_value(status == "open" && mode_requires_human(mode), span),
+        ),
+        ("allowed_actions", string(allowed_actions, span)),
+        ("next_safe_action", string(next_safe_action, span)),
+        (
+            "delegate_target",
+            string(json_object_string(request, "delegate_target"), span),
+        ),
+        (
+            "summary",
+            string(
+                first_non_empty_strings(vec![
+                    reason,
+                    format!(
+                        "approval {status} for operation {}",
+                        json_object_string(request, "operation_id")
+                    ),
+                ]),
+                span,
+            ),
+        ),
+    ])
+}
+
+fn envctl_human_approval_operation_row(
+    index: usize,
+    operation: &JsonValue,
+    mode: &str,
+    span: Span,
+) -> Result<Row, LabeledError> {
+    let risk = json_string(operation, "risk");
+    let status = json_string(operation, "status");
+    let allowed_actions = mode_actions(mode, "operation", &status, &risk);
+    let next_safe_action = next_safe_human_action(mode, "operation", &status, &risk);
+    Ok(vec![
+        ("table", string("envctl_human_approval_surface", span)),
+        ("view", string("operation", span)),
+        ("mode", string(mode, span)),
+        ("run_id", string(json_object_string(operation, "run_id"), span)),
+        (
+            "operation_id",
+            string(
+                non_empty_or_fallback(json_object_string(operation, "operation_id"), index),
+                span,
+            ),
+        ),
+        ("approval_id", string("", span)),
+        ("risk", string(risk.clone(), span)),
+        ("status", string(status.clone(), span)),
+        ("requested_by", string("", span)),
+        ("decided_by", string("", span)),
+        (
+            "reason",
+            string(json_nested_string(operation, "error", "message"), span),
+        ),
+        (
+            "blocked",
+            bool_value(matches!(status.as_str(), "awaiting_approval" | "blocked"), span),
+        ),
+        (
+            "requires_human",
+            bool_value(
+                matches!(status.as_str(), "awaiting_approval" | "blocked")
+                    || (mode_requires_human(mode) && risk_requires_human(&risk)),
+                span,
+            ),
+        ),
+        ("allowed_actions", string(allowed_actions, span)),
+        ("next_safe_action", string(next_safe_action, span)),
+        (
+            "delegate_target",
+            string(json_nested_string(operation, "input", "delegate_to"), span),
+        ),
+        (
+            "summary",
+            string(
+                format!(
+                    "{} operation {}",
+                    json_object_string(operation, "operation_type"),
+                    status
+                ),
+                span,
+            ),
+        ),
+    ])
+}
+
+fn mode_actions(mode: &str, view: &str, status: &str, risk: &str) -> String {
+    let actions = if view == "mode" {
+        match mode {
+            "observer" => vec!["opt_in"],
+            "approval-gated" => vec!["approve", "deny", "pause", "delegate"],
+            "operator" => vec!["approve", "deny", "pause", "delegate"],
+            "agent-only" => vec!["opt_in"],
+            _ => vec!["observe"],
+        }
+    } else {
+        match mode {
+            "observer" => vec!["opt_in"],
+            "agent-only" => {
+                if risk_requires_human(risk) || matches!(status, "awaiting_approval" | "blocked") {
+                    vec!["opt_in", "delegate"]
+                } else {
+                    vec!["observe"]
+                }
+            }
+            "approval-gated" | "operator" => match status {
+                "open" | "awaiting_approval" => vec!["approve", "deny", "pause", "delegate"],
+                "blocked" | "running" => vec!["pause", "delegate"],
+                "approved" => vec!["pause", "delegate"],
+                "denied" | "cancelled" | "expired" => vec!["delegate"],
+                _ => vec!["observe"],
+            },
+            _ => vec!["observe"],
+        }
+    };
+    actions.join(";")
+}
+
+fn next_safe_human_action(mode: &str, view: &str, status: &str, risk: &str) -> String {
+    let actions = mode_actions(mode, view, status, risk);
+    first_action(&actions)
+}
+
+fn first_action(actions: &str) -> String {
+    actions.split(';').next().unwrap_or_default().to_string()
+}
+
+fn mode_requires_human(mode: &str) -> bool {
+    matches!(mode, "approval-gated" | "operator")
+}
+
+fn risk_requires_human(risk: &str) -> bool {
+    matches!(risk, "R3" | "R4" | "R5")
+}
+
+fn non_empty_or_fallback(value: String, index: usize) -> String {
+    if value.is_empty() {
+        format!("row-{index}")
+    } else {
+        value
+    }
+}
+
+fn first_non_empty_strings(values: Vec<String>) -> String {
+    values
+        .into_iter()
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+fn json_nested_string(row: &JsonValue, object_key: &str, nested_key: &str) -> String {
+    row.get(object_key)
+        .and_then(JsonValue::as_object)
+        .and_then(|object| object.get(nested_key))
+        .map(json_value_string)
+        .unwrap_or_default()
+}
+
+fn validate_human_mode(mode: &str) -> Result<(), LabeledError> {
+    match mode {
+        "observer" | "approval-gated" | "operator" | "agent-only" => Ok(()),
+        _ => Err(LabeledError::new("invalid human involvement mode").with_label(
+            "set --mode to one of: observer, approval-gated, operator, agent-only",
+        )),
+    }
 }
 
 fn read_proof_records(path: &Path, span: Span) -> Result<Vec<JsonValue>, LabeledError> {
@@ -3751,6 +4031,63 @@ impl SimplePluginCommand for EnvctlInventoryImport {
     }
 }
 
+impl SimplePluginCommand for EnvctlHumanApproval {
+    type Plugin = CodeDbPlugin;
+
+    fn name(&self) -> &str {
+        "codedb envctl human approvals"
+    }
+
+    fn description(&self) -> &str {
+        "Project approval requests and operation queue rows into a human approval surface."
+    }
+
+    fn signature(&self) -> Signature {
+        command_signature(PluginCommand::name(self))
+            .required(
+                "approvals_path",
+                SyntaxShape::Filepath,
+                "Approval request JSON array/object or JSONL artifact",
+            )
+            .named(
+                "ops",
+                SyntaxShape::Filepath,
+                "Optional operation queue JSON array/object or JSONL artifact",
+                None,
+            )
+            .named(
+                "mode",
+                SyntaxShape::String,
+                "Human involvement mode: observer, approval-gated, operator, or agent-only",
+                None,
+            )
+            .named("store", SyntaxShape::Filepath, "CodeDB store path", None)
+            .named("limit", SyntaxShape::Int, "Maximum rows to return", None)
+            .named("cursor", SyntaxShape::Int, "Zero-based row cursor", None)
+    }
+
+    fn run(
+        &self,
+        _plugin: &CodeDbPlugin,
+        _engine: &EngineInterface,
+        call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        let approvals_path: String = call.req(0)?;
+        let operations_path = call.get_flag::<String>("ops")?;
+        let mode = call
+            .get_flag::<String>("mode")?
+            .unwrap_or_else(|| "approval-gated".to_string());
+        let rows = envctl_human_approval_rows(
+            Path::new(&approvals_path),
+            operations_path.as_deref().map(Path::new),
+            &mode,
+            call.head,
+        )?;
+        Ok(rows_to_value(page_rows(rows, call)?, call.head))
+    }
+}
+
 impl SimplePluginCommand for EnvctlStatusStream {
     type Plugin = CodeDbPlugin;
 
@@ -5244,6 +5581,21 @@ mod envctl_db_tests {
     }
 
     #[test]
+    fn plugin_registers_human_approval_projection_surface() {
+        let names: Vec<String> = CodeDbPlugin
+            .commands()
+            .iter()
+            .map(|command| PluginCommand::name(command.as_ref()).to_string())
+            .collect();
+        assert!(
+            names
+                .iter()
+                .any(|name| name == "codedb envctl human approvals"),
+            "missing human approval projection command"
+        );
+    }
+
+    #[test]
     fn consolidated_visuals_preserve_nested_typed_records() {
         let json = serde_json::json!({
             "overview": {"run_id": "run-42", "percent": 75, "blocked": true},
@@ -5864,6 +6216,78 @@ mod tests {
                 && row_has_string(row, "proof_status", "completed")
                 && row_has_string(row, "proof_uri", "logs/REQ-034_PLUGIN_STATUS_STREAMS.log")
         }));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn envctl_human_approval_rows_project_mode_and_actions() {
+        let root = temp_path("human-approval");
+        fs::create_dir_all(&root).unwrap();
+        let approvals_path = root.join("approvals.json");
+        let operations_path = root.join("operations.jsonl");
+        fs::write(
+            &approvals_path,
+            r#"[{"approval_id":"appr-1","run_id":"run-7","operation_id":"op-risky","risk":"R4","status":"open","requested_by":"agent:planner","reason":"needs human sign-off"}]"#,
+        )
+        .unwrap();
+        fs::write(
+            &operations_path,
+            r#"{"operation_id":"op-risky","run_id":"run-7","operation_type":"apply_patch","status":"awaiting_approval","risk":"R4","input":{"delegate_to":"human:ops"}}
+{"operation_id":"op-safe","run_id":"run-7","operation_type":"scan","status":"ready","risk":"R1"}"#,
+        )
+        .unwrap();
+
+        let rows = envctl_human_approval_rows(
+            &approvals_path,
+            Some(&operations_path),
+            "approval-gated",
+            Span::unknown(),
+        )
+        .unwrap();
+
+        assert_eq!(rows.len(), 4);
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "view", "mode")
+                && row_has_string(row, "allowed_actions", "approve;deny;pause;delegate")
+                && row_has_string(row, "next_safe_action", "approve")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "view", "approval")
+                && row_has_string(row, "approval_id", "appr-1")
+                && row_has_string(row, "allowed_actions", "approve;deny;pause;delegate")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "view", "operation")
+                && row_has_string(row, "operation_id", "op-risky")
+                && row_has_string(row, "delegate_target", "human:ops")
+                && row_has_string(row, "next_safe_action", "approve")
+        }));
+        assert!(rows.iter().any(|row| {
+            row_has_string(row, "view", "operation")
+                && row_has_string(row, "operation_id", "op-safe")
+                && row_has_string(row, "allowed_actions", "observe")
+        }));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn envctl_human_approval_rows_reject_bad_jsonl() {
+        let root = temp_path("human-approval-error");
+        fs::create_dir_all(&root).unwrap();
+        let approvals_path = root.join("approvals.jsonl");
+        fs::write(&approvals_path, "{\"approval_id\":\"ok\"}\nnot-json\n").unwrap();
+
+        let error = envctl_human_approval_rows(
+            &approvals_path,
+            None,
+            "observer",
+            Span::unknown(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("failed to parse approval request JSONL"));
 
         let _ = fs::remove_dir_all(root);
     }
