@@ -445,3 +445,24 @@ mutated by these validation commands.
 Final terminal-state recheck: `cargo test --workspace` passed after the
 bidirectional runner changed from 14 active tasks to 21/21 satisfied; all 15 Nu
 scripts and the disposable PostgreSQL 13-case lane remained green.
+
+
+## Current approved validation rerun — 2026-07-27
+
+Commands passed:
+
+```text
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace
+cargo run --quiet -p codedb -- doctor --nu --yazelix --codex --format json
+python3 scripts/validate_task_graph.py --structure
+```
+
+- Formatting passed.
+- Warning-deny clippy passed (local wrapper: 0 errors, 1 warning).
+- Workspace tests passed: 311 passed, 1 ignored across 37 suites.
+- Doctor completed successfully: host Nu and Codex are available; plugin-registry state and Yazelix runtime discovery are explicitly degraded/non-mutating.
+- Task-graph structure validation passed: graphs, maps, paths, proofs, receipts, and manifests are consistent.
+
+TASK-CDB046 local validation passed.

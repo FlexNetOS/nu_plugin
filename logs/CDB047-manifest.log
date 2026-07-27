@@ -223,3 +223,11 @@ are complete. The generated `PACK_MANIFEST.json`, `CHECKSUMS.sha256`, and
 `PACKAGE_VALIDATION.json` remain self-excluded while binding their complete
 declared source surface. No detached current-HEAD release receipt is claimed by
 this repository log.
+
+## CDB047 execution receipt — 2026-07-27T17:03:57Z
+
+- `scripts/truth_surface.py --write`: completed
+- `scripts/truth_surface.py --check`: passed (`817` tracked files)
+- `scripts/truth_surface.py --check-source`: passed (`817` manifest files)
+- `python -m unittest discover -s tests -p 'test_truth_surface.py' -v`: passed (`3` tests)
+- release evidence: manifest, checksum list, and package validation regenerated from the current tracked repository surface

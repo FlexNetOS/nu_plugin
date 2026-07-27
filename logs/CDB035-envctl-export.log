@@ -27,3 +27,12 @@ Result: passed (2 tests). The envctl contract test invokes `codedb export envctl
 against an isolated fixture in JSON, NUON, and CSV formats. It verifies that every
 materialization target binds the checksum exported for its declared source table and
 that exported backend access is forbidden.
+
+## 2026-07-27 focused revalidation
+
+Command:
+  rtk cargo test -p codedb --test relative_repo_path
+
+Result: passed (4 tests, 0.86s). The envctl contract test continues to validate
+JSON, NUON, and CSV projections, including the declared-source-table checksum
+binding for each materialization row.

@@ -128,3 +128,25 @@ Command: `nu -c 'source tests/test_unsafe_capture.nu; main | to json -r'`
 ```
 
 Result: passed. The fixture lockfile was generated only in an isolated temporary copy; the source fixture remained without `Cargo.lock`.
+
+## execution receipt — 2026-07-27T16:59:37-05:00
+
+Command: `nu -c 'source tests/test_unsafe_capture.nu; main | to json -r'`
+
+```json
+[
+  {
+    "label": "build_capture_crate_tests",
+    "status": "passed",
+    "sha256": "89844e28f4edc7367909164fdca179f4b74d7b40bce1a6780e189fcb4e522a3b"
+  },
+  {
+    "label": "runner_unsafe_gate",
+    "status": "satisfied",
+    "default_policy": "refuse_without_unsafe_flag",
+    "mcp_dynamic_execution": "blocked"
+  }
+]
+```
+
+Result: passed. The source fixture remained untouched; its lockfile was generated only in an isolated temporary copy.

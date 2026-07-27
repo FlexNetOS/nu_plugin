@@ -2,6 +2,15 @@
 
 Task: CDB105
 
+## CDB048 baseline: handoff and backlog retained
+
+The CDB048 release-handoff requirement remains satisfied by this document and
+`BACKLOG.md`: V1.1 capture gaps are kept visible, and PRD section 20 MVP2 work
+is enumerated as post-V1.1 scope. These lists are planning context only. They
+do not grant unsafe execution, unbounded MCP access, source mutation, or a
+release exception, and they do not replace direct evidence for later task
+graphs.
+
 ## Current State
 
 The V1.1 implementation graph is complete through CDB069, with CDB068's CSV

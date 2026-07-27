@@ -4,6 +4,10 @@ Source: PRD section 20.
 
 ## MVP2 candidates
 
+These remain post-V1.1 work. They may be scheduled only after the mandatory
+compiler-facing and reproduction gates in PRD section 20 have direct proof;
+listing an item here is not release evidence or approval to weaken a V1.1 gate.
+
 - DataFusion/Arrow analytical projection
 - Tantivy full-text search index
 - SQLite/libSQL export bridge

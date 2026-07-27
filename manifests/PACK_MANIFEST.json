@@ -6,7 +6,7 @@
     "manifests/PACK_MANIFEST.json"
   ],
   "checksum_scope": "tracked repository files excluding generated truth-surface files",
-  "checksum_scope_files_sha256": "88e48cc7d80e9fe9fb0191b79011773f2fae7cca6368df4ce198e50572b8388a",
+  "checksum_scope_files_sha256": "7b0fdf20d236056e507d6230912ddc0ab986f3ad4c055086230919d0c82e93ff",
   "entrypoint": "CODEDB_START_HERE.md",
   "file_count_in_checksum_scope": 817,
   "files": [
@@ -246,9 +246,9 @@
       "sha256": "9ce4e7240f410193eed5bceaab54328eaefb4467d710e0ad1841f1eb0aa8c18f"
     },
     {
-      "bytes": 2228,
+      "bytes": 2461,
       "path": "BACKLOG.md",
-      "sha256": "5528077538651e5f456eb35f9efc7b9349e531231dee86451bbd2f7f79693278"
+      "sha256": "d0454dd96de295111aa4af5b1731b301d3947c4eaad68b658d329c791033311b"
     },
     {
       "bytes": 26744,
@@ -296,9 +296,9 @@
       "sha256": "b95171f696d9934dcb22dec45aed3048acc1be5ba1e769585cad6d9fa5070c34"
     },
     {
-      "bytes": 5828,
+      "bytes": 6271,
       "path": "HANDOFF.md",
-      "sha256": "7e2c8a862eae705743dfde8cbf5e5d7f089571bcfc414633d8d1885c9708343b"
+      "sha256": "a6264601b0e70dcf5a479cf79f999438be9f91f1b3cf4a73bd3c206f2ca2bedf"
     },
     {
       "bytes": 10221,
@@ -1321,14 +1321,14 @@
       "sha256": "37bdabc2a530fe3c3f1c8cbabdadfd040abc83a9949e40ee468bd61505ebf665"
     },
     {
-      "bytes": 1123,
+      "bytes": 1419,
       "path": "logs/CDB035-envctl-export.log",
-      "sha256": "9e9022dc47882890e8ce4f7aa60f32a7c2f13b980542273f8890ade5a14eac39"
+      "sha256": "b2a3a18bcd0eff2ca88624ce0f02cc5f355bd844ed32c3598b2630029450dcdd"
     },
     {
-      "bytes": 1534,
+      "bytes": 2331,
       "path": "logs/CDB036-meta.log",
-      "sha256": "ae21b8a530ac9d451d02ff57b3446ecdfdd1ed54d5114e25b47d776c3f5d987b"
+      "sha256": "fa8f8af7559235568e98b388ec24d9f5fb5a4c16c27481d1d4a5457cad2056ca"
     },
     {
       "bytes": 1244,
@@ -1376,24 +1376,24 @@
       "sha256": "d6044a065e9ceba1f9810f34561c9ff237897055c3415c4d61386aa1b4287ef7"
     },
     {
-      "bytes": 5587,
+      "bytes": 6167,
       "path": "logs/CDB045-unsafe-tests.log",
-      "sha256": "7605b432c0f08d37f15ea51ae700d9169412b91fe0c6fb196303ba7d5393a36c"
+      "sha256": "98edec1a59ba433eacd26e92b462dc8e009d1a5ea6733685c7491ee1dc78a149"
     },
     {
-      "bytes": 22187,
+      "bytes": 22977,
       "path": "logs/CDB046-validation.log",
-      "sha256": "013b8c398394aeb6aaa3a8700e14cde1f44c54557f83073014aabf38f0462753"
+      "sha256": "d983653bb3b32aad4a2f4638058745fb223830a21dd43129724a115b52c99f7b"
     },
     {
-      "bytes": 7678,
+      "bytes": 8138,
       "path": "logs/CDB047-manifest.log",
-      "sha256": "bc4b0576cc4954a4f3a4857c8313109f9cf19028b53ccfc5e3e3a1aea787ac64"
+      "sha256": "1265e89ca14536fd356b51364254e0bcbee5ad8a7e9b088e53cfd9562db63d3b"
     },
     {
-      "bytes": 1958,
+      "bytes": 3077,
       "path": "logs/CDB048-handoff.log",
-      "sha256": "88ffd3d961d39880acc7b2e14a737f9a0a52207ba51c58adb3068f74827b04de"
+      "sha256": "c135b1d933c898f8c78c94928a54110b1f3cdb348a6d62b418c9606ba01257f1"
     },
     {
       "bytes": 1861,
@@ -4096,7 +4096,7 @@
       "sha256": "9e552bc2158a05f1d24ba08e1d785d06046bd904b42d35a17666a876442ee1e6"
     }
   ],
-  "generated_at_utc": "2026-07-27T16:45:28+00:00",
+  "generated_at_utc": "2026-07-27T17:12:31+00:00",
   "package": "nu_plugin",
   "surface": "repo_native_truth_surface",
   "task_graph_source_of_truth": "execution/TASK_GRAPH.csv"
