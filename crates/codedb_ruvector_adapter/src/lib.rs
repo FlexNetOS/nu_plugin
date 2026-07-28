@@ -76,7 +76,7 @@ impl EmbeddingModel {
     pub fn embed(&self, text: &str) -> Embedding {
         let mut vector = vec![0f32; self.dimension];
         let mut token = String::new();
-        let mut flush = |token: &mut String, vector: &mut [f32]| {
+        let flush = |token: &mut String, vector: &mut [f32]| {
             if token.is_empty() {
                 return;
             }
@@ -98,7 +98,7 @@ impl EmbeddingModel {
                 flush(&mut token, &mut vector);
             }
         }
-        let _ = &mut flush; // RED BASELINE: no tokens folded in
+        flush(&mut token, &mut vector);
         // L2 normalize; keep a tiny bias so an all-zero text stays finite.
         let norm = (vector.iter().map(|v| v * v).sum::<f32>()).sqrt();
         if norm > 0.0 {
