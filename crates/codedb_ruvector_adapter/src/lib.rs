@@ -232,8 +232,6 @@ mod live {
         }
 
         pub fn persist(&self, doc: &DocumentInput) -> Result<i64, AdapterError> {
-            return Err(AdapterError::new("persist is not implemented"));
-            #[allow(unreachable_code)]
             if doc.content.len() > MAX_CONTENT_BYTES {
                 return Err(AdapterError::new(format!(
                     "content of {} bytes exceeds the {MAX_CONTENT_BYTES}-byte bound",
