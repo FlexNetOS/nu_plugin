@@ -1,0 +1,12 @@
+[package]
+name = "cow_branch_store"
+version = "0.1.0"
+edition = "2021"
+description = "Database-native copy-on-write semantic code branches and identity-bound rollback (ARCHBP-005). Content-and-lineage-bound branch identities (ABA-safe), explicit deterministic selection, and rollback that removes only identity-matched task artifacts and never a concurrent replacement. Not filesystem replay — an in-memory branch graph with an append-only log."
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone hermetic crate: opts out of any host workspace, zero dependencies.
+[workspace]
+
+[dependencies]
