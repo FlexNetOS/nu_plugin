@@ -3806,12 +3806,10 @@ impl SimplePluginCommand for IngestEnvelope {
         input: &Value,
     ) -> Result<Value, LabeledError> {
         if matches!(input, Value::Nothing { .. }) {
-            return Err(
-                LabeledError::new("missing typed envelope input").with_label(
-                    "pipe the ingest envelope record into this command",
-                    call.head,
-                ),
-            );
+            return Err(LabeledError::new("missing typed envelope input").with_label(
+                "pipe the ingest envelope record (or rtk_nu event list) into this command",
+                call.head,
+            ));
         }
         let envelope = nu_value_to_json(input).map_err(|message| {
             LabeledError::new("invalid typed envelope").with_label(message, call.head)

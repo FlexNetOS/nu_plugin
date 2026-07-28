@@ -1513,6 +1513,65 @@ pub fn outbox_status(store_path: impl AsRef<Path>) -> Result<OutboxStatusRow, St
     })
 }
 
+// Raw objects (ARCHBP-041): canonical content-addressed raw byte objects
+// captured from rtk_nu envelopes. Bytes live in the SAME blob table as typed
+// source content — one identity space, no raw/typed split.
+const RAW_OBJECTS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("raw_objects");
+
+/// Persist one canonical raw object idempotently. Returns whether the exact
+/// bytes were already content-addressed in this store (by raw or typed
+/// ingestion).
+#[allow(clippy::result_large_err)]
+pub fn persist_raw_object(
+    store_path: impl AsRef<Path>,
+    raw_object_id: &str,
+    bytes: &[u8],
+    metadata_json: &str,
+) -> Result<bool, StoreError> {
+    let sha256 = raw_object_id
+        .strip_prefix("sha256:")
+        .ok_or(StoreError::MissingValue {
+            table: "raw_objects",
+            key: "sha256-prefixed raw_object_id",
+        })?;
+    let db = Database::open(store_path.as_ref())?;
+    let deduplicated;
+    {
+        let write_txn = db.begin_write()?;
+        {
+            let mut blobs = write_txn.open_table(SOURCE_BLOBS_TABLE)?;
+            deduplicated = blobs.get(sha256)?.is_some();
+            blobs.insert(sha256, bytes)?;
+        }
+        {
+            let mut raw_objects = write_txn.open_table(RAW_OBJECTS_TABLE)?;
+            raw_objects.insert(raw_object_id, metadata_json)?;
+        }
+        write_txn.commit()?;
+    }
+    Ok(deduplicated)
+}
+
+/// Read back every raw object as (raw_object_id, metadata_json), ordered by id.
+#[allow(clippy::result_large_err)]
+pub fn list_raw_objects(
+    store_path: impl AsRef<Path>,
+) -> Result<Vec<(String, String)>, StoreError> {
+    let db = Database::open(store_path.as_ref())?;
+    let read_txn = db.begin_read()?;
+    let raw_objects = match read_txn.open_table(RAW_OBJECTS_TABLE) {
+        Ok(table) => table,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+    let mut rows = Vec::new();
+    for entry in raw_objects.iter()? {
+        let (key, value) = entry?;
+        rows.push((key.value().to_string(), value.value().to_string()));
+    }
+    Ok(rows)
+}
+
 /// Whether the content-addressed source blob is present in this store.
 #[allow(clippy::result_large_err)]
 pub fn source_blob_exists(
