@@ -13,6 +13,7 @@ members = [
   "crates/codedb_store_redb",
   "crates/codedb_store_pg",
   "crates/codedb_ruvector_adapter",
+  "crates/flexnetos_redb_owner",
   "crates/nu_plugin_codedb",
 ]
 resolver = "3"
