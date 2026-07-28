@@ -3787,7 +3787,14 @@ impl SimplePluginCommand for IngestEnvelope {
     fn signature(&self) -> Signature {
         store_signature(
             Signature::build(PluginCommand::name(self))
-                .input_output_type(Type::record(), Type::record()),
+                // Blueprint line 114 requires "a typed record/list/table input".
+                // Lines 108/111 pipe a single envelope record; line 105's
+                // `--format jsonl | from json --objects` yields a LIST of frame
+                // records. Declaring only `record` made the streaming form fail
+                // as a type error before the validator ever saw it.
+                .input_output_type(Type::record(), Type::record())
+                .input_output_type(Type::list(Type::Any), Type::record())
+                .input_output_type(Type::table(), Type::record()),
         )
     }
 

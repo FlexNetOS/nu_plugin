@@ -263,6 +263,65 @@ pub fn validate_envelope(json: &str) -> Result<Vec<ValidatedFile>, IngestError> 
     Ok(validated)
 }
 
+/// Validate the streaming (JSONL) form of an `rtk_nu` execution: a list of
+/// per-line records, each `{event_type, frame?, metadata}`, terminated by an
+/// `execution_complete` record.
+///
+/// The frames are extracted and handed to the same validator the single-envelope
+/// form uses, so both spellings of the §3.4 contract converge on identical
+/// checks and identical storage. A stream carrying no frames is an error rather
+/// than a silent success — an execution that produced no bytes still has to say
+/// so through its completion record, not by ingesting nothing.
+fn validate_rtk_nu_stream(value: &serde_json::Value) -> Result<Vec<ValidatedFile>, IngestError> {
+    let records = value
+        .as_array()
+        .ok_or_else(|| IngestError::new("rtk_nu stream is not a list"))?;
+    let mut frames = Vec::new();
+    let mut saw_completion = false;
+    for record in records {
+        match record.get("event_type").and_then(|v| v.as_str()) {
+            Some("raw_frame") => {
+                let frame = record.get("frame").ok_or_else(|| {
+                    IngestError::new("rtk_nu raw_frame record carries no frame")
+                })?;
+                let parsed: RtkNuFrame = serde_json::from_value(frame.clone()).map_err(|error| {
+                    IngestError::new(format!("invalid rtk_nu frame: {error}"))
+                })?;
+                frames.push(parsed);
+            }
+            Some("execution_complete") => saw_completion = true,
+            Some(other) => {
+                return Err(IngestError::new(format!(
+                    "unsupported rtk_nu event_type {other:?}"
+                )));
+            }
+            None => {
+                return Err(IngestError::new(
+                    "rtk_nu stream record declares no event_type",
+                ));
+            }
+        }
+    }
+    if !saw_completion {
+        return Err(IngestError::new(
+            "rtk_nu stream has no execution_complete record; the execution is truncated",
+        ));
+    }
+    if frames.is_empty() {
+        return Err(IngestError::new("rtk_nu stream contains no frames"));
+    }
+    let envelope = RtkNuEnvelope {
+        schema_version: RTK_NU_ENVELOPE_SCHEMA_VERSION.to_string(),
+        event_type: Some("execution".to_string()),
+        frames,
+        metadata: None,
+        completion: None,
+    };
+    let json = serde_json::to_string(&envelope)
+        .map_err(|error| IngestError::new(format!("rtk_nu stream re-encode failed: {error}")))?;
+    validate_rtk_nu_envelope(&json)
+}
+
 /// Validate an `rtk_nu` execution envelope and lower its ordered frames onto
 /// the same `ValidatedFile` representation the file-set path produces, so both
 /// inputs converge on one storage path.
