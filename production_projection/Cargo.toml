@@ -1,0 +1,12 @@
+[package]
+name = "production_projection"
+version = "0.1.0"
+edition = "2021"
+description = "envctl production projection engine (ARCHBP-006). Deterministically projects an approved database branch to disposable .rs/.toml/.nu files with exact bytes, module_path metadata, permissions, safe relative links, deterministic ordering, source-version traceability, and receipt-driven cleanup. Never overwrites canonical source."
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone hermetic crate: opts out of any host workspace, zero dependencies.
+[workspace]
+
+[dependencies]
