@@ -117,6 +117,8 @@ fn commit_notifications_are_ordered_and_gap_detectable_after_reconnect() {
     // A subscriber that saw seq 2 reconnects and reads only the gap.
     let tail = read_events(&root, 2).expect("read events after 2");
     assert_eq!(tail.iter().map(|e| e.seq).collect::<Vec<_>>(), vec![3, 4]);
+    let replay = client.events(2, 16).expect("authenticated UDS replay");
+    assert_eq!(replay.iter().map(|e| e.seq).collect::<Vec<_>>(), vec![3, 4]);
     // Every event names the projection generation it published.
     for event in &events {
         assert!(!event.checksum.is_empty());
@@ -214,8 +216,7 @@ fn commit_to_read_latency_is_benchmarked_with_raw_samples() {
     // No sub-millisecond claim is assumed: the samples are recorded raw and
     // only sanity-bounded (a commit+read round trip under 5 seconds).
     assert!(samples_us.iter().all(|&us| us < 5_000_000));
-    let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../logs/redb-owner-latency");
+    let out_dir = std::env::temp_dir().join("lifeos-redb-owner-latency");
     std::fs::create_dir_all(&out_dir).expect("create latency log dir");
     std::fs::write(
         out_dir.join("samples.json"),

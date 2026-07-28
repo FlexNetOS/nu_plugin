@@ -122,6 +122,18 @@ struct Request {
     key: Option<String>,
     #[serde(default)]
     value: Option<String>,
+    #[serde(default)]
+    after_seq: Option<u64>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// One ordered commit notification returned through the authenticated UDS.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitEvent {
+    pub seq: u64,
+    pub slot: String,
+    pub checksum: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -133,6 +145,8 @@ struct Response {
     seq: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    events: Option<Vec<CommitEvent>>,
 }
 
 struct Shared {
@@ -477,6 +491,7 @@ fn handle_request(shared: &Shared, line: &str) -> Response {
         error: Some(message.to_string()),
         seq: None,
         value: None,
+        events: None,
     };
     let request: Request = match serde_json::from_str(line) {
         Ok(request) => request,
@@ -514,6 +529,7 @@ fn handle_request(shared: &Shared, line: &str) -> Response {
                 error: None,
                 seq: Some(seq),
                 value: None,
+                events: None,
             }
         }
         "get" => {
@@ -526,6 +542,7 @@ fn handle_request(shared: &Shared, line: &str) -> Response {
                     error: None,
                     seq: None,
                     value,
+                    events: None,
                 },
                 Err(error) => reject(&format!("read failed: {error}")),
             }
@@ -536,9 +553,27 @@ fn handle_request(shared: &Shared, line: &str) -> Response {
                 error: None,
                 seq: Some(seq),
                 value: None,
+                events: None,
             },
             Err(error) => reject(&format!("status failed: {error}")),
         },
+        "events" => {
+            let after_seq = request.after_seq.unwrap_or(0);
+            let limit = request.limit.unwrap_or(256).min(4096);
+            match read_events(&shared.root, after_seq) {
+                Ok(mut events) => {
+                    events.truncate(limit);
+                    Response {
+                        ok: true,
+                        error: None,
+                        seq: None,
+                        value: None,
+                        events: Some(events),
+                    }
+                }
+                Err(error) => reject(&format!("event replay failed: {error}")),
+            }
+        }
         other => reject(&format!("unknown op {other:?}")),
     }
 }
@@ -641,6 +676,26 @@ impl OwnerClient {
     pub fn get(&mut self, key: &str) -> Result<Option<String>, OwnerError> {
         Ok(self.request("get", Some(key), None)?.value)
     }
+
+    /// Replay ordered commit notifications through the authenticated owner
+    /// socket. The owner remains the only process that reads its event spool.
+    pub fn events(&mut self, after_seq: u64, limit: usize) -> Result<Vec<CommitEvent>, OwnerError> {
+        let response = self.round_trip(serde_json::json!({
+            "protocol_version": self.protocol_version,
+            "token": self.token,
+            "op": "events",
+            "after_seq": after_seq,
+            "limit": limit,
+        }))?;
+        if !response.ok {
+            return Err(OwnerError::Rejected(
+                response.error.unwrap_or_else(|| "unspecified".into()),
+            ));
+        }
+        response
+            .events
+            .ok_or_else(|| internal("events response lacked event records"))
+    }
 }
 
 /// One decoded projection generation.
@@ -738,14 +793,6 @@ impl ProjectionReader {
             }
         }
     }
-}
-
-/// One ordered commit notification.
-#[derive(Debug, Clone, Deserialize)]
-pub struct CommitEvent {
-    pub seq: u64,
-    pub slot: String,
-    pub checksum: String,
 }
 
 /// Read commit notifications with seq strictly greater than `after_seq`.
