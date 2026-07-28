@@ -289,10 +289,16 @@ fn validate_rtk_nu_envelope(json: &str) -> Result<Vec<ValidatedFile>, IngestErro
     let mut validated = Vec::with_capacity(frames.len());
     let mut expected_offset: std::collections::BTreeMap<String, u64> = Default::default();
 
+    // Sequences must be contiguous and gap-free, but the emitter's base is its
+    // own business: rtk_nu numbers frames from 1. Anchor on the first observed
+    // sequence and require every subsequent frame to advance by exactly one, so
+    // a dropped or duplicated frame is still caught.
+    let base_sequence = frames.first().map(|frame| frame.sequence).unwrap_or(0);
     for (index, frame) in frames.into_iter().enumerate() {
-        if frame.sequence != index as u64 {
+        let expected = base_sequence + index as u64;
+        if frame.sequence != expected {
             return Err(IngestError::new(format!(
-                "rtk_nu frame ordering broken: expected sequence {index}, got {}",
+                "rtk_nu frame ordering broken: expected sequence {expected}, got {}",
                 frame.sequence
             )));
         }
