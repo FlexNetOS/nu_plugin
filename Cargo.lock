@@ -506,6 +506,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "codedb-ruvector-adapter"
+version = "0.1.0"
+dependencies = [
+ "postgres",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "codedb-single-binary-export"
 version = "0.1.0"
 dependencies = [

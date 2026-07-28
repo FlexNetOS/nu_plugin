@@ -1,0 +1,20 @@
+[package]
+name = "codedb-ruvector-adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Live RuVector semantic and hybrid SQL adapter: provenance-bound deterministic embeddings persisted through the approved PostgreSQL RuVector extension path, with lexical/vector/dependency/causal retrieval. redb is never a geometry engine; no vector sidecar."
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+pg-integration = []
+
+[dependencies]
+postgres = "0.19"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

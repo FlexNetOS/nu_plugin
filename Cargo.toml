@@ -12,6 +12,7 @@ members = [
   "crates/codedb_single_binary_export",
   "crates/codedb_store_redb",
   "crates/codedb_store_pg",
+  "crates/codedb_ruvector_adapter",
   "crates/nu_plugin_codedb",
 ]
 resolver = "3"
