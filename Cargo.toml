@@ -8,6 +8,7 @@ members = [
   "crates/codedb_build_capture",
   "crates/codedb_mcp",
   "crates/codedb_rust_static",
+  "crates/codedb_single_binary_export",
   "crates/codedb_store_redb",
   "crates/codedb_store_pg",
   "crates/nu_plugin_codedb",
