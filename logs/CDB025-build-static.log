@@ -28,3 +28,18 @@ The fixture deterministically detects `build.rs`, captures static Cargo
 instruction sites as `build_scripts` rows, and emits `capture_gaps` for
 unobserved dynamic build-script behavior. The source tree remains unchanged by
 the fixture.
+
+## Review revalidation — 2026-07-28 UTC
+
+Revalidated the static-only CDB025 gate with `CARGO_NET_OFFLINE=true`:
+
+```text
+cargo fmt -p codedb-rust-static --check
+cargo test -p codedb-rust-static build_script_fixture_emits_static_rows_and_gaps
+```
+
+Both commands passed. The focused test result was `1 passed; 0 failed; 23
+filtered out`. No dependency installation, network access, build-script
+execution, or `--unsafe-execute-build` path was used. The working tree had
+pre-existing unrelated changes before validation and its source status was
+unchanged afterwards; this review added only this evidence receipt.

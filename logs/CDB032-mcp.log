@@ -97,3 +97,21 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 - Result: 24 policy/stdio integration tests passed; package unit and doc-test targets passed.
 - Review conclusion: the `codedb mcp serve` gate remains satisfied for the bounded read-only MCP surface, including pagination and row/byte limits, raw source/blob denial, read-only backend boundaries, and fail-closed stdio behavior.
 - Scope: review-only; no source files were changed.
+
+## 2026-07-28 packet review verification
+
+- Packet pin: `c84740532ded2a27ee283ea7a3a5f303eaeb61a7` exists and is an ancestor of the checked-out repository.
+- Checkout provenance: current `HEAD` is `2fe2d6ffc312a3933d09f5c3ee65d4ab34ddb858` and has unrelated in-progress changes; no source was modified for this review.
+- Pinned-surface comparison: `crates/codedb_mcp/src/lib.rs` and the `codedb mcp serve` front-door functions are unchanged from the packet pin. The only MCP-test delta is poison-tolerant mutex handling, with the same policy assertions.
+- Command: `CARGO_TARGET_DIR=/tmp/cdb032-review-target cargo test -p codedb-mcp --offline`.
+- Result: passed — 24 policy/stdio integration tests plus unit and doc-test suites (4 suites total). Coverage includes bounded pagination and row/byte budgets, raw-source/blob and mutation-tool denial, read-only backend boundaries, and fail-closed stdio behavior.
+- Review conclusion: pass for TASK-CDB032's bounded, read-only MCP gate. This is a review-only attestation; it does not certify the current checkout as an exact whole-repository reproduction of the packet pin.
+
+## 2026-07-28 pinned packet archive re-verification
+
+- Lease scope: `sha256:4ccd8c6141abf8d3f8968c1f324e70f53a4baae89407608f100427abc872b2bc`.
+- Source under test: a temporary read-only archive of pinned commit `c84740532ded2a27ee283ea7a3a5f303eaeb61a7`; no files in `src/nu_plugin` were changed except this evidence log.
+- Command: `CARGO_TARGET_DIR=<temporary archive>/target cargo test --offline -p codedb-mcp`.
+- Result: passed — 24 policy/stdio integration tests and the unit and doc-test suites (4 suites total; 2.64s).
+- Gate covered: bounded pagination and row/response-byte limits, raw-source/blob and mutation-tool denial, read-only backend boundaries, and fail-closed stdio behavior.
+- Review conclusion: PASS for the TASK-CDB032 MCP page/limit/source-guard gate at the packet pin. The current checkout has unrelated `codedb mcp serve` front-door edits, so this attestation intentionally certifies the pinned archive rather than the mutable checkout.

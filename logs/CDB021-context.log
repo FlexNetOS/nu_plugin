@@ -68,3 +68,14 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
   the context crate.
 - This is a dry-run-only review record. No dependency, source, or replay action
   was performed.
+
+## TASK-CDB021 packet review (2026-07-28)
+
+- Verified the packet’s pinned commit `c84740532ded2a27ee283ea7a3a5f303eaeb61a7`
+  is an ancestor of the current repository HEAD; the only later context-crate
+  change is `crates/codedb_context/tests/runtime_context.rs`.
+- The authoritative V1.1 graph records CDB019 and CDB021 as complete and names
+  deterministic `codedb_contexts` rows as CDB021’s validation gate. The packet
+  continues to declare CDB022 as blocked for this handoff.
+- Replay is dry-run-only and apply-forbidden. No test, source, dependency, or
+  replay action was performed; this review entry is the sole task-owned change.

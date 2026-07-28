@@ -34,3 +34,23 @@ Artifacts:
 
 Conclusion:
 Yazelix/Nu bridge understood. CodeDB should be the higher-fidelity typed store and Nushell table/plugin surface. Yazelix owns packaged nu, layered runtime config, PATH, and profile state. Envctl remains the environment/export and file materialization layer. Integration should use packaged runtime paths plus transient or explicitly isolated plugin wiring, not direct edits to tracked Yazelix config.nu.
+
+## 2026-07-28 dry-run review handoff
+
+Reviewed the complete CDB049 artifact set against the authoritative task row
+and PRD section 24. The report records Yazelix source revision
+`6762324414c5e7515f8d424cde6d4c3bd44e7270`; the currently available Yazelix
+checkout is newer (`7027f6dfd38d673cf48b794a82d4bcd6cddd27df`), so this
+handoff does not claim a fresh inspection of that newer source state.
+
+- `docs/YAZELIX_NUSHELL_RUNTIME.md` identifies the packaged runtime launcher,
+  layered `env.nu`/`config.nu` boundary, runtime-specific registration modes,
+  and CLI fallback for protocol mismatch.
+- The cross-reference report assigns ownership to Yazelix (runtime/config/state),
+  Nushell (tables/plugins), CodeDB (typed capture/query), and envctl (export
+  consumption/materialization).
+- The artifacts preserve the no-mutation rule: no tracked Yazelix config edit,
+  no real-HOME plugin-registry operation, and no runtime-session restart.
+
+Deterministic validation: passed by read-only text assertions. No Nushell,
+plugin-registration, HOME/XDG, Yazelix, or source-repository mutation was run.

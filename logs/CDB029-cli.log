@@ -68,3 +68,56 @@ CSV rows: 22221
 
 All required JSON, NUON, and CSV command outputs parsed successfully. The
 relative-path frontdoor regression test also passed.
+
+## Review replay — 2026-07-28
+
+```text
+$ cargo fmt -p codedb --check
+FAILED: existing uncommitted formatting-only differences in crates/codedb/src/main.rs
+
+$ cargo test -p codedb --test relative_repo_path --offline
+cargo test: 4 passed (1 suite, 0.87s)
+
+$ cargo run -p codedb --offline -- schema --format json
+$ nu --no-config-file -c 'open --raw /tmp/cdb029-schema.json | from json | length'
+2
+
+$ cargo run -p codedb --offline -- scan . --format nuon
+$ nu --no-config-file -c 'open --raw /tmp/cdb029-scan.nuon | from nuon | length'
+7
+
+$ cargo run -p codedb --offline -- export rust_items --repo . --format csv
+$ nu --no-config-file -c 'open --raw /tmp/cdb029-rust-items.csv | from csv | length'
+0
+```
+
+The CLI's JSON, NUON, and CSV outputs parsed successfully. The formatter
+finding was retained without modifying the pre-existing `main.rs` worktree
+changes; `git diff --check` reported no whitespace errors in that diff.
+
+## Review replay — 2026-07-28 (TASK-CDB029 packet)
+
+```text
+$ cargo fmt -p codedb --check
+FAILED: pre-existing formatting-only differences in crates/codedb/src/main.rs
+at lines 1490 and 6005; no source changes made.
+
+$ cargo test -p codedb --test relative_repo_path --offline
+cargo test: 4 passed (1 suite, 0.85s)
+
+$ cargo run -p codedb --offline -- schema --format json
+$ nu --no-config-file -c 'open --raw /tmp/cdb029-schema.json | from json | length'
+2
+
+$ cargo run -p codedb --offline -- scan . --format nuon
+$ nu --no-config-file -c 'open --raw /tmp/cdb029-scan.nuon | from nuon | length'
+7
+
+$ cargo run -p codedb --offline -- export rust_items --repo . --format csv
+$ nu --no-config-file -c 'open --raw /tmp/cdb029-rust-items.csv | from csv | length'
+0
+```
+
+The relative-repository frontdoor regression suite and all required output
+format parsers passed. The formatter result remains an existing, scoped
+`main.rs` worktree condition and was not auto-formatted during this review.

@@ -281,12 +281,11 @@ fn validate_rtk_nu_stream(value: &serde_json::Value) -> Result<Vec<ValidatedFile
     for record in records {
         match record.get("event_type").and_then(|v| v.as_str()) {
             Some("raw_frame") => {
-                let frame = record.get("frame").ok_or_else(|| {
-                    IngestError::new("rtk_nu raw_frame record carries no frame")
-                })?;
-                let parsed: RtkNuFrame = serde_json::from_value(frame.clone()).map_err(|error| {
-                    IngestError::new(format!("invalid rtk_nu frame: {error}"))
-                })?;
+                let frame = record
+                    .get("frame")
+                    .ok_or_else(|| IngestError::new("rtk_nu raw_frame record carries no frame"))?;
+                let parsed: RtkNuFrame = serde_json::from_value(frame.clone())
+                    .map_err(|error| IngestError::new(format!("invalid rtk_nu frame: {error}")))?;
                 frames.push(parsed);
             }
             Some("execution_complete") => saw_completion = true,

@@ -31,6 +31,27 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 Completion gate: cargo captured
 Verification gate: cargo metadata fixture passes
 
+## Packet review refresh (2026-07-28)
+
+Packet `PACKET-TASK-CDB019` was reviewed under its dry-run-only replay rule.
+Dependencies `CDB014` and `CDB015` are both `complete` in the authoritative
+task graph. The pinned commit `c84740532ded2a27ee283ea7a3a5f303eaeb61a7`
+exists, and the current `codedb-cargo` source surface matches that commit.
+
+An extracted temporary archive of the pinned commit was used, with
+`CARGO_TARGET_DIR` inside that temporary directory. Network access stayed
+disabled. Results:
+
+- `cargo fmt -p codedb-cargo --check`: PASS.
+- `cargo metadata --offline --format-version 1 --no-deps`: PASS; nonempty
+  format-version-1 metadata emitted (SHA-256
+  `5884c5b1de0b293b497c12d456b5b496bc5cec95a46b964d88ace266e2826915`).
+- `cargo test --offline -p codedb-cargo`: PASS; 2 unit tests passed and 0
+  doc-tests ran.
+
+No source, manifest, lockfile, dependency, or replay state was changed. This
+log is the sole review-handoff update.
+
 ## Review verification (2026-07-27)
 
 Command: `cargo metadata --offline --format-version 1 --no-deps`

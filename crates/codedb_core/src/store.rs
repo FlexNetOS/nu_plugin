@@ -38,6 +38,12 @@ pub struct StoreError {
     /// record-and-continue past an unreadable file instead of aborting an
     /// entire whole-host capture (EVERY-BYTE engine gap G3).
     permission_denied: bool,
+    /// Set only via [`StoreError::contained_drift`], when a contained file was
+    /// rewritten underneath an in-progress read. Callers use
+    /// [`StoreError::is_contained_drift`] to record-and-continue under
+    /// `--drift-mode record` instead of aborting an entire whole-host capture
+    /// (EVERY-BYTE engine gap G2).
+    contained_drift: bool,
 }
 
 impl StoreError {
@@ -45,6 +51,7 @@ impl StoreError {
         Self {
             message: message.into(),
             permission_denied: false,
+            contained_drift: false,
         }
     }
 
@@ -54,6 +61,17 @@ impl StoreError {
         Self {
             message: message.into(),
             permission_denied: true,
+            contained_drift: false,
+        }
+    }
+
+    /// Same as [`StoreError::new`], but marked so [`Self::is_contained_drift`]
+    /// reports `true`.
+    pub(crate) fn contained_drift(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            permission_denied: false,
+            contained_drift: true,
         }
     }
 
@@ -66,6 +84,13 @@ impl StoreError {
     /// opposed to any other failure (I/O error, corruption, policy refusal).
     pub fn is_permission_denied(&self) -> bool {
         self.permission_denied
+    }
+
+    /// Whether this error was raised because a contained file was rewritten
+    /// between the start and end of its read (a live log, ring buffer, or
+    /// build artifact), as opposed to any other failure.
+    pub fn is_contained_drift(&self) -> bool {
+        self.contained_drift
     }
 }
 
@@ -1305,6 +1330,13 @@ fn open_contained_regular_file(
         let message = format!("contained regular-file open refused {relative_path:?}: {error}");
         if error.kind() == std::io::ErrorKind::PermissionDenied {
             StoreError::permission_denied(message)
+        } else if error.kind() == std::io::ErrorKind::NotFound {
+            // The entry existed at readdir and was gone by open: a transient
+            // git file, an editor swap file, or an intermediate build artifact
+            // the producer deleted. There are no bytes to capture at this
+            // instant, so this is the same class as a mid-read rewrite — the
+            // tree moved under a live capture (EVERY-BYTE engine gap G2).
+            StoreError::contained_drift(message)
         } else {
             StoreError::new(message)
         }
@@ -1347,7 +1379,9 @@ fn read_all_from_contained_handle(
         || before.modified().ok() != after.modified().ok()
         || bytes.len() as u64 != after.len()
     {
-        return Err(StoreError::new("contained source changed during capture"));
+        return Err(StoreError::contained_drift(
+            "contained source changed during capture",
+        ));
     }
     Ok(ContainedRegularFile {
         bytes,

@@ -89,3 +89,48 @@ CARGO_NET_OFFLINE=true cargo test -p codedb-rust-static include_fixture_passes
 Result: formatter check passed; `include_fixture_passes` passed (1 passed, 23 filtered).
 The reviewed fixture retains deterministic capture of literal `include!`, `include_str!`,
 `include_bytes!`, and `#[path]` edges, and continues to exclude dynamic path tracing.
+
+## TASK-CDB026 packet review (2026-07-28)
+
+Scope: review-only validation; no implementation source, dependency, or replay state changed.
+
+Commands:
+
+```text
+CARGO_NET_OFFLINE=true cargo fmt -p codedb-rust-static --check
+CARGO_NET_OFFLINE=true cargo test -p codedb-rust-static include_fixture_passes
+```
+
+Result: formatter check passed; `include_fixture_passes` passed (1 passed, 23 filtered).
+The analyzer deterministically captures literal `include!`, `include_str!`,
+`include_bytes!`, and `#[path]` edges at syntax-only confidence, and records a gap
+instead of tracing a nonliteral target. The packet source commit
+`c84740532ded2a27ee283ea7a3a5f303eaeb61a7` is unavailable in the local Git object
+database, so this review verifies the mounted current source only; it does not attest
+byte-for-byte equivalence to that pinned snapshot.
+
+## TASK-CDB026 companion-gate review (2026-07-28)
+
+Scope: review-only under `GATE-CDB026`; no implementation source, dependencies, or
+replay state changed. The packet's permitted log is the only repository artifact
+updated.
+
+Evidence:
+
+```text
+git diff --quiet c84740532ded2a27ee283ea7a3a5f303eaeb61a7 -- \
+  crates/codedb_rust_static/src/lib.rs fixtures/include_edges
+# exit 0: the reviewed static analyzer and include fixture match the pinned snapshot
+
+CARGO_TARGET_DIR=<temporary external directory> CARGO_NET_OFFLINE=true \
+  cargo fmt -p codedb-rust-static --check
+# exit 0
+
+CARGO_TARGET_DIR=<temporary external directory> CARGO_NET_OFFLINE=true \
+  cargo test -p codedb-rust-static include_fixture_passes
+# exit 0: 1 passed, 0 failed, 23 filtered out
+```
+
+Result: literal `include!`, `include_str!`, `include_bytes!`, and `#[path]` edges
+remain statically captured. Dynamic file tracing remains excluded and must be
+represented as a capture gap, consistent with the CDB026 stop condition.

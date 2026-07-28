@@ -52,3 +52,62 @@ resources were mutated by this review.
 Review result: STATIC_EVIDENCE_CONFIRMED; PINNED_REPLAY_NOT_EXECUTED.
 Next action: regenerate this handoff from the pinned snapshot in a clean
 worktree before treating a fresh test run as pinned replay evidence.
+
+--- TASK-CDB016 review handoff correction (2026-07-28) ---
+packet_id: PACKET-TASK-CDB016
+review_mode: deterministic dry-run; replay apply prohibited
+source_commit: c84740532ded2a27ee283ea7a3a5f303eaeb61a7
+current_head: 2fe2d6ffc312a3933d09f5c3ee65d4ab34ddb858
+source_commit_resolution: pinned commit is present but is not current HEAD
+authoritative_task_graph: CDB016 exists; status=complete; dependency CDB015 status=complete
+declared_validation_gate: backup restore smoke passes
+
+Static pinned-source review:
+- `backup_store` and `restore_store_from_backup` are present in
+  crates/codedb_store_redb/src/lib.rs at the pinned commit.
+- The pinned store records migration_state=current and backup_restore=available;
+  its restore smoke asserts matching backup/restored SHA-256 values and those
+  metadata rows.
+- The pinned source-blob restore test asserts byte-exact materialization after
+  restore; the pinned suite also includes writer-lock lifecycle coverage.
+- Existing raw evidence records 15 passed, 0 failed for codedb-store-redb.
+
+Execution decision: no test or replay was run. The packet permits dry-run
+review only, and the live repository is not at the pinned source commit.
+No source files, backups, restores, dependencies, or network resources were
+mutated by this review.
+
+Review result: STATIC_EVIDENCE_CONFIRMED; PINNED_REPLAY_NOT_EXECUTED.
+Next action: use a clean worktree at c84740532ded2a27ee283ea7a3a5f303eaeb61a7
+to produce any new replay evidence.
+
+--- TASK-CDB016 review confirmation (2026-07-28) ---
+packet_id: PACKET-TASK-CDB016
+review_mode: deterministic dry-run; replay apply prohibited
+source_commit: c84740532ded2a27ee283ea7a3a5f303eaeb61a7
+current_head: 2fe2d6ffc312a3933d09f5c3ee65d4ab34ddb858
+source_commit_resolution: pinned commit is present, is not an ancestor of
+current HEAD, and differs in codedb-store-redb/core storage surfaces.
+authoritative_task_graph: CDB016 exists; status=complete; dependency CDB015
+status=complete
+declared_validation_gate: backup restore smoke passes
+
+Pinned-source static review:
+- `backup_store` and `restore_store_from_backup` exist in
+  crates/codedb_store_redb/src/lib.rs.
+- `backup_and_restore_smoke_preserves_metadata` asserts equal backup/restored
+  SHA-256 values plus `migration_state=current` and `backup_restore=available`.
+- `source_blob_persists_and_materializes_after_restore` asserts byte-exact
+  source-file materialization after restore. The pinned suite also contains the
+  writer-lock lifecycle test.
+- Pre-existing raw evidence in this log reports 15 passing codedb-store-redb
+  tests; this review did not re-execute or re-attribute that run to the pinned
+  snapshot.
+
+Execution decision: no Cargo test or replay was run. The packet allows only
+dry-run review, and current HEAD is not the pinned source snapshot. No source
+files, backups, restores, dependencies, or network resources were mutated.
+
+Review result: STATIC_EVIDENCE_CONFIRMED; PINNED_REPLAY_NOT_EXECUTED.
+Next action: use a clean worktree at c84740532ded2a27ee283ea7a3a5f303eaeb61a7
+for any fresh replay evidence.

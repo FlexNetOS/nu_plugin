@@ -137,3 +137,15 @@ passed
 host_nu: available (Nu 0.113.1 and locked plugin protocol 0.113.1 match)
 yazelix_nu: degraded (no explicit Yazelix runtime Nu configured; reports environment-variable remediation)
 codex: available (profile-managed Codex path and CodeDB export boundary reported)
+
+## 2026-07-28 final review verification
+### cargo test -p codedb
+64 passed; 0 failed (5 suites)
+### cargo test -p codedb --test relative_repo_path
+4 passed; 0 failed
+### codedb doctor --nu --yazelix --codex --format json
+host_nu: available (Nu 0.113.1 and the locked plugin protocol 0.113.1 match; registration remains explicitly non-mutating/unknown)
+yazelix_nu: degraded (no explicit Yazelix runtime Nu configured; environment-variable remediation reported)
+codex: available (Codex path and the CodeDB export-only integration boundary reported)
+### cargo fmt --check -p codedb
+blocked by pre-existing unrelated drift-capture formatting changes in crates/codedb/src/main.rs; no CDB031 doctor defect or CDB031-file change was introduced by this review.

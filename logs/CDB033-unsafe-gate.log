@@ -12,3 +12,11 @@ Verified behavior:
 
 Source gate: crates/codedb/src/main.rs::build_capture_rows
 Test: crates/codedb/src/main.rs::tests::capture_build_cli_refuses_without_unsafe_flag_without_writing_artifacts
+
+## LifeOS dry-run review — 2026-07-28T17:29:01Z
+
+- Packet: `PACKET-TASK-CDB033`; review-only; replay application is forbidden.
+- Authoritative row: `CDB033` is `complete`, with completed dependencies `CDB025` and `CDB032`; it blocks `CDB034` and `CDB045`.
+- Pinned source snapshot: `c84740532ded2a27ee283ea7a3a5f303eaeb61a7` contains a passing default-refusal gate (`2 passed`). The live checkout is at a different commit with unrelated pre-existing changes, so this review did not execute or modify capture code.
+- Safety decision: no dynamic build-script or proc-macro capture was requested; no `--unsafe-execute-build` path, dependency installation, network access, or replay apply was performed.
+- Review result: existing evidence satisfies the default-refusal acceptance signal. Any approved dynamic capture remains subject to separate approval/checkpoint/proof gates.

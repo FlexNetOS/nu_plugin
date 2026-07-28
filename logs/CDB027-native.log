@@ -33,3 +33,12 @@ Result: passed — 1 passed, 0 failed, 23 filtered out.
 
 The fixture verifies that the three native/link rows and all three capture gaps
 are emitted deterministically.
+
+## TASK-CDB027 review attestation
+
+Reviewed against pinned source commit `c84740532ded2a27ee283ea7a3a5f303eaeb61a7`.
+`capture_native_link_static` and the native-link fixture are present there, and
+the current worktree does not modify either reviewed path. A focused local run
+of `cargo test -p codedb-rust-static native_link_fixture --lib` passed (1
+passed, 0 failed, 23 filtered out). Review result: PASS. No source
+implementation files were modified.

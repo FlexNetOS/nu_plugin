@@ -13,3 +13,24 @@ running 1 test
 test tests::filesystem_scan_rows_are_stable ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+## Review handoff — 2026-07-28
+
+Packet: `PACKET-TASK-CDB017`; replay is dry-run only and source apply is
+forbidden.
+
+- The authoritative `CDB017` row is `complete`; prerequisites `CDB014` and
+  `CDB015` are also `complete`. Its completion gate is `fixture scan rows
+  stable` and its declared source-mutation prohibition was observed.
+- Existing validation evidence records `cargo test -p codedb-core --lib
+  tests::filesystem_scan_rows_are_stable -- --exact` as PASS (1 passed,
+  0 failed). The test checks deterministic filesystem scan rows.
+- The required pinned commit
+  `c84740532ded2a27ee283ea7a3a5f303eaeb61a7` resolves, but the current
+  checkout is `2fe2d6ffc312a3933d09f5c3ee65d4ab34ddb858` and differs from it
+  in seven `crates/codedb_core` files, including `src/lib.rs`. The current
+  worktree also contains unrelated uncommitted changes outside this log.
+- No test was rerun against that divergent checkout, and no source,
+  dependency, task-graph, or fixture mutation was applied. The recorded PASS
+  remains evidence for the prior validation only; an exact revalidation must
+  use the pinned snapshot or an explicitly authorized current-head packet.

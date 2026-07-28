@@ -15,3 +15,41 @@ test tests::initialize_and_read_back_metadata ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.01s
 
 Result: PASS. The focused test initializes a temporary redb store and verifies persisted schema and toolchain metadata on a read-back.
+
+---
+
+# CDB015 review replay validation
+2026-07-28T12:01:15-05:00
+
+Task: TASK-CDB015 (review); pinned source snapshot: c84740532ded2a27ee283ea7a3a5f303eaeb61a7
+Validation gate: store init/metadata tests pass
+Scope: `codedb-store-redb` only; no source files changed.
+
+Snapshot check: the pinned commit resolves, but the current checkout has an uncommitted change in `crates/codedb_store_redb/src/lib.rs`; the validation below is therefore evidence for the current checkout, not an exact replay of the pinned tree.
+
+## cargo test -p codedb-store-redb initialize_and_read_back_metadata --offline
+running 1 test
+test tests::initialize_and_read_back_metadata ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+
+Result: PASS for the current checkout. No dependencies were installed and no source files were modified by this review.
+
+---
+
+# CDB015 review dry-run revalidation
+2026-07-28
+
+Task: TASK-CDB015 (review); pinned source snapshot: `c84740532ded2a27ee283ea7a3a5f303eaeb61a7`
+Validation gate: store init/metadata tests pass
+Mode: dry-run-only; offline; no dependency installation.
+
+Snapshot check: the pinned commit is present. The current checkout is clean at
+`2fe2d6ffc312a3933d09f5c3ee65d4ab34ddb858`, but differs from the pinned
+snapshot by later ingest-envelope additions in `crates/codedb_store_redb/src/lib.rs`.
+This is therefore a current-checkout validation, not an exact replay of the pinned tree.
+
+## cargo test -p codedb-store-redb initialize_and_read_back_metadata --offline
+1 passed; 14 filtered out (1 suite, 0.01s)
+
+Result: PASS. The focused test initializes a temporary redb store and verifies persisted schema and toolchain metadata on read-back. No source files were modified.

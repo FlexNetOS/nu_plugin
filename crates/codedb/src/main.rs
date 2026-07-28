@@ -1093,6 +1093,12 @@ struct RepositorySnapshot {
     /// not hashed) instead of aborting the whole capture (EVERY-BYTE engine
     /// gap G3).
     permission_denied: BTreeSet<String>,
+    /// Regular files that were rewritten underneath the snapshot read (live
+    /// logs, ring buffers, in-flight build artifacts). Excluded from
+    /// `binding`/`exact_sources` deterministically under `--drift-mode record`
+    /// so a single moving file cannot abort a whole-host capture, and recorded
+    /// as a `capture_gaps` row by the capture loop (EVERY-BYTE engine gap G2).
+    drifted_in_snapshot: BTreeSet<String>,
 }
 
 impl CaptureConfig {
@@ -1391,6 +1397,18 @@ fn capture_snapshot_exclusions(
 ) -> Result<BTreeSet<String>, CliError> {
     let store_spec = parse_store_spec(store_selector, args)?;
     let mut exclusions = BTreeSet::new();
+    // Operator-declared volatile paths (live logs, ring buffers, sockets'
+    // backing files). A path whose bytes are rewritten continuously makes the
+    // content-derived repository binding move between the policy write and the
+    // capture, so no policy can ever match and the root can never complete.
+    // Excluding it stabilizes the binding; the capture loop still records each
+    // one as a declared `capture_gaps` row, so the path is declared, not lost.
+    for declared in option_values(args, "--snapshot-exclude") {
+        let normalized = declared.trim_matches('/').replace('\\', "/");
+        if !normalized.is_empty() {
+            exclusions.insert(normalized);
+        }
+    }
     if store_spec.backend() != StoreBackend::Redb {
         return Ok(exclusions);
     }
@@ -1426,17 +1444,31 @@ fn capture_snapshot_exclusions(
     Ok(exclusions)
 }
 
+/// Whether `path` (repository-relative) is covered by a declared exclusion.
+/// A declaration matches the path exactly, covers it as a directory prefix, or
+/// matches its trailing path segments — the last form lets one declaration such
+/// as `.kb/.cache/daemon.log` cover every nested copy inside a multi-repo root.
+fn path_excluded(exclusions: &BTreeSet<String>, path: &str) -> bool {
+    exclusions.iter().any(|declared| {
+        path == declared
+            || path.starts_with(&format!("{declared}/"))
+            || path.ends_with(&format!("/{declared}"))
+    })
+}
+
 fn repository_snapshot(
     contained_repo: &ContainedDirectory,
     entries: &[FilesystemEntry],
     exclusions: &BTreeSet<String>,
+    drift_mode: DriftMode,
 ) -> Result<RepositorySnapshot, CliError> {
     let mut hasher = Sha256::new();
     hash_snapshot_field(&mut hasher, "codedb.repository-snapshot.v1");
     let mut exact_sources = BTreeMap::new();
     let mut permission_denied = BTreeSet::new();
+    let mut drifted_in_snapshot = BTreeSet::new();
     for entry in entries {
-        if exclusions.contains(&entry.relative_path) {
+        if path_excluded(exclusions, &entry.relative_path) {
             continue;
         }
         if entry.kind.as_str() == "file" && !entry.is_symlink {
@@ -1449,6 +1481,19 @@ fn repository_snapshot(
                 Ok(file) => file,
                 Err(error) if error.is_permission_denied() => {
                     permission_denied.insert(entry.relative_path.clone());
+                    continue;
+                }
+                // The file was rewritten underneath this read (EVERY-BYTE
+                // engine gap G2). `--drift-mode fail` (default) keeps the
+                // original hard-abort; `--drift-mode record` excludes just
+                // this file from the binding so the rest of the capture
+                // proceeds. Without this arm a single live log or ring buffer
+                // inside a root aborts every attempt, and because the binding
+                // is recomputed per attempt it can never converge.
+                Err(error)
+                    if error.is_contained_drift() && drift_mode == DriftMode::Record =>
+                {
+                    drifted_in_snapshot.insert(entry.relative_path.clone());
                     continue;
                 }
                 Err(error) => {
@@ -1478,6 +1523,7 @@ fn repository_snapshot(
         binding: format!("sha256:{:x}", hasher.finalize()),
         exact_sources,
         permission_denied,
+        drifted_in_snapshot,
     })
 }
 
@@ -1668,7 +1714,12 @@ where
     after_scan();
     let walk_permission_denied = scan.unreadable;
     let entries = scan.entries;
-    let repository_snapshot = repository_snapshot(&contained_repo, &entries, &snapshot_exclusions)?;
+    let repository_snapshot = repository_snapshot(
+        &contained_repo,
+        &entries,
+        &snapshot_exclusions,
+        config.drift_mode,
+    )?;
     after_snapshot();
     let authorization =
         resolve_capture_authorization(repo_path, &repository_snapshot.binding, &policy_selection)?;
@@ -1787,6 +1838,41 @@ where
                     ("kind", kind.to_string()),
                     ("gap", "permission_denied".to_string()),
                     ("reason", "permission-denied".to_string()),
+                    ("status", "gap".to_string()),
+                ]));
+                continue;
+            }
+            // Operator-declared volatile path: excluded from the binding so it
+            // can stabilize, recorded here so the path is declared rather than
+            // silently dropped.
+            if path_excluded(&snapshot_exclusions, &entry.relative_path) {
+                gaps += 1;
+                rows.push(row([
+                    ("table", "capture_gaps".to_string()),
+                    ("relative_path", entry.relative_path),
+                    ("kind", kind.to_string()),
+                    ("gap", "declared_volatile".to_string()),
+                    ("reason", "declared-volatile-exclusion".to_string()),
+                    ("status", "gap".to_string()),
+                ]));
+                continue;
+            }
+            // Excluded from the snapshot because it was being rewritten when
+            // the snapshot was built; record the same gap the post-snapshot
+            // drift check records rather than re-reading a moving file
+            // (EVERY-BYTE engine gap G2).
+            if repository_snapshot
+                .drifted_in_snapshot
+                .contains(&entry.relative_path)
+            {
+                drifted += 1;
+                gaps += 1;
+                rows.push(row([
+                    ("table", "capture_gaps".to_string()),
+                    ("relative_path", entry.relative_path),
+                    ("kind", kind.to_string()),
+                    ("gap", "drifted_after_snapshot".to_string()),
+                    ("reason", "drifted-after-snapshot".to_string()),
                     ("status", "gap".to_string()),
                 ]));
                 continue;
@@ -4239,21 +4325,37 @@ fn nu_runtime_doctor_rows(component: &str, nu_path: Option<PathBuf>) -> Result<V
     };
 
     let path_value = nu_path.display().to_string();
-    let version = command_stdout(&nu_path, &["--version"])?;
-    let compatibility_status = if version.trim() == NU_PLUGIN_PROTOCOL_VERSION {
-        "available"
-    } else {
-        "degraded"
-    };
-    let compatibility_note = if compatibility_status == "available" {
-        format!(
-            "runtime Nu version matches nu-plugin/nu-protocol handshake {NU_PLUGIN_PROTOCOL_VERSION}"
-        )
-    } else {
-        format!(
-            "runtime Nu version differs from nu-plugin/nu-protocol handshake {NU_PLUGIN_PROTOCOL_VERSION}"
-        )
-    };
+    let version = command_stdout(&nu_path, &["--version"]);
+    let (version_status, version_value, version_note, compatibility_status, compatibility_note) =
+        match version {
+            Ok(version) if version.trim() == NU_PLUGIN_PROTOCOL_VERSION => (
+                "available",
+                version.trim().to_string(),
+                "Nu version command completed".to_string(),
+                "available",
+                format!(
+                    "runtime Nu version matches nu-plugin/nu-protocol handshake {NU_PLUGIN_PROTOCOL_VERSION}"
+                ),
+            ),
+            Ok(version) => (
+                "available",
+                version.trim().to_string(),
+                "Nu version command completed".to_string(),
+                "degraded",
+                format!(
+                    "runtime Nu version differs from nu-plugin/nu-protocol handshake {NU_PLUGIN_PROTOCOL_VERSION}"
+                ),
+            ),
+            Err(_) => (
+                "degraded",
+                String::new(),
+                "Nu version command could not complete".to_string(),
+                "degraded",
+                format!(
+                    "runtime Nu protocol could not be verified against nu-plugin/nu-protocol handshake {NU_PLUGIN_PROTOCOL_VERSION}"
+                ),
+            ),
+        };
     let plugin_path = plugin_binary_path();
     let registration_command = plugin_path
         .as_ref()
@@ -4277,10 +4379,10 @@ fn nu_runtime_doctor_rows(component: &str, nu_path: Option<PathBuf>) -> Result<V
         doctor_row(
             component,
             "nu_version",
-            "available",
-            version.trim(),
-            "Nu version command completed",
-            "compare against the plugin protocol version before registration",
+            version_status,
+            &version_value,
+            &version_note,
+            "repair the runtime Nu executable, then compare against the plugin protocol version before registration",
         ),
         doctor_row(
             component,
@@ -4735,6 +4837,19 @@ fn option_value<'a>(args: &'a [String], option: &str) -> Option<&'a str> {
     })
 }
 
+/// Every value of a repeatable option, in argument order.
+fn option_values<'a>(args: &'a [String], option: &str) -> Vec<&'a str> {
+    args.windows(2)
+        .filter_map(|window| {
+            if window[0] == option {
+                Some(window[1].as_str())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 fn repo_selection(
     args: &[String],
     positional_index: usize,
@@ -4924,6 +5039,45 @@ mod tests {
         assert_eq!(
             compatibility.get("action").map(String::as_str),
             Some("rebuild the plugin against the target Nu protocol if degraded")
+        );
+
+        fs::remove_dir_all(root).expect("remove fake Nu directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doctor_unrunnable_nu_is_explicitly_degraded() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_repo();
+        let nu = root.join("nu");
+        fs::write(&nu, "#!/bin/sh\nexit 1\n").expect("write failing fake Nu executable");
+        fs::set_permissions(&nu, fs::Permissions::from_mode(0o700))
+            .expect("make fake Nu executable");
+
+        let rows = nu_runtime_doctor_rows("yazelix_nu", Some(nu))
+            .expect("doctor must degrade rather than abort for an unrunnable Nu");
+        let version = rows
+            .iter()
+            .find(|row| row.get("check").is_some_and(|check| check == "nu_version"))
+            .expect("Nu version row");
+        let compatibility = rows
+            .iter()
+            .find(|row| {
+                row.get("check")
+                    .is_some_and(|check| check == "plugin_protocol_compatibility")
+            })
+            .expect("plugin protocol compatibility row");
+
+        assert_eq!(version.get("status").map(String::as_str), Some("degraded"));
+        assert_eq!(
+            compatibility.get("status").map(String::as_str),
+            Some("degraded")
+        );
+        assert!(
+            compatibility
+                .get("note")
+                .is_some_and(|note| note.contains("could not be verified"))
         );
 
         fs::remove_dir_all(root).expect("remove fake Nu directory");
@@ -5790,6 +5944,87 @@ mod tests {
                 .expect("read drifting"),
             None,
             "a drifted-and-skipped file must never be persisted"
+        );
+
+        let _ = fs::remove_dir_all(&repo);
+        let _ = fs::remove_file(&store_path);
+    }
+
+    // Test lane: default
+    // Defends: a continuously-rewritten file (daemon ring buffer, live sqlite
+    // handle) makes the content-derived repository binding move between the
+    // policy write and the capture, so no policy can ever match and the root can
+    // never complete. `--snapshot-exclude` keeps the declared path out of the
+    // binding while still recording it as a declared capture_gaps row, so the
+    // path is declared rather than silently dropped.
+    #[test]
+    fn capture_snapshot_exclude_keeps_binding_stable_and_records_declared_gap() {
+        let repo = temp_repo();
+        let store_path = repo.with_extension("capture.redb");
+        fs::write(repo.join("stable.rs"), b"stable content\n").expect("write stable content");
+        fs::create_dir_all(repo.join("nested/.cache")).expect("create nested cache");
+        fs::write(repo.join("nested/.cache/daemon.log"), b"ring buffer v1\n")
+            .expect("write volatile log");
+
+        let selection = RepoSelection {
+            repo_id: "snapshot-exclude".to_string(),
+            repo_path: repo.clone(),
+            store_path: store_path.display().to_string(),
+            selection_source: "test".to_string(),
+        };
+        let config = test_capture_config();
+        let mut args = safe_source_policy_args();
+        // Declared by trailing path segments, so one declaration covers every
+        // nested copy inside a multi-repository root.
+        args.push("--snapshot-exclude".to_string());
+        args.push(".cache/daemon.log".to_string());
+
+        let repo_for_hook = repo.clone();
+        let rows = capture_rows_after_scan(
+            &selection,
+            &config,
+            &args,
+            || {},
+            move || {
+                // Rewriting an excluded path must not disturb the binding, even
+                // under the default `--drift-mode fail`.
+                fs::write(
+                    repo_for_hook.join("nested/.cache/daemon.log"),
+                    b"ring buffer v2 (rewritten)\n",
+                )
+                .expect("rewrite volatile log between snapshot and read");
+            },
+        )
+        .expect("an excluded volatile path must not abort the capture");
+
+        let gap = rows
+            .iter()
+            .find(|row| {
+                row.get("table").map(String::as_str) == Some("capture_gaps")
+                    && row.get("relative_path").map(String::as_str)
+                        == Some("nested/.cache/daemon.log")
+            })
+            .expect("the excluded file must be recorded as a declared capture_gaps row");
+        assert_eq!(gap.get("gap").map(String::as_str), Some("declared_volatile"));
+        assert_eq!(
+            gap.get("reason").map(String::as_str),
+            Some("declared-volatile-exclusion")
+        );
+
+        let store = CaptureBatcher::open(&store_path).expect("open captured store");
+        assert_eq!(
+            store
+                .read_source_file_blob("stable.rs")
+                .expect("read stable"),
+            Some(b"stable content\n".to_vec()),
+            "a non-excluded file must still be captured"
+        );
+        assert_eq!(
+            store
+                .read_source_file_blob("nested/.cache/daemon.log")
+                .expect("read excluded"),
+            None,
+            "an excluded volatile file must never be persisted"
         );
 
         let _ = fs::remove_dir_all(&repo);

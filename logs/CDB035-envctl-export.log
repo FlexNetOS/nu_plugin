@@ -48,3 +48,21 @@ Result: passed. Formatting is clean, and the focused integration suite passed
 `filesystem_entries` and `codedb_source_root_hashes`; every materialization
 row binds the checksum for its declared source table, and backend access stays
 forbidden in every exported row.
+
+## 2026-07-28 current review
+
+Command:
+  rtk cargo test -p codedb --test relative_repo_path
+
+Result: passed (4 tests, 0.85s). The JSON, NUON, and CSV envctl projections
+remain nonempty; JSON confirms `filesystem_entries` and
+`codedb_source_root_hashes` checksum rows, and every materialization target
+binds the checksum for its declared source table. Exported backend access
+remains forbidden.
+
+Additional check:
+  rtk cargo fmt --check -p codedb
+
+Result: not clean because of two formatting-only hunks in unrelated, existing
+in-progress capture/doctor edits in `crates/codedb/src/main.rs`. They were not
+modified by this CDB035 review.

@@ -77,3 +77,23 @@ Packet: `PACKET-TASK-CDB014` (`source_commit`
 - No source or dependency change was applied. This review records the existing
   completion evidence only; a reproducible revalidation must use the pinned
   snapshot or an explicitly authorized current-head task packet.
+
+## Review refresh — 2026-07-28
+
+Packet: `PACKET-TASK-CDB014`; replay remains dry-run only and source apply is
+forbidden.
+
+- The authoritative `CDB014` row and prerequisites `CDB013` and `CDB007` are
+  `complete`; the declared completion gate is `schema structs compiled; unit
+  tests pass`.
+- Existing approved replay evidence records `cargo test -p codedb-core
+  --offline` with 77 passed and 0 failed tests.
+- The packet's pinned commit `c84740532ded2a27ee283ea7a3a5f303eaeb61a7`
+  exists, but the current repository is at `2fe2d6ffc312a3933d09f5c3ee65d4ab34ddb858`.
+  Relative to the pinned commit, `crates/codedb_core` differs in seven files
+  (887 insertions, 17 deletions); the current worktree also has an uncommitted
+  `crates/codedb_core/src/store.rs` modification.
+- No test was rerun against this divergent, dirty checkout, and no source,
+  dependency, or task-graph mutation was applied. The existing replay result
+  remains evidence for the pinned snapshot only; revalidation requires that
+  snapshot or a separately authorized current-head packet.

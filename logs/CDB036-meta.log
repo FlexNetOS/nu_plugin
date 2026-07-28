@@ -49,6 +49,7 @@ The command exited nonzero. No meta graph or repository artifact was mutated.
 ```text
 CARGO_TARGET_DIR=/tmp/cdb036-meta.07ArFN/target cargo test --quiet -p codedb
 42 + 5 + 5 + 2 + 4 tests passed; 0 failed.
+```
 
 ## 2026-07-27 replay verification
 
@@ -68,4 +69,3 @@ The isolated selected-repository scan succeeded. Its first row identified
 Nuon. The supplied store path was absent after both commands
 (`STORE_ABSENT=verified`), so this replay neither materialized a CodeDB store
 nor mutated any meta-owned graph or repository artifact.
-```

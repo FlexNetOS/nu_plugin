@@ -30,4 +30,4 @@ Incompatibility must degrade clearly: CLI remains usable, plugin registration is
 4. `YZX_NU`
 5. `YAZELIX_TOOLBIN/nu`
 
-Each discovered Nu path gets rows for path, version, plugin protocol compatibility, plugin binary path, and registration status. Missing runtime Nu or version mismatch is reported as `degraded`; the doctor command does not mutate the user's plugin registry.
+Each discovered Nu path gets rows for path, version, plugin protocol compatibility, plugin binary path, and registration status. Missing runtime Nu, an unrunnable `nu --version`, or a version mismatch is reported as `degraded`; the doctor command does not mutate the user's plugin registry.

@@ -54,3 +54,12 @@ running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
+## 2026-07-28 review handoff (read-only)
+
+- Scope: review only. No source, dependency, network, or generated-artifact mutation was performed.
+- Authority: `execution/TASK_GRAPH.csv` marks CDB020 complete; its acceptance gate is `registry/git/path facts captured` and its evidence target is this log.
+- Pinned source check: `crates/codedb_cargo/src/lib.rs` is byte-identical at packet snapshot `c84740532ded2a27ee283ea7a3a5f303eaeb61a7` and the mounted worktree (`sha256: 8a519ca5347c662bd8da0d150188a7fd40c4bfd783369c557639183ebd2cb775`).
+- Implementation review: Cargo metadata produces source rows for both package and dependency observations; `None` is path, `registry+` and `sparse+` are registry, and `git+` is git. Rows are deterministically sorted by owner, observation origin, source name, and source URI.
+- Existing raw validation in this log records `cargo_source_classifier_covers_registry_git_and_path` passing, followed by the two-test `codedb-cargo` suite passing. The classifier operates on supplied metadata strings and performs no network operation.
+- Worktree note: unrelated changes exist outside this task's only allowed path. They were neither inspected as task evidence nor modified.
+- Result: CDB020 review accepted for the pinned cargo-source classifier and its existing validation record. This is not a new current-HEAD build receipt.

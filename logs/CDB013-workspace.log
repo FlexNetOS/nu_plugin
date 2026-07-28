@@ -58,3 +58,15 @@ current-tree gate.
 - `cargo metadata --format-version 1 --no-deps`: exit 0 and the same 11 members.
 
 No crate source or root manifest was modified to produce this proof.
+
+## Review verification — 2026-07-28T16:56:56Z
+
+- The governed root manifest still declares exactly 11 workspace members,
+  including `codedb-context` and `codedb-store-pg`, with resolver `3`.
+- Workspace package fields remain version `0.1.0`, edition `2024`, license
+  `MIT`, and rust-version `1.93.1`.
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v
+  tests.test_workspace_manifest`: 3 passed.
+- `cargo metadata --frozen --offline --format-version 1 --no-deps`: exit 0;
+  its workspace members match the governed 11-member set.
+- No workspace manifest or crate manifest changed during this review.

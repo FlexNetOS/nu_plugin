@@ -147,3 +147,18 @@ command: CARGO_TARGET_DIR=/tmp/cdb034-build-capture-target cargo test --locked -
 result: 40 unit tests + 2 integration tests + 3 expected compile-fail doctests passed
 fresh_capture_sha256: cb2060e2a1d7834a713404fef97ba98d6c46cfc57fcc84d69ece7ae23d81a19c
 scope: no source files or dependencies changed; compilation outputs were isolated under /tmp
+
+## Review verification (2026-07-28T18:01:16Z)
+packet_source_commit: c84740532ded2a27ee283ea7a3a5f303eaeb61a7
+command: CARGO_TARGET_DIR=/tmp/cdb034-build-capture-review-target-20260728T180116 cargo test --locked --offline -p codedb-build-capture -- --nocapture
+result: 40 unit tests + 2 integration tests + 3 expected compile-fail doctests passed
+execution_mode: dry-run review; no dynamic capture command invoked
+source_snapshot_check: unavailable; this isolated task workspace has no Git metadata and the pinned commit cannot be resolved locally
+scope: no source files or dependencies changed; compilation outputs were isolated under /tmp
+
+## Review verification (2026-07-28)
+packet_source_commit: c84740532ded2a27ee283ea7a3a5f303eaeb61a7
+command: CARGO_TARGET_DIR=/tmp/cdb034-build-capture-review-target-20260728 cargo test --locked --offline -p codedb-build-capture -- --nocapture
+result: 40 unit tests + 2 integration tests + 3 expected compile-fail doctests passed
+source_snapshot_check: unavailable; the packet's pinned Git object is not present in the local repository object database
+scope: no source files or dependencies changed; compilation outputs were isolated under /tmp

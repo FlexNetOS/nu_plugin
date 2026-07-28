@@ -54,3 +54,10 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 - Reproduced the companion validation gate offline from an isolated archive of the pinned commit:
   `CARGO_NET_OFFLINE=true cargo test --offline --manifest-path <isolated>/Cargo.toml -p codedb-rust-static simple_item_fixture_passes`
 - Result: PASS (1 passed, 0 failed; 23 filtered out). No source, dependency, network, or secret-path mutation was performed.
+
+## LifeOS review reaffirmation — 2026-07-28
+
+- The task-owned `crates/codedb_rust_static` surface matches pinned commit `c84740532ded2a27ee283ea7a3a5f303eaeb61a7`.
+- Verified the static-only boundary: `syn` item rows are deterministic and the simple fixture requires `SyntaxOnly` confidence; anonymous `impl` rows are explicitly source-drift-sensitive.
+- Re-ran the declared gate from an isolated archive of the pinned commit with `CARGO_NET_OFFLINE=true cargo test --offline -p codedb-rust-static simple_item_fixture_passes`.
+- Result: PASS (1 passed, 0 failed; 23 filtered out). No source, dependency, network, or secret-path mutation was performed.

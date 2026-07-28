@@ -36,3 +36,19 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out
 
 Completion gate: proc macros detected. Validation gate: proc-macro fixture
 emits static rows and required capture gaps without executing a proc macro.
+
+## Review handoff — 2026-07-28
+
+- Packet: `PACKET-TASK-CDB024`; review-only, dry-run evidence refresh.
+- Pinned source commit `c84740532ded2a27ee283ea7a3a5f303eaeb61a7` is an
+  ancestor of the reviewed checkout. `crates/codedb_rust_static/src/lib.rs`
+  has no diff from that commit, so the reviewed detector is the pinned source
+  implementation.
+- Command: `CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=<isolated-tempdir> cargo
+  test --locked -p codedb-rust-static proc_macro_fixture_emits_static_rows_and_gaps`
+- Result: passed — 1 passed, 0 failed. The target directory was isolated from
+  the repository; no proc macro, build script, or dynamic capture lane was
+  executed.
+- Review finding: PASS. Static proc-macro exports and invocation candidates
+  are deterministic, while unobserved output-token and file-access facts are
+  represented as `capture_gaps`.
