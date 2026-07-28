@@ -169,6 +169,16 @@ pub fn validate_envelope(json: &str) -> Result<Vec<ValidatedFile>, IngestError> 
     // misleading "missing field" error rather than a version mismatch.
     let declared: serde_json::Value = serde_json::from_str(json)
         .map_err(|error| IngestError::new(format!("invalid envelope JSON: {error}")))?;
+
+    // Blueprint line 105 pipes `rtk_nu --format jsonl` through
+    // `from json --objects`, which yields a LIST of per-line records rather than
+    // one envelope — and line 114 requires this command to accept "typed
+    // record/list/table input". Those lines carry `event_type` ("raw_frame" /
+    // "execution_complete") with the schema version nested under `metadata`,
+    // so they are recognised structurally rather than by a top-level version.
+    if declared.is_array() {
+        return validate_rtk_nu_stream(&declared);
+    }
     match declared.get("schema_version").and_then(|v| v.as_str()) {
         Some(RTK_NU_ENVELOPE_SCHEMA_VERSION) => return validate_rtk_nu_envelope(json),
         Some(ENVELOPE_SCHEMA_VERSION) => {}
