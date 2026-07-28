@@ -10,6 +10,8 @@ use flexnetos_redb_owner::{
 };
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
+use std::time::Duration;
 
 static ROOT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -119,6 +121,15 @@ fn commit_notifications_are_ordered_and_gap_detectable_after_reconnect() {
     assert_eq!(tail.iter().map(|e| e.seq).collect::<Vec<_>>(), vec![3, 4]);
     let replay = client.events(2, 16).expect("authenticated UDS replay");
     assert_eq!(replay.iter().map(|e| e.seq).collect::<Vec<_>>(), vec![3, 4]);
+    let watch_root = root.clone();
+    let watcher = thread::spawn(move || {
+        let mut watcher = OwnerClient::connect(&watch_root).expect("watch client connects");
+        watcher.watch(4, 16).expect("authenticated UDS watch")
+    });
+    thread::sleep(Duration::from_millis(20));
+    client.put("k5", "v").expect("wake watcher");
+    let watched = watcher.join().expect("watcher joins");
+    assert_eq!(watched.iter().map(|e| e.seq).collect::<Vec<_>>(), vec![5]);
     // Every event names the projection generation it published.
     for event in &events {
         assert!(!event.checksum.is_empty());

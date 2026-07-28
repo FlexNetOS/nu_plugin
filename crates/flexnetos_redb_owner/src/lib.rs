@@ -20,7 +20,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::JoinHandle;
 
 /// Versioned UDS request protocol.
@@ -156,6 +156,8 @@ struct Shared {
     stop: AtomicBool,
     publish_crash: AtomicBool,
     write_lock: Mutex<()>,
+    event_seq: Mutex<u64>,
+    event_ready: Condvar,
     connections: Mutex<Vec<UnixStream>>,
 }
 
@@ -364,6 +366,8 @@ impl OwnerService {
             stop: AtomicBool::new(false),
             publish_crash: AtomicBool::new(false),
             write_lock: Mutex::new(()),
+            event_seq: Mutex::new(db_seq),
+            event_ready: Condvar::new(),
             connections: Mutex::new(Vec::new()),
         });
         let workers: Arc<Mutex<Vec<JoinHandle<()>>>> = Arc::new(Mutex::new(Vec::new()));
@@ -434,6 +438,7 @@ impl Drop for OwnerService {
     fn drop(&mut self) {
         if let Some(shared) = &self.shared {
             shared.stop.store(true, Ordering::SeqCst);
+            shared.event_ready.notify_all();
             for connection in shared
                 .connections
                 .lock()
@@ -524,6 +529,8 @@ fn handle_request(shared: &Shared, line: &str) -> Response {
             if let Err(error) = publish_projection(&shared.root, &shared.db) {
                 return reject(&format!("publication failed: {error}"));
             }
+            *shared.event_seq.lock().expect("event sequence") = seq;
+            shared.event_ready.notify_all();
             Response {
                 ok: true,
                 error: None,
@@ -572,6 +579,32 @@ fn handle_request(shared: &Shared, line: &str) -> Response {
                     }
                 }
                 Err(error) => reject(&format!("event replay failed: {error}")),
+            }
+        }
+        "watch" => {
+            let after_seq = request.after_seq.unwrap_or(0);
+            let limit = request.limit.unwrap_or(256).min(4096);
+            let mut observed = shared.event_seq.lock().expect("event sequence");
+            loop {
+                match read_events(&shared.root, after_seq) {
+                    Ok(mut events) if !events.is_empty() => {
+                        events.truncate(limit);
+                        break Response {
+                            ok: true,
+                            error: None,
+                            seq: None,
+                            value: None,
+                            events: Some(events),
+                        };
+                    }
+                    Ok(_) if shared.stop.load(Ordering::SeqCst) => {
+                        break reject("owner is stopping");
+                    }
+                    Ok(_) => {
+                        observed = shared.event_ready.wait(observed).expect("event sequence");
+                    }
+                    Err(error) => break reject(&format!("event watch failed: {error}")),
+                }
             }
         }
         other => reject(&format!("unknown op {other:?}")),
@@ -695,6 +728,26 @@ impl OwnerClient {
         response
             .events
             .ok_or_else(|| internal("events response lacked event records"))
+    }
+
+    /// Wait until the owner publishes an event after `after_seq`, using the
+    /// authenticated UDS as the wakeup channel rather than filesystem polling.
+    pub fn watch(&mut self, after_seq: u64, limit: usize) -> Result<Vec<CommitEvent>, OwnerError> {
+        let response = self.round_trip(serde_json::json!({
+            "protocol_version": self.protocol_version,
+            "token": self.token,
+            "op": "watch",
+            "after_seq": after_seq,
+            "limit": limit,
+        }))?;
+        if !response.ok {
+            return Err(OwnerError::Rejected(
+                response.error.unwrap_or_else(|| "unspecified".into()),
+            ));
+        }
+        response
+            .events
+            .ok_or_else(|| internal("watch response lacked event records"))
     }
 }
 
