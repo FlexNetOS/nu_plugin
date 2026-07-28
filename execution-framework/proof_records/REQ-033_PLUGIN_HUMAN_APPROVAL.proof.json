@@ -1,0 +1,22 @@
+{
+  "proof_schema_version": "1.0",
+  "task_id": "REQ-033_PLUGIN_HUMAN_APPROVAL",
+  "artifact": "/run/user/1001/lifeos-json-task-runner/lifeos-json-full-end2end-20260728T081500Z/REQ-033_PLUGIN_HUMAN_APPROVAL/20260728T084246113035Z-e6fe4c287f11/crates/nu_plugin_codedb/src/main.rs",
+  "status": "completed",
+  "required_command_count": 4,
+  "required_commands": [
+    "codedb envctl human approvals",
+    "envctl migration approve",
+    "envctl migration deny",
+    "envctl migration pause"
+  ],
+  "missing_contract_commands": [],
+  "contract_file": "prompts/LIVE_VISUALS_AND_HUMAN_CONTROL.md",
+  "command_count": 28,
+  "nu_plugin_version": "0.1.0",
+  "plugin_name": "nu_plugin_codedb",
+  "schema": "schemas/approval_request.schema.json",
+  "read_command_count": 1,
+  "mutate_command_count": 3,
+  "completed_at": "2026-07-28T08:44:45Z"
+}

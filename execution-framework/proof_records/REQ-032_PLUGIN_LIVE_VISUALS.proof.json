@@ -25,5 +25,16 @@
   "schema": "schemas/nu_plugin_command_manifest.schema.json",
   "read_command_count": 11,
   "mutate_command_count": 0,
-  "completed_at": "2026-07-27T21:28:12Z"
+  "completed_at": "2026-07-27T21:28:12Z",
+  "current_tree_revalidation": {
+    "focused_tests": [
+      "cargo test -p nu_plugin_codedb migration_visual",
+      "cargo test -p nu_plugin_codedb plugin_registers_complete_live_visual_surface"
+    ],
+    "full_crate_test": "cargo test -p nu_plugin_codedb (37 passed)",
+    "diff_check": "passed",
+    "source_checksum": {
+      "crates/nu_plugin_codedb/src/main.rs": "13af655931b4edec7ff9096f167edb7523417f144b4853e57865e1adafa052dd"
+    }
+  }
 }

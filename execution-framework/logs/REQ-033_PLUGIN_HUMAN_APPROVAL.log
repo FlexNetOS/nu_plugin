@@ -1,0 +1,5 @@
+[2026-07-28T08:44:42Z] REQ-033_PLUGIN_HUMAN_APPROVAL
+Verified human approval projection and control command registrations in crates/nu_plugin_codedb/src/main.rs.
+Required commands present: codedb envctl human approvals, envctl migration approve, envctl migration deny, envctl migration pause.
+Projection rows expose opt_in, approve, deny, pause, and delegate guidance by mode/status and malformed approval/queue payloads are rejected.
+Operator mutation commands route through envctl and append --emit-event.

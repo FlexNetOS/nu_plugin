@@ -61,3 +61,19 @@ Suites:
 Completion gate:
 
     schema structs compiled; unit tests pass
+
+## Review handoff — 2026-07-28
+
+Packet: `PACKET-TASK-CDB014` (`source_commit`
+`c84740532ded2a27ee283ea7a3a5f303eaeb61a7`), dry-run only.
+
+- The authoritative `CDB014` row is `complete`; its prerequisites `CDB013` and
+  `CDB007` are also `complete`.
+- The prior approved deterministic replay recorded `cargo test -p codedb-core
+  --offline` as PASS with 77 passing tests.
+- The pinned source commit exists, but the current checkout differs from it in
+  seven `crates/codedb_core` files (884 insertions, 16 deletions) and this log.
+  The changed core surface was therefore not re-tested as the pinned source.
+- No source or dependency change was applied. This review records the existing
+  completion evidence only; a reproducible revalidation must use the pinned
+  snapshot or an explicitly authorized current-head task packet.

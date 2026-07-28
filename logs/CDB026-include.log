@@ -72,3 +72,20 @@ CARGO_NET_OFFLINE=true cargo test -p codedb-rust-static include_fixture_passes
 Result: formatter check passed; `include_fixture_passes` passed (1 passed, 23 filtered).
 The fixture confirms deterministic static capture of literal `include!`, `include_str!`,
 `include_bytes!`, and `#[path]` edges while explicitly excluding dynamic path tracing.
+
+## TASK-CDB026 review validation (2026-07-28)
+
+Scope: review-only validation under packet source reference
+`c84740532ded2a27ee283ea7a3a5f303eaeb61a7`; no implementation source,
+dependencies, or replay state changed.
+
+Commands:
+
+```text
+CARGO_NET_OFFLINE=true cargo fmt -p codedb-rust-static --check
+CARGO_NET_OFFLINE=true cargo test -p codedb-rust-static include_fixture_passes
+```
+
+Result: formatter check passed; `include_fixture_passes` passed (1 passed, 23 filtered).
+The reviewed fixture retains deterministic capture of literal `include!`, `include_str!`,
+`include_bytes!`, and `#[path]` edges, and continues to exclude dynamic path tracing.

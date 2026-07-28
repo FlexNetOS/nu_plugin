@@ -12,6 +12,16 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 pub const ENVELOPE_SCHEMA_VERSION: &str = "codedb.ingest-envelope.v0";
+/// Blueprint §3.4 (lines 104-112) pipes `rtk_nu` output straight into this
+/// command, and line 99 assigns CodeDB the job of decoding those payloads:
+/// "CodeDB decodes each payload, verifies length and digest, stores or
+/// deduplicates the exact bytes, assigns the canonical `raw_object_id`, and
+/// returns that identity in the typed receipt."
+///
+/// Only the file-set envelope was implemented, so the specified pipeline failed
+/// with "missing field `files`" — the two halves existed and did not compose.
+/// This accepts the execution envelope as a first-class input.
+pub const RTK_NU_ENVELOPE_SCHEMA_VERSION: &str = "flexnetos.rtk_nu.envelope.v1";
 pub const RECEIPT_SCHEMA_VERSION: &str = "codedb.ingest-receipt.v0";
 pub const MAX_ENVELOPE_FILES: usize = 512;
 pub const MAX_FILE_BYTES: usize = 1024 * 1024;
@@ -59,6 +69,41 @@ pub struct EnvelopeFile {
 pub struct IngestEnvelope {
     pub schema_version: String,
     pub files: Vec<EnvelopeFile>,
+}
+
+/// One ordered byte frame from a wrapped process, as emitted by `rtk_nu`.
+///
+/// `canonical_raw_object_id` is the slot line 99 reserves for CodeDB to fill:
+/// the adapter carries a *provisional* identity, and the canonical one is
+/// assigned here after the bytes are verified and stored.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RtkNuFrame {
+    pub sequence: u64,
+    pub stream: String,
+    pub byte_offset: u64,
+    pub byte_length: u64,
+    pub payload_base64: String,
+    pub sha256: String,
+    #[serde(default)]
+    pub provisional_frame_id: Option<String>,
+    #[serde(default)]
+    pub provisional_content_id: Option<String>,
+    #[serde(default)]
+    pub canonical_raw_object_id: Option<String>,
+}
+
+/// The `rtk_nu` execution envelope: ordered raw frames plus the execution
+/// metadata and completion status that bind them to an identity and an exit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RtkNuEnvelope {
+    pub schema_version: String,
+    #[serde(default)]
+    pub event_type: Option<String>,
+    pub frames: Vec<RtkNuFrame>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub completion: Option<serde_json::Value>,
 }
 
 /// One validated envelope file with its decoded exact bytes.
@@ -118,14 +163,26 @@ pub fn validate_envelope(json: &str) -> Result<Vec<ValidatedFile>, IngestError> 
     use base64::engine::general_purpose::STANDARD as BASE64;
     use sha2::{Digest, Sha256};
 
+    // Dispatch on the declared schema before typed parsing: the two accepted
+    // envelopes model different things (a file set vs. an execution's ordered
+    // frames) and share no field layout, so parsing one as the other yields a
+    // misleading "missing field" error rather than a version mismatch.
+    let declared: serde_json::Value = serde_json::from_str(json)
+        .map_err(|error| IngestError::new(format!("invalid envelope JSON: {error}")))?;
+    match declared.get("schema_version").and_then(|v| v.as_str()) {
+        Some(RTK_NU_ENVELOPE_SCHEMA_VERSION) => return validate_rtk_nu_envelope(json),
+        Some(ENVELOPE_SCHEMA_VERSION) => {}
+        Some(other) => {
+            return Err(IngestError::new(format!(
+                "unsupported schema_version {other:?}; expected {ENVELOPE_SCHEMA_VERSION:?} \
+                 or {RTK_NU_ENVELOPE_SCHEMA_VERSION:?}"
+            )));
+        }
+        None => return Err(IngestError::new("envelope declares no schema_version")),
+    }
+
     let envelope: IngestEnvelope = serde_json::from_str(json)
         .map_err(|error| IngestError::new(format!("invalid envelope JSON: {error}")))?;
-    if envelope.schema_version != ENVELOPE_SCHEMA_VERSION {
-        return Err(IngestError::new(format!(
-            "unsupported schema_version {:?}; expected {ENVELOPE_SCHEMA_VERSION:?}",
-            envelope.schema_version
-        )));
-    }
     if envelope.files.is_empty() {
         return Err(IngestError::new("envelope contains no files"));
     }
@@ -189,6 +246,110 @@ pub fn validate_envelope(json: &str) -> Result<Vec<ValidatedFile>, IngestError> 
         }
         validated.push(ValidatedFile {
             file,
+            bytes,
+            blake3,
+        });
+    }
+    Ok(validated)
+}
+
+/// Validate an `rtk_nu` execution envelope and lower its ordered frames onto
+/// the same `ValidatedFile` representation the file-set path produces, so both
+/// inputs converge on one storage path.
+///
+/// Every check the file-set path applies to content applies here: valid base64,
+/// declared length must equal the decoded length, and the declared sha256 must
+/// equal the digest recomputed over the decoded bytes. Additionally, frame
+/// order and byte offsets are verified — §3.4 requires that "invalid UTF-8,
+/// binary data, partial lines, parse failures, stderr interleaving, and nonzero
+/// exits retain the original bytes and ordering".
+///
+/// Each frame becomes a synthetic relative path `<stream>/<sequence>.frame`, so
+/// a frame is content-addressed and deduplicated exactly like a file while
+/// remaining attributable to its stream and position.
+fn validate_rtk_nu_envelope(json: &str) -> Result<Vec<ValidatedFile>, IngestError> {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use sha2::{Digest, Sha256};
+
+    let envelope: RtkNuEnvelope = serde_json::from_str(json)
+        .map_err(|error| IngestError::new(format!("invalid rtk_nu envelope JSON: {error}")))?;
+    if envelope.frames.is_empty() {
+        return Err(IngestError::new("rtk_nu envelope contains no frames"));
+    }
+    if envelope.frames.len() > MAX_ENVELOPE_FILES {
+        return Err(IngestError::new(format!(
+            "rtk_nu envelope exceeds the {MAX_ENVELOPE_FILES}-frame bound: {}",
+            envelope.frames.len()
+        )));
+    }
+
+    let mut frames = envelope.frames;
+    frames.sort_by_key(|frame| frame.sequence);
+    let mut validated = Vec::with_capacity(frames.len());
+    let mut expected_offset: std::collections::BTreeMap<String, u64> = Default::default();
+
+    for (index, frame) in frames.into_iter().enumerate() {
+        if frame.sequence != index as u64 {
+            return Err(IngestError::new(format!(
+                "rtk_nu frame ordering broken: expected sequence {index}, got {}",
+                frame.sequence
+            )));
+        }
+        if frame.stream.is_empty() || frame.stream.contains('/') {
+            return Err(IngestError::new(format!(
+                "rtk_nu frame {}: invalid stream name {:?}",
+                frame.sequence, frame.stream
+            )));
+        }
+        let bytes = BASE64.decode(&frame.payload_base64).map_err(|error| {
+            IngestError::new(format!(
+                "rtk_nu frame {}: invalid payload base64: {error}",
+                frame.sequence
+            ))
+        })?;
+        if bytes.len() > MAX_FILE_BYTES {
+            return Err(IngestError::new(format!(
+                "rtk_nu frame {}: payload exceeds the {MAX_FILE_BYTES}-byte bound: {} bytes",
+                frame.sequence,
+                bytes.len()
+            )));
+        }
+        if bytes.len() as u64 != frame.byte_length {
+            return Err(IngestError::new(format!(
+                "rtk_nu frame {}: declared byte_length {} does not match decoded {} bytes",
+                frame.sequence,
+                frame.byte_length,
+                bytes.len()
+            )));
+        }
+        let sha256 = format!("{:x}", Sha256::digest(&bytes));
+        if sha256 != frame.sha256 {
+            return Err(IngestError::new(format!(
+                "rtk_nu frame {}: declared sha256 {} does not match decoded bytes ({sha256})",
+                frame.sequence, frame.sha256
+            )));
+        }
+        let cursor = expected_offset.entry(frame.stream.clone()).or_insert(0);
+        if frame.byte_offset != *cursor {
+            return Err(IngestError::new(format!(
+                "rtk_nu frame {}: stream {:?} byte_offset {} is not contiguous (expected {})",
+                frame.sequence, frame.stream, frame.byte_offset, cursor
+            )));
+        }
+        *cursor += frame.byte_length;
+
+        let blake3 = blake3::hash(&bytes).to_hex().to_string();
+        validated.push(ValidatedFile {
+            file: EnvelopeFile {
+                path: format!("{}/{:012}.frame", frame.stream, frame.sequence),
+                module_path: format!("{}/{:012}.frame", frame.stream, frame.sequence),
+                unix_mode: "600".to_string(),
+                content_base64: frame.payload_base64,
+                sha256: frame.sha256,
+                blake3: Some(blake3.clone()),
+                ast: Vec::new(),
+            },
             bytes,
             blake3,
         });

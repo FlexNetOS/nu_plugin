@@ -38,3 +38,33 @@ Command: `cargo metadata --offline --format-version 1 --no-deps`
 Result: PASS (exit 0). Structured Cargo metadata format version 1 was emitted
 successfully with network access disabled. No source or dependency files were
 mutated by this verification.
+
+## Pinned-snapshot review (2026-07-28)
+
+Packet scope: `PACKET-TASK-CDB019`; replay was dry-run only. The review used
+an extracted temporary tree for source commit
+`c84740532ded2a27ee283ea7a3a5f303eaeb61a7`; no repository source files or
+dependency manifests were changed.
+
+Commands and results:
+
+- `git cat-file -e c84740532ded2a27ee283ea7a3a5f303eaeb61a7^{commit}`: PASS.
+- `cargo metadata --offline --format-version 1 --no-deps`: PASS on the live
+  workspace.
+- `cargo fmt -p codedb-cargo --check`: PASS on the live workspace.
+- `cargo test --offline -p codedb-cargo`: PASS on the live workspace and on
+  the extracted pinned snapshot (2 unit tests passed; 0 failed; doc-tests 0).
+
+Review findings:
+
+- `codedb-context` invokes `cargo metadata --format-version 1` and the
+  `codedb-cargo` projection deterministically produces workspace, package,
+  target, dependency, resolve-node, and feature rows. This satisfies the
+  CDB019 verification gate without regex-only Cargo parsing.
+- The live repository HEAD was `7ec8845e016c21779a025a9518a7ad49f1934d63`,
+  rather than the packet pin, and its worktree was already dirty. The CDB019
+  validation above therefore relied on the separately extracted pinned tree;
+  the live-tree result is supplemental review evidence only.
+
+Completion gate: cargo captured
+Verification gate: cargo metadata fixture passes

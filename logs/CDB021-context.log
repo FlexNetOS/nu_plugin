@@ -57,3 +57,14 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 - Network access: disabled by `--offline`. No source files were changed by this
   verification; this log is the sole task-owned modification.
 - Completion gate: context captured. Validation gate: context rows deterministic.
+
+## TASK-CDB021 review handoff (2026-07-28)
+
+- Reviewed against pinned source snapshot `c84740532ded2a27ee283ea7a3a5f303eaeb61a7`.
+- Authoritative `execution/TASK_GRAPH.csv` marks CDB021 complete, with CDB019
+  complete and CDB022 remaining blocked as declared.
+- The pinned snapshot contains `codedb_contexts` support and the six-case
+  `codedb-context` runtime-context regression test; no subsequent diff touches
+  the context crate.
+- This is a dry-run-only review record. No dependency, source, or replay action
+  was performed.

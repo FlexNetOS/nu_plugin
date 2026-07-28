@@ -125,3 +125,15 @@ cargo test: 2 passed, 55 filtered out (5 suites, 0.02s)
 host_nu: available (Nu path, version, and plugin protocol compatibility reported)
 yazelix_nu: degraded (runtime Nu not configured through explicit Yazelix environment variables; remediation reported)
 codex: available (Codex path and CodeDB export boundary reported)
+
+## 2026-07-28 review verification
+### cargo fmt --check -p codedb
+passed
+### cargo test -p codedb --test relative_repo_path
+4 passed; 0 failed
+### cargo test -p codedb doctor_
+3 passed; 0 failed; 41 filtered out
+### codedb doctor --nu --yazelix --codex --format json
+host_nu: available (Nu 0.113.1 and locked plugin protocol 0.113.1 match)
+yazelix_nu: degraded (no explicit Yazelix runtime Nu configured; reports environment-variable remediation)
+codex: available (profile-managed Codex path and CodeDB export boundary reported)

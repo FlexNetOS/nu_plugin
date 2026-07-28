@@ -537,3 +537,12 @@ The final direct proof matrix is green:
 proofs. Release mode intentionally remains fail-closed without an external
 receipt and detached attestation for the exact clean committed tree. This pass
 made no commit or push, so it does not fabricate that artifact.
+
+## 2026-07-28T10:38:14Z — TASK-CDB004 — Review-only packet handoff
+
+Validated packet `PACKET-TASK-CDB004` against the canonical task graph and
+execution evidence. `TASK-CDB004` is already `complete`, its dependency
+`TASK-CDB000` is complete, and the packet declares `replay.apply_allowed: false`
+and `dry_run_only`. No replay, dependency, implementation, or package-artifact
+mutation was applied; this review updated only the permitted ledger and worklog
+surfaces.

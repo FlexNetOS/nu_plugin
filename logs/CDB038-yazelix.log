@@ -35,3 +35,23 @@ Validated `docs/YAZELIX_PLACEMENT.md` against PRD sections 16.3 and 24.
   tracked `nushell/config/config.nu` mutation.
 
 Validation result: `host/runtime Nu distinction documented`.
+
+## 2026-07-28 dry-run review handoff
+
+Reviewed the current placement artifact against the authoritative CDB038 row,
+PRD sections 16.3 and 24, and the package checklist's Yazelix bridge gates.
+The review used read-only text assertions only; it did not launch Nushell,
+register a plugin, alter a HOME/XDG root, or mutate a Yazelix runtime tree.
+
+- `docs/YAZELIX_PLACEMENT.md` names CodeDB a Yazelix runtime tool and explicitly
+  rejects Yazelix-plugin and Zellij ownership claims.
+- It distinguishes host Nu from Yazelix runtime Nu, including independent paths,
+  versions, protocols, registries, environment roots, and `codedb doctor`
+  checks.
+- It preserves CLI fallback for unavailable or incompatible plugin registries and
+  requires temporary HOME/XDG roots for registry smoke tests.
+- It confines the generated bridge to Yazelix state/cache/config output paths and
+  prohibits direct mutation of tracked `nushell/config/config.nu`.
+
+Deterministic validation result: `host/runtime Nu distinction documented`.
+Artifact SHA-256: `c25f0208a3bf051c4d408e548d80e5c5b0bee156bffaba71c2de0556fdd1679c`.

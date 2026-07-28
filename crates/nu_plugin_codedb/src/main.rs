@@ -4394,6 +4394,10 @@ fn json_array_to_table(json: &JsonValue, span: Span) -> Value {
 }
 
 fn json_object_to_record(obj: &JsonValue, span: Span) -> Value {
+    Value::record(json_value_to_record(obj, span), span)
+}
+
+fn json_value_to_record(obj: &JsonValue, span: Span) -> nu_protocol::Record {
     let mut rec = nu_protocol::Record::new();
     match obj.as_object() {
         Some(map) => {
@@ -4403,7 +4407,202 @@ fn json_object_to_record(obj: &JsonValue, span: Span) -> Value {
         }
         None => rec.push("value", json_scalar_to_value(obj, span)),
     }
-    Value::record(rec, span)
+    rec
+}
+
+fn add_plan_context_fields(
+    row: &mut nu_protocol::Record,
+    plan: &serde_json::Map<String, JsonValue>,
+    fields: &[(&str, &str)],
+    span: Span,
+) {
+    for (source, target) in fields {
+        if let Some(value) = plan.get(*source) {
+            row.push((*target).to_string(), json_scalar_to_value(value, span));
+        }
+    }
+}
+
+fn envctl_db_symbols_to_nu_table(json: &JsonValue, span: Span) -> Value {
+    let symbols = match json.get("symbols").and_then(|value| value.as_array()) {
+        Some(symbols) => symbols,
+        None => return json_value_to_nu(json, span),
+    };
+    let occurrences = json
+        .get("occurrences")
+        .and_then(|value| value.as_array())
+        .map(|value| value.as_slice())
+        .unwrap_or(&[]);
+    let mut occurrence_counts = BTreeMap::new();
+
+    for occurrence in occurrences {
+        if let Some(symbol_id) = occurrence.get("symbol_id").and_then(|value| value.as_str()) {
+            *occurrence_counts.entry(symbol_id.to_string()).or_insert(0usize) += 1;
+        }
+    }
+
+    let mut rows = Vec::new();
+    for symbol in symbols {
+        let mut row = json_value_to_record(symbol, span);
+        if let Some(symbol_id) = symbol.get("symbol_id").and_then(|value| value.as_str()) {
+            let occurrence_count = occurrence_counts.get(symbol_id).copied().unwrap_or(0);
+            row.push(
+                "occurrence_count".to_string(),
+                Value::int(occurrence_count as i64, span),
+            );
+        } else {
+            row.push("occurrence_count".to_string(), Value::int(0, span));
+        }
+        row.push(
+            "entry_type".to_string(),
+            Value::string("symbol".to_string(), span),
+        );
+        rows.push(Value::record(row, span));
+    }
+    Value::list(rows, span)
+}
+
+fn envctl_db_refactor_to_nu_table(json: &JsonValue, span: Span) -> Value {
+    let Some(plan) = json.get("plan").and_then(|value| value.as_object()) else {
+        return json_value_to_nu(json, span);
+    };
+    let Some(changes) = plan.get("changes").and_then(|value| value.as_array()) else {
+        return json_value_to_nu(json, span);
+    };
+
+    let mut rows: Vec<Value> = changes
+        .iter()
+        .map(|change| {
+            let mut row = json_value_to_record(change, span);
+            row.push(
+                "entry_type".to_string(),
+                Value::string("change".to_string(), span),
+            );
+            add_plan_context_fields(
+                &mut row,
+                plan,
+                &[
+                    ("mode", "plan_mode"),
+                    ("files_touched", "plan_files_touched"),
+                    ("occurrences_total", "plan_occurrences_total"),
+                    ("refused", "plan_refused"),
+                    ("approved", "plan_approved"),
+                ],
+                span,
+            );
+            Value::record(row, span)
+        })
+        .collect();
+
+    if let Some(rendered) = json.get("rendered").and_then(|value| value.as_array()) {
+        for path in rendered {
+            if let Some(path) = path.as_str() {
+                let mut row = nu_protocol::Record::new();
+                row.push(
+                    "entry_type".to_string(),
+                    Value::string("rendered".to_string(), span),
+                );
+                row.push("path".to_string(), Value::string(path.to_string(), span));
+                add_plan_context_fields(
+                    &mut row,
+                    plan,
+                    &[
+                        ("mode", "plan_mode"),
+                        ("files_touched", "plan_files_touched"),
+                        ("occurrences_total", "plan_occurrences_total"),
+                        ("refused", "plan_refused"),
+                        ("approved", "plan_approved"),
+                    ],
+                    span,
+                );
+                rows.push(Value::record(row, span));
+            }
+        }
+    }
+
+    if let Some(mutated) = json.get("mutated").and_then(|value| value.as_array()) {
+        for path in mutated {
+            if let Some(path) = path.as_str() {
+                let mut row = nu_protocol::Record::new();
+                row.push(
+                    "entry_type".to_string(),
+                    Value::string("mutated".to_string(), span),
+                );
+                row.push("path".to_string(), Value::string(path.to_string(), span));
+                add_plan_context_fields(
+                    &mut row,
+                    plan,
+                    &[
+                        ("mode", "plan_mode"),
+                        ("files_touched", "plan_files_touched"),
+                        ("occurrences_total", "plan_occurrences_total"),
+                        ("refused", "plan_refused"),
+                        ("approved", "plan_approved"),
+                    ],
+                    span,
+                );
+                rows.push(Value::record(row, span));
+            }
+        }
+    }
+
+    Value::list(rows, span)
+}
+
+fn envctl_db_deploy_to_nu_table(json: &JsonValue, span: Span) -> Value {
+    let Some(plan) = json.get("plan").and_then(|value| value.as_object()) else {
+        return json_value_to_nu(json, span);
+    };
+    let Some(steps) = plan.get("steps").and_then(|value| value.as_array()) else {
+        return json_value_to_nu(json, span);
+    };
+
+    let mut rows: Vec<Value> = steps
+        .iter()
+        .map(|step| {
+            let mut row = json_value_to_record(step, span);
+            row.push("entry_type".to_string(), Value::string("step".to_string(), span));
+            add_plan_context_fields(
+                &mut row,
+                plan,
+                &[
+                    ("ready", "plan_ready"),
+                    ("queued", "plan_queued"),
+                    ("refused", "plan_refused"),
+                    ("approved", "plan_approved"),
+                ],
+                span,
+            );
+            Value::record(row, span)
+        })
+        .collect();
+
+    if let Some(promoted) = json.get("promoted").and_then(|value| value.as_array()) {
+        for path in promoted {
+            if let Some(path) = path.as_str() {
+                let mut row = nu_protocol::Record::new();
+                row.push(
+                    "entry_type".to_string(),
+                    Value::string("promoted".to_string(), span),
+                );
+                row.push("target_path".to_string(), Value::string(path.to_string(), span));
+                add_plan_context_fields(
+                    &mut row,
+                    plan,
+                    &[
+                        ("ready", "plan_ready"),
+                        ("queued", "plan_queued"),
+                        ("refused", "plan_refused"),
+                        ("approved", "plan_approved"),
+                    ],
+                    span,
+                );
+                rows.push(Value::record(row, span));
+            }
+        }
+    }
+
+    Value::list(rows, span)
 }
 
 fn json_scalar_to_value(v: &JsonValue, span: Span) -> Value {
@@ -4575,7 +4774,7 @@ impl SimplePluginCommand for EnvctlDbSymbols {
         let repo = repo_flag_or_cwd_string(call)?;
         let argv = envctl_db_argv(Some(&repo), &["symbols"]);
         let json = run_envctl_json(&argv, call.head)?;
-        Ok(json_value_to_nu(&json, call.head))
+        Ok(envctl_db_symbols_to_nu_table(&json, call.head))
     }
 }
 
@@ -4666,7 +4865,7 @@ impl SimplePluginCommand for EnvctlDbRefactor {
             argv.push(note);
         }
         let json = run_envctl_json(&argv, call.head)?;
-        Ok(json_value_to_nu(&json, call.head))
+        Ok(envctl_db_refactor_to_nu_table(&json, call.head))
     }
 }
 
@@ -4750,7 +4949,7 @@ impl SimplePluginCommand for EnvctlDbDeploy {
             argv.push(note);
         }
         let json = run_envctl_json(&argv, call.head)?;
-        Ok(json_value_to_nu(&json, call.head))
+        Ok(envctl_db_deploy_to_nu_table(&json, call.head))
     }
 }
 
@@ -5352,6 +5551,104 @@ mod envctl_db_tests {
             refused,
             "the .env change must surface as refused (safe=false)"
         );
+    }
+
+    #[test]
+    fn symbols_json_render_as_symbol_table_with_occurrence_count() {
+        let symbols: JsonValue = serde_json::from_str(
+            r#"{
+                "symbols":[
+                    {"symbol_id":"s1","normalized_name":"META_ROOT","kind":"env_var","safe":true},
+                    {"symbol_id":"s2","normalized_name":"HOOK_DIR","kind":"path_token","safe":false}
+                ],
+                "occurrences":[
+                    {"symbol_id":"s1","repo_relative_path":"hooks/run.sh"},
+                    {"symbol_id":"s1","repo_relative_path":"envctl/main.rs"}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let table = envctl_db_symbols_to_nu_table(&symbols, Span::unknown());
+        let Value::List { vals, .. } = &table else {
+            panic!("expected symbols table");
+        };
+        assert_eq!(vals.len(), 2);
+        let Value::Record { val, .. } = &vals[0] else {
+            panic!("expected symbol row");
+        };
+        assert!(matches!(
+            val.get("entry_type"),
+            Some(Value::String { val, .. }) if val == "symbol"
+        ));
+        assert!(matches!(
+            val.get("occurrence_count"),
+            Some(Value::Int { val, .. }) if *val == 2
+        ));
+    }
+
+    #[test]
+    fn refactor_json_rendered_as_plan_table() {
+        let json: JsonValue = serde_json::from_str(
+            r#"{
+                "plan":{
+                    "mode":"plan","files_touched":1,"occurrences_total":2,"refused":1,"approved":false,
+                    "changes":[
+                        {"absolute_path":"/r/.env","safe":false,"occurrence_count":1,
+                         "refused_reason":"policy Never refuses auto-rewrite","unified_diff":""}
+                    ]
+                },
+                "rendered":["/tmp/meta/.env"],
+                "mutated":["/tmp/meta/wrapper.sh"]
+            }"#
+        )
+        .unwrap();
+        let table = envctl_db_refactor_to_nu_table(&json, Span::unknown());
+        let Value::List { vals, .. } = &table else {
+            panic!("expected refactor table");
+        };
+        assert!(!vals.is_empty(), "refactor output should produce at least one row");
+        let has_change = vals.iter().any(|row| {
+            matches!(row, Value::Record { val, .. }
+                if matches!(val.get("entry_type"), Some(Value::String { val, .. }) if val == "change"))
+        });
+        assert!(has_change, "change rows must be preserved");
+    }
+
+    #[test]
+    fn deploy_json_rendered_as_step_table() {
+        let json: JsonValue = serde_json::from_str(
+            r#"{
+                "plan":{
+                    "ready":1,
+                    "queued":1,
+                    "refused":0,
+                    "approved":true,
+                    "steps":[
+                        {"target_path":"/tmp/lifeos/bin/hook","source_path":"/tmp/stage/bin/hook","disposition":"ready","reason":"","rollback_ref":"/tmp/lifeos/.rollback/hook"},
+                        {"target_path":"/tmp/lifeos/bin/wrapper","source_path":"/tmp/stage/bin/wrapper","disposition":"queued","reason":"running","rollback_ref":"/tmp/lifeos/.rollback/wrapper"}
+                    ]
+                },
+                "promoted":["/tmp/lifeos/bin/hook"]
+            }"#
+        )
+        .unwrap();
+        let table = envctl_db_deploy_to_nu_table(&json, Span::unknown());
+        let Value::List { vals, .. } = &table else {
+            panic!("expected deploy table");
+        };
+        assert!(!vals.is_empty(), "deploy output should produce at least one row");
+        assert_eq!(vals.len(), 3);
+        let Value::Record { val, .. } = &vals[0] else {
+            panic!("expected deploy row");
+        };
+        assert!(matches!(
+            val.get("entry_type"),
+            Some(Value::String { val, .. }) if val == "step"
+        ));
+        assert!(matches!(
+            val.get("plan_approved"),
+            Some(Value::Bool { val, .. }) if *val
+        ));
     }
 
     // Defends REQ-061: read views and gated controls are all registered.

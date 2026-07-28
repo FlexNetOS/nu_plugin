@@ -486,6 +486,78 @@
           "dashboard_markdown"
         ]
       }
+    },
+    {
+      "name": "codedb envctl-db roots",
+      "mode": "read",
+      "envctl_endpoint": "envctl db roots --json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "root_id",
+          "kind",
+          "role",
+          "precedence",
+          "active",
+          "var_names",
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "codedb envctl-db query",
+      "mode": "read",
+      "envctl_endpoint": "envctl db query --json",
+      "output": {
+        "shape": "table",
+        "columns": [
+          "rows"
+        ]
+      }
+    },
+    {
+      "name": "codedb envctl-db symbols",
+      "mode": "read",
+      "envctl_endpoint": "envctl db symbols --json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "symbols",
+          "counts"
+        ]
+      }
+    },
+    {
+      "name": "codedb envctl-db refactor",
+      "mode": "mutate",
+      "envctl_endpoint": "envctl db refactor --json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "mode",
+          "approved",
+          "files_touched",
+          "occurrences_total",
+          "refused",
+          "changes"
+        ]
+      }
+    },
+    {
+      "name": "codedb envctl-db deploy",
+      "mode": "mutate",
+      "envctl_endpoint": "envctl db deploy --json",
+      "output": {
+        "shape": "record",
+        "columns": [
+          "approved",
+          "target",
+          "kind",
+          "stage",
+          "status",
+          "event_id"
+        ]
+      }
     }
   ],
   "$schema": "../../../meta/src/lifeos/planning-spine-v0/envctl-db-nu-plugin-migration-automation-package/schemas/nu_plugin_command_manifest.schema.json"

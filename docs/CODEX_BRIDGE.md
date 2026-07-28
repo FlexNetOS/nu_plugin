@@ -6,6 +6,17 @@ Source: PRD sections 13.3 and 16.1.
 
 Codex should consume CodeDB through bounded CLI/MCP table outputs, not whole-repo context blasts.
 
+The bridge is deliberately outside the Nushell plugin registry:
+
+```text
+Codex -> codedb CLI or codedb MCP -> codedb-core -> redb store -> structured output
+Nushell -> nu_plugin_codedb -> codedb-core -> the same redb store
+```
+
+Codex therefore does not need to load `nu_plugin_codedb` directly. This avoids
+host-Nu/Yazelix-Nu registry and protocol ambiguity while preserving one CodeDB
+store and one command contract.
+
 ## CLI bridge
 
 Recommended Codex-safe calls:
@@ -23,6 +34,25 @@ Use explicit repo selection for nondefault repositories:
 codedb scan --repo-id <meta_project_id> --repo-path <path> --store <path> --format json
 codedb export meta_repo_selection --repo-id <meta_project_id> --repo-path <path> --format json
 ```
+
+For automation, use absolute paths and select a machine-readable format. The
+CLI remains the fallback when a Nu registry is missing, runtime Nu versions are
+incompatible, or CodeDB is being used from a Codex shell that is not Nushell.
+
+## Conflict rules
+
+| Conflict | Bridge rule |
+|---|---|
+| Codex shell is not Nushell | Call `codedb` directly or start its read-only MCP server. |
+| Host Nu and Yazelix Nu have different registries or versions | Validate with `codedb doctor --nu --yazelix`; keep the CLI fallback available. |
+| A table is larger than the agent context | Use `--limit`/cursor pagination and bounded JSON; prefer summary commands. |
+| A read request could mutate the repository | Use the read-only CLI/MCP surface and inspect the no-mutation proof. |
+| Build or proc-macro capture requires execution | MCP blocks it; the CLI requires an explicit unsafe flag and approval provenance. |
+| Codex and envctl both own configuration | envctl renders Codex/MCP fragments; CodeDB supplies command targets and exported facts only. |
+
+CodeDB does not install browser sessions, copy authentication tokens, edit
+Codex configuration, mutate tracked Yazelix configuration, or silently invoke
+unsafe capture. Authentication remains the official external Codex auth flow.
 
 ## MCP bridge defaults
 
@@ -54,6 +84,39 @@ The sample declares the policy that Codex may rely on:
 | unsafe build capture | unavailable through MCP |
 | mutation | forbidden |
 | authentication | external official Codex auth only |
+
+The sample is a configuration fragment, not an installer. Replace its
+repository and store paths before use; keep credentials in the process
+environment when a backend requires them, never in the fragment.
+
+## No-mutation and unsafe-operation boundary
+
+Ordinary scan, export, doctor, gap, validation, and MCP operations are
+read-only with respect to the source repository. Store creation and declared
+evidence outputs may write only their explicit output paths. A restore or
+materialization operation must be run as an explicit CLI operation, outside the
+Codex bridge's read-only MCP surface.
+
+Dynamic build, proc-macro, and compiler capture is not part of this bridge. It
+is unavailable through MCP and requires an explicit CLI approval gate,
+provenance, isolated evidence paths, and a cleanup plan. A Codex integration
+must not work around that gate with shell scripts or session tricks.
+
+## Validation contract
+
+Before enabling CodeDB as a Codex bridge, verify:
+
+1. `codedb doctor --codex --format json` returns bounded output.
+2. The MCP config keeps the default row and byte limits and has no auth or
+   secret fields.
+3. MCP raw-source, full-file, mutation, and unsafe-capture capabilities remain
+   blocked.
+4. `codedb prove no-mutation <repo> --format json` (or the equivalent test
+   proof) shows the source tree was not changed.
+
+The executable bounded-bridge smoke is the release evidence for these rules;
+see `tests/test_codex_bounded_bridge.nu` and
+`examples/codex/codedb_bounded_smoke_report.json`.
 
 ## Safety proof
 

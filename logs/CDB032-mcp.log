@@ -89,3 +89,11 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 - Command: `cargo test -p codedb-mcp`
 - Result: 24 policy/stdio tests passed; unit and doc test targets passed.
 - Gate covered: bounded table pagination, row and response-byte limits, raw-source/blob denial, read-only backend boundaries, and stdio fail-closed behavior.
+
+## 2026-07-28 review verification
+
+- Pinned source commit verified: `c84740532ded2a27ee283ea7a3a5f303eaeb61a7`.
+- Command: `cargo test -p codedb-mcp`
+- Result: 24 policy/stdio integration tests passed; package unit and doc-test targets passed.
+- Review conclusion: the `codedb mcp serve` gate remains satisfied for the bounded read-only MCP surface, including pagination and row/byte limits, raw source/blob denial, read-only backend boundaries, and fail-closed stdio behavior.
+- Scope: review-only; no source files were changed.

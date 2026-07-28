@@ -12,8 +12,9 @@ input_formats=approval_request_json_array,approval_request_json_object,approval_
 modes=observer,approval-gated,operator,agent-only
 
 [verification]
-policy=agent_instructions_skipped_runtime_tests
-status=not_run
+command=rtk cargo test -p nu_plugin_codedb
+status=passed
+output=cargo test: 37 passed (1 suite, 0.01s)
 
 [notes]
 proof,heartbeat,log files created for REQ-033

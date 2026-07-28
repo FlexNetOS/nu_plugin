@@ -1,6 +1,6 @@
 # CDB025 build.rs static detection validation
 
-Run date: 2026-07-27 UTC
+Run date: 2026-07-28 UTC
 
 ## Scope
 
@@ -13,6 +13,9 @@ build-script execution or any `--unsafe-execute-build` path.
 cargo fmt -p codedb-rust-static --check
 cargo test -p codedb-rust-static build_script_fixture_emits_static_rows_and_gaps
 ```
+
+Both commands were run with `CARGO_NET_OFFLINE=true`; no dependencies were
+installed and no network access was used.
 
 ## Result
 

@@ -36,3 +36,15 @@ Command:
 Result: passed (4 tests, 0.86s). The envctl contract test continues to validate
 JSON, NUON, and CSV projections, including the declared-source-table checksum
 binding for each materialization row.
+
+## 2026-07-28 review revalidation
+
+Commands:
+  rtk cargo fmt --check -p codedb
+  rtk cargo test -p codedb --test relative_repo_path
+
+Result: passed. Formatting is clean, and the focused integration suite passed
+4 tests (0.88s). The export contract confirms checksums for both
+`filesystem_entries` and `codedb_source_root_hashes`; every materialization
+row binds the checksum for its declared source table, and backend access stays
+forbidden in every exported row.
