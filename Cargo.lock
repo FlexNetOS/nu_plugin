@@ -425,6 +425,7 @@ dependencies = [
  "codedb-rust-static",
  "codedb-store-pg",
  "codedb-store-redb",
+ "flexnetos-redb-owner",
  "serde",
  "serde_json",
  "sha2 0.10.9",

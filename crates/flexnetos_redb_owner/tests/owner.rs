@@ -6,7 +6,8 @@
 //! corruption fallback.
 
 use flexnetos_redb_owner::{
-    OwnerClient, OwnerError, OwnerService, PROTOCOL_VERSION, ProjectionReader, read_events,
+    OwnerClient, OwnerError, OwnerService, PROTOCOL_VERSION, ProjectionReader, StateEntry,
+    read_events,
 };
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -75,6 +76,44 @@ fn mutations_require_the_exact_protocol_version_and_auth_token() {
     // Neither rejected request consumed a sequence.
     let mut client2 = OwnerClient::connect(&root).expect("client connects");
     assert_eq!(client2.put("k4", "v4").expect("next put"), 2);
+    cleanup(&root);
+}
+
+#[test]
+fn put_many_commits_a_whole_record_under_one_seq_and_one_event() {
+    let root = temp_root("put-many");
+    let _owner = OwnerService::start(&root).expect("owner starts");
+    let mut client = OwnerClient::connect(&root).expect("client connects");
+
+    // A client that maps one logical record onto several backend-neutral keys
+    // must land them together: one transaction, one local_seq, one event.
+    let entries: Vec<StateEntry> = (1..=4)
+        .map(|i| StateEntry {
+            key: format!("codedb/source-file-metadata/a.nu#field{i}"),
+            value: format!("value{i}"),
+        })
+        .collect();
+    let seq = client.put_many(&entries).expect("batch put");
+    assert_eq!(seq, 1, "a batch consumes exactly one local_seq");
+
+    for entry in &entries {
+        assert_eq!(
+            client.get(&entry.key).expect("get"),
+            Some(entry.value.clone()),
+            "every key in the batch is visible after commit"
+        );
+    }
+
+    let events = client.events(0, 16).expect("events");
+    assert_eq!(events.len(), 1, "a batch publishes exactly one commit event");
+    assert_eq!(events[0].seq, 1);
+
+    // An empty batch is refused rather than burning a sequence.
+    assert!(matches!(
+        client.put_many(&[]),
+        Err(OwnerError::Rejected(_))
+    ));
+    assert_eq!(client.put("after", "empty").expect("put"), 2);
     cleanup(&root);
 }
 

@@ -131,6 +131,10 @@ pub struct RawIngestReceipt {
     pub exit_code: Option<i64>,
     pub exit_signal: Option<i64>,
     pub exit_success: bool,
+    /// Present when the redb landing was routed through the owner socket, so
+    /// receipts taken without a running owner keep their exact prior bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<crate::ingest::OwnerReceipt>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -436,6 +440,16 @@ pub fn run_raw_ingest(
     validated: &ValidatedRawEnvelope,
 ) -> Result<RawIngestReceipt, RawEnvelopeError> {
     let mut raw_objects = Vec::new();
+    // D07 lands the tee'd raw objects in the owner transaction; D10 makes the
+    // owner the only writable redb handle. An empty `store_path` is the
+    // caller's signal that no bootstrap store was named, so the write goes
+    // through the owner socket instead.
+    let owner_root = store_path
+        .as_os_str()
+        .is_empty()
+        .then(crate::redb_owner_route::active_owner_root)
+        .flatten();
+    let mut owner_local_seq = None;
     for stream in &validated.streams {
         let sha256 = stream
             .raw_object_id
@@ -459,13 +473,26 @@ pub fn run_raw_ingest(
             .expect("metadata echo round-trips"),
         })
         .to_string();
-        let deduplicated = codedb_store_redb::persist_raw_object(
-            store_path,
-            &stream.raw_object_id,
-            &stream.bytes,
-            &object_metadata,
-        )
-        .map_err(|e| RawEnvelopeError::new(e.to_string()))?;
+        let deduplicated = match owner_root.as_deref() {
+            Some(root) => {
+                let owned = crate::redb_owner_route::persist_raw_object_via_owner(
+                    root,
+                    &stream.raw_object_id,
+                    &stream.bytes,
+                    &object_metadata,
+                )
+                .map_err(RawEnvelopeError::new)?;
+                owner_local_seq = Some(owned.local_seq);
+                owned.deduplicated
+            }
+            None => codedb_store_redb::persist_raw_object(
+                store_path,
+                &stream.raw_object_id,
+                &stream.bytes,
+                &object_metadata,
+            )
+            .map_err(|e| RawEnvelopeError::new(e.to_string()))?,
+        };
         raw_objects.push(RawObjectReceiptRow {
             stream: stream.stream.clone(),
             raw_object_id: stream.raw_object_id.clone(),
@@ -481,6 +508,14 @@ pub fn run_raw_ingest(
         exit_code: validated.exit.0,
         exit_signal: validated.exit.1,
         exit_success: validated.exit.2,
+        owner: owner_local_seq.map(|local_seq| crate::ingest::OwnerReceipt {
+            root: owner_root
+                .as_deref()
+                .map(|root| root.display().to_string())
+                .unwrap_or_default(),
+            protocol_version: flexnetos_redb_owner::PROTOCOL_VERSION.to_string(),
+            local_seq,
+        }),
     })
 }
 

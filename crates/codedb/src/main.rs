@@ -44,6 +44,7 @@ use toml::Value as TomlValue;
 mod ingest;
 mod outbox;
 mod raw_envelope;
+mod redb_owner_route;
 
 type Row = BTreeMap<String, String>;
 
@@ -188,25 +189,43 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
             let input = option_value(&args, "--input").ok_or_else(|| {
                 CliError::Message("ingest-envelope requires --input <envelope.json>".into())
             })?;
-            let store_path = ingest_redb_store_path(&args)?;
-            if let Some(parent) = store_path.parent().filter(|p| !p.as_os_str().is_empty()) {
-                fs::create_dir_all(parent)
-                    .map_err(|e| CliError::Message(format!("creating store parent: {e}")))?;
-            }
-            if !store_path.exists() {
-                let rustc_version = probe_tool_version("rustc");
-                let cargo_version = probe_tool_version("cargo");
-                initialize_store(
-                    &store_path,
-                    &StoreInitContext {
-                        codedb_version: codedb_core::VERSION,
-                        toolchain: "host-default",
-                        rustc_version: &rustc_version,
-                        cargo_version: &cargo_version,
-                    },
-                )
-                .map_err(|e| CliError::Message(format!("store init failed: {e}")))?;
-            }
+            // D10 makes `flexnetos-redb-owner` the only writable redb Database
+            // handle. An explicit `--store` selects the bootstrap path (§1.1)
+            // and writes that store directly; omitting it selects the
+            // operational path (§1.2), where the owner performs the write and
+            // no private store is opened, initialized, or named. An empty
+            // store path is how the ingest routines are told to use the owner.
+            let store_path = if option_value(&args, "--store").is_none() {
+                if redb_owner_route::active_owner_root().is_none() {
+                    return Err(CliError::Message(
+                        "ingest-envelope needs a serving redb owner (set FLEXNETOS_REDB_OWNER_ROOT \
+                         or start flexnetos-redb-owner) or an explicit bootstrap --store <path>"
+                            .into(),
+                    ));
+                }
+                PathBuf::new()
+            } else {
+                let store_path = ingest_redb_store_path(&args)?;
+                if let Some(parent) = store_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    fs::create_dir_all(parent)
+                        .map_err(|e| CliError::Message(format!("creating store parent: {e}")))?;
+                }
+                if !store_path.exists() {
+                    let rustc_version = probe_tool_version("rustc");
+                    let cargo_version = probe_tool_version("cargo");
+                    initialize_store(
+                        &store_path,
+                        &StoreInitContext {
+                            codedb_version: codedb_core::VERSION,
+                            toolchain: "host-default",
+                            rustc_version: &rustc_version,
+                            cargo_version: &cargo_version,
+                        },
+                    )
+                    .map_err(|e| CliError::Message(format!("store init failed: {e}")))?;
+                }
+                store_path
+            };
             let json = fs::read_to_string(absolute_cli_path(input)?)
                 .map_err(|e| CliError::Message(format!("reading {input}: {e}")))?;
             // Route by envelope contract: native typed source envelopes

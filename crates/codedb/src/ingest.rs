@@ -123,6 +123,11 @@ pub struct ReceiptFile {
     pub bytes: u64,
     pub deduplicated: bool,
     pub ast_rows: u64,
+    /// Owner `local_seq` when the write went through the redb owner socket.
+    /// Absent on the bootstrap direct-store path, so receipts taken without a
+    /// running owner keep their exact prior bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_local_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +142,19 @@ pub struct IngestReceipt {
     pub schema_version: String,
     pub files: Vec<ReceiptFile>,
     pub summary: ReceiptSummary,
+    /// Present when the redb landing was routed through the owner socket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<OwnerReceipt>,
+}
+
+/// Evidence that the write took D10's "authenticated UDS mutation" edge into
+/// `flexnetos-redb-owner` rather than opening a `Database` handle directly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwnerReceipt {
+    pub root: String,
+    pub protocol_version: String,
+    /// Owner `local_seq` after the last record in this envelope committed.
+    pub local_seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -462,24 +480,64 @@ pub fn run_ingest(
 ) -> Result<IngestReceipt, IngestError> {
     let mut receipt_files = Vec::with_capacity(files.len());
     let mut dedup_hit_count = 0u64;
+    // D10 names the owner the only writable redb Database handle. An empty
+    // `store_path` is the caller's signal that no bootstrap store was named,
+    // so the landing takes the authenticated UDS edge into the owner.
+    let owner_root = store_path
+        .as_os_str()
+        .is_empty()
+        .then(crate::redb_owner_route::active_owner_root)
+        .flatten();
+    let mut owner_local_seq = None;
     for validated in files {
         let ast_json = serde_json::to_string(&validated.file.ast)
             .map_err(|error| IngestError::new(format!("serialize AST rows: {error}")))?;
-        let row = codedb_store_redb::persist_ingest_file(
-            store_path,
-            validated.file.path.as_str(),
-            &validated.bytes,
-            &validated.blake3,
-            &validated.file.unix_mode,
-            &validated.file.module_path,
-            &ast_json,
-        )
-        .map_err(|error| {
-            IngestError::new(format!(
-                "{}: store write failed: {error}",
-                validated.file.path
-            ))
-        })?;
+        let (row, seq) = match owner_root.as_deref() {
+            Some(root) => {
+                let owned = crate::redb_owner_route::persist_ingest_file_via_owner(
+                    root,
+                    validated.file.path.as_str(),
+                    &validated.bytes,
+                    &sha256_hex(&validated.bytes),
+                    &validated.blake3,
+                    &validated.file.unix_mode,
+                    &validated.file.module_path,
+                    &ast_json,
+                )
+                .map_err(|error| {
+                    IngestError::new(format!("{}: {error}", validated.file.path))
+                })?;
+                owner_local_seq = Some(owned.local_seq);
+                (
+                    codedb_store_redb::IngestFileRow {
+                        relative_path: owned.relative_path,
+                        blob_ref: owned.blob_ref,
+                        sha256: owned.sha256,
+                        bytes: owned.bytes,
+                        deduplicated: owned.deduplicated,
+                    },
+                    Some(owned.local_seq),
+                )
+            }
+            None => (
+                codedb_store_redb::persist_ingest_file(
+                    store_path,
+                    validated.file.path.as_str(),
+                    &validated.bytes,
+                    &validated.blake3,
+                    &validated.file.unix_mode,
+                    &validated.file.module_path,
+                    &ast_json,
+                )
+                .map_err(|error| {
+                    IngestError::new(format!(
+                        "{}: store write failed: {error}",
+                        validated.file.path
+                    ))
+                })?,
+                None,
+            ),
+        };
         if row.deduplicated {
             dedup_hit_count += 1;
         }
@@ -491,6 +549,7 @@ pub fn run_ingest(
             bytes: row.bytes,
             deduplicated: row.deduplicated,
             ast_rows: validated.file.ast.len() as u64,
+            owner_local_seq: seq,
         });
     }
     let file_count = receipt_files.len() as u64;
@@ -502,7 +561,20 @@ pub fn run_ingest(
             unique_blob_count: file_count - dedup_hit_count,
             dedup_hit_count,
         },
+        owner: owner_local_seq.map(|local_seq| OwnerReceipt {
+            root: owner_root
+                .as_deref()
+                .map(|root| root.display().to_string())
+                .unwrap_or_default(),
+            protocol_version: flexnetos_redb_owner::PROTOCOL_VERSION.to_string(),
+            local_seq,
+        }),
     })
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 /// Read back every ingested file's stored metadata (module path, unix mode,

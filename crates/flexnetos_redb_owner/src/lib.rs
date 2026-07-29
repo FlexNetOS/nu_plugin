@@ -123,9 +123,20 @@ struct Request {
     #[serde(default)]
     value: Option<String>,
     #[serde(default)]
+    entries: Option<Vec<StateEntry>>,
+    #[serde(default)]
     after_seq: Option<u64>,
     #[serde(default)]
     limit: Option<usize>,
+}
+
+/// One key/value pair in a `put_many` batch. A batch is applied inside a
+/// single redb write transaction, so a client that maps one logical record
+/// onto several keys still commits atomically under one `local_seq`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateEntry {
+    pub key: String,
+    pub value: String,
 }
 
 /// One ordered commit notification returned through the authenticated UDS.
@@ -512,12 +523,21 @@ fn handle_request(shared: &Shared, line: &str) -> Response {
         return reject("authentication failed");
     }
     match request.op.as_str() {
-        "put" => {
-            let (Some(key), Some(value)) = (request.key, request.value) else {
-                return reject("put requires key and value");
+        "put" | "put_many" => {
+            let entries = if request.op == "put" {
+                let (Some(key), Some(value)) = (request.key, request.value) else {
+                    return reject("put requires key and value");
+                };
+                vec![StateEntry { key, value }]
+            } else {
+                match request.entries {
+                    Some(entries) if !entries.is_empty() => entries,
+                    Some(_) => return reject("put_many requires at least one entry"),
+                    None => return reject("put_many requires entries"),
+                }
             };
             let _write_guard = shared.write_lock.lock().expect("write lock");
-            let seq = match write_state(&shared.db, &key, &value) {
+            let seq = match write_state(&shared.db, &entries) {
                 Ok(seq) => seq,
                 Err(error) => return reject(&format!("write failed: {error}")),
             };
@@ -611,12 +631,16 @@ fn handle_request(shared: &Shared, line: &str) -> Response {
     }
 }
 
-fn write_state(db: &Database, key: &str, value: &str) -> Result<u64, OwnerError> {
+fn write_state(db: &Database, entries: &[StateEntry]) -> Result<u64, OwnerError> {
     let write_txn = db.begin_write().map_err(internal)?;
     let seq;
     {
         let mut state = write_txn.open_table(STATE).map_err(internal)?;
-        state.insert(key, value).map_err(internal)?;
+        for entry in entries {
+            state
+                .insert(entry.key.as_str(), entry.value.as_str())
+                .map_err(internal)?;
+        }
         let mut meta = write_txn.open_table(META).map_err(internal)?;
         let current = meta
             .get(LOCAL_SEQ_KEY)
@@ -704,6 +728,26 @@ impl OwnerClient {
         response
             .seq
             .ok_or_else(|| internal("put response lacked a sequence"))
+    }
+
+    /// Apply a whole batch under one owner transaction. Clients that map one
+    /// logical record onto several backend-neutral keys use this so the record
+    /// commits atomically and publishes exactly one ordered commit event.
+    pub fn put_many(&mut self, entries: &[StateEntry]) -> Result<u64, OwnerError> {
+        let response = self.round_trip(serde_json::json!({
+            "protocol_version": self.protocol_version,
+            "token": self.token,
+            "op": "put_many",
+            "entries": entries,
+        }))?;
+        if !response.ok {
+            return Err(OwnerError::Rejected(
+                response.error.unwrap_or_else(|| "unspecified".into()),
+            ));
+        }
+        response
+            .seq
+            .ok_or_else(|| internal("put_many response lacked a sequence"))
     }
 
     pub fn get(&mut self, key: &str) -> Result<Option<String>, OwnerError> {
