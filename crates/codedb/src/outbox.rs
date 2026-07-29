@@ -97,7 +97,11 @@ pub struct SyncReceipt {
 }
 
 fn require_hex_digest(value: &str, field: &str) -> Result<(), OutboxError> {
-    if value.len() != 64 || !value.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    {
         return Err(OutboxError::new(format!(
             "{field} must be 64 lowercase hex characters"
         )));
@@ -537,7 +541,11 @@ mod tests {
         all.extend(&receipt.skipped_existing);
         all.sort_unstable();
         assert_eq!(all, vec![1, 2, 3], "every sequence lands exactly once");
-        assert_eq!(receipt.skipped_existing, vec![1], "the durable row is skipped, not duplicated");
+        assert_eq!(
+            receipt.skipped_existing,
+            vec![1],
+            "the durable row is skipped, not duplicated"
+        );
         assert_eq!(receipt.acknowledged_up_to, 3);
         assert_eq!(healthy.rows.len(), 3);
         std::fs::remove_file(&store).ok();
@@ -547,10 +555,14 @@ mod tests {
     fn sync_fails_closed_on_a_corrupt_outbox_entry_without_acknowledging_it() {
         let store = temp_store("corrupt");
         enqueue_job(&store, &seeded_job(&store, "src/good.rs")).expect("enqueue good");
-        codedb_store_redb::outbox_enqueue(&store, "{\"not\":\"a job\"}").expect("raw corrupt entry");
+        codedb_store_redb::outbox_enqueue(&store, "{\"not\":\"a job\"}")
+            .expect("raw corrupt entry");
         let mut sink = MemorySink::new();
         let result = run_sync(&store, &mut sink, MAX_SYNC_BATCH);
-        assert!(result.is_err(), "corrupt entries must abort, never be dropped silently");
+        assert!(
+            result.is_err(),
+            "corrupt entries must abort, never be dropped silently"
+        );
         let status = outbox_status(&store).expect("status");
         assert_eq!(
             status.acknowledged, 1,

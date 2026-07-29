@@ -76,7 +76,10 @@ fn pending_returns_entries_after_cursor_in_order_and_respects_limit() {
 fn empty_store_reports_zero_status_and_no_pending() {
     let path = init_store("empty");
     let status = outbox_status(&path).expect("status");
-    assert_eq!((status.enqueued, status.acknowledged, status.pending), (0, 0, 0));
+    assert_eq!(
+        (status.enqueued, status.acknowledged, status.pending),
+        (0, 0, 0)
+    );
     assert!(outbox_pending(&path, 10).expect("pending").is_empty());
     std::fs::remove_file(&path).ok();
 }
@@ -98,7 +101,10 @@ fn acknowledge_cursor_is_monotonic_and_bounded_by_enqueued_head() {
     assert!(beyond.is_err(), "ack beyond enqueued head must fail closed");
     // State is unchanged after both rejected attempts.
     let status = outbox_status(&path).expect("status");
-    assert_eq!((status.enqueued, status.acknowledged, status.pending), (3, 2, 1));
+    assert_eq!(
+        (status.enqueued, status.acknowledged, status.pending),
+        (3, 2, 1)
+    );
     std::fs::remove_file(&path).ok();
 }
 
@@ -113,9 +119,15 @@ fn outbox_survives_crash_and_reopen_without_losing_entries_or_cursor() {
     // each call (the API opens the store per operation). Reopen and verify
     // the exact pre-crash state.
     let status = outbox_status(&path).expect("status after reopen");
-    assert_eq!((status.enqueued, status.acknowledged, status.pending), (3, 1, 2));
+    assert_eq!(
+        (status.enqueued, status.acknowledged, status.pending),
+        (3, 1, 2)
+    );
     let pending = outbox_pending(&path, 10).expect("pending after reopen");
-    assert_eq!(pending.iter().map(|e| e.seq).collect::<Vec<_>>(), vec![2, 3]);
+    assert_eq!(
+        pending.iter().map(|e| e.seq).collect::<Vec<_>>(),
+        vec![2, 3]
+    );
     assert_eq!(pending[0].entry_json, job(2));
     std::fs::remove_file(&path).ok();
 }
@@ -125,7 +137,11 @@ fn entries_are_append_only_identical_content_gets_a_new_sequence() {
     let path = init_store("append");
     let first = outbox_enqueue(&path, &job(7)).expect("enqueue");
     let second = outbox_enqueue(&path, &job(7)).expect("enqueue same content");
-    assert_eq!((first, second), (1, 2), "identical content must append, not overwrite");
+    assert_eq!(
+        (first, second),
+        (1, 2),
+        "identical content must append, not overwrite"
+    );
     let all = outbox_pending(&path, 10).expect("pending");
     assert_eq!(all.len(), 2);
     std::fs::remove_file(&path).ok();

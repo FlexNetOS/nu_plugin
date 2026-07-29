@@ -405,8 +405,8 @@ fn validate_events(events: Vec<EventLine>) -> Result<ValidatedRawEnvelope, RawEn
             "event stream ended without execution_complete; refusing a truncated capture",
         )
     })?;
-    let metadata = metadata
-        .ok_or_else(|| RawEnvelopeError::new("event stream carries no events at all"))?;
+    let metadata =
+        metadata.ok_or_else(|| RawEnvelopeError::new("event stream carries no events at all"))?;
     validate_shape(metadata, frames, completion)
 }
 
@@ -419,7 +419,10 @@ pub fn validate_raw_jsonl(text: &str) -> Result<ValidatedRawEnvelope, RawEnvelop
             continue;
         }
         let event: EventLine = serde_json::from_str(line).map_err(|e| {
-            RawEnvelopeError::new(format!("JSONL line {} does not parse: {e}", line_number + 1))
+            RawEnvelopeError::new(format!(
+                "JSONL line {} does not parse: {e}",
+                line_number + 1
+            ))
         })?;
         events.push(event);
     }
@@ -586,12 +589,7 @@ mod tests {
         path
     }
 
-    fn frame(
-        sequence: u64,
-        stream: &str,
-        byte_offset: u64,
-        payload: &[u8],
-    ) -> serde_json::Value {
+    fn frame(sequence: u64, stream: &str, byte_offset: u64, payload: &[u8]) -> serde_json::Value {
         json!({
             "sequence": sequence,
             "provisional_frame_id": format!("provisional:frame:{sequence}"),
@@ -674,8 +672,8 @@ mod tests {
 
     #[test]
     fn validates_a_well_formed_aggregate_and_reassembles_streams_exactly() {
-        let validated = validate_raw_envelope(&aggregate_json(two_stream_frames()))
-            .expect("valid envelope");
+        let validated =
+            validate_raw_envelope(&aggregate_json(two_stream_frames())).expect("valid envelope");
         assert_eq!(validated.idempotency_key, "idem-key-1");
         assert_eq!(validated.exit, (Some(0), None, true));
         let stdout = validated
@@ -782,9 +780,8 @@ mod tests {
         let meta = metadata();
         let mut lines = Vec::new();
         for f in &frames {
-            lines.push(
-                json!({"event_type": "raw_frame", "metadata": meta, "frame": f}).to_string(),
-            );
+            lines
+                .push(json!({"event_type": "raw_frame", "metadata": meta, "frame": f}).to_string());
         }
         lines.push(
             json!({
@@ -859,9 +856,8 @@ mod tests {
     fn raw_and_typed_bytes_share_one_identity_space() {
         let store = temp_store("identity");
         // Persist the same bytes as a typed source blob first.
-        let row =
-            codedb_store_redb::persist_source_blob(&store, "src/out.txt", b"hello world")
-                .expect("typed blob");
+        let row = codedb_store_redb::persist_source_blob(&store, "src/out.txt", b"hello world")
+            .expect("typed blob");
         let validated = validate_raw_envelope(&aggregate_json(two_stream_frames())).unwrap();
         let receipt = run_raw_ingest(&store, &validated).expect("ingest");
         let stdout = receipt
@@ -888,7 +884,10 @@ mod tests {
         run_raw_ingest(&store, &validated).expect("ingest");
         let rows = raw_report(&store).expect("report");
         assert_eq!(rows.len(), 2);
-        let stdout = rows.iter().find(|r| r.stream == "stdout").expect("stdout row");
+        let stdout = rows
+            .iter()
+            .find(|r| r.stream == "stdout")
+            .expect("stdout row");
         assert_eq!(stdout.byte_length, 11);
         assert_eq!(stdout.frame_count, 2);
         assert_eq!(stdout.idempotency_key, "idem-key-1");

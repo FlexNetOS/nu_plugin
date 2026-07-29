@@ -262,7 +262,8 @@ mod live {
                 )
                 .map_err(|e| AdapterError::new(format!("persist insert failed: {e}")))?
                 .get(0);
-            tx.commit().map_err(|e| AdapterError::new(format!("commit: {e}")))?;
+            tx.commit()
+                .map_err(|e| AdapterError::new(format!("commit: {e}")))?;
             Ok(id)
         }
 
@@ -352,9 +353,11 @@ mod live {
 
         pub fn document_count(&self) -> Result<i64, AdapterError> {
             let mut c = self.client()?;
-            Ok(c.query_one("SELECT count(*) FROM ruvector_adapter_documents", &[])
-                .map_err(|e| AdapterError::new(format!("count: {e}")))?
-                .get(0))
+            Ok(
+                c.query_one("SELECT count(*) FROM ruvector_adapter_documents", &[])
+                    .map_err(|e| AdapterError::new(format!("count: {e}")))?
+                    .get(0),
+            )
         }
 
         pub fn vector_column_type(&self) -> Result<(String, String), AdapterError> {

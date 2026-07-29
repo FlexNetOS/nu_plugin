@@ -8,7 +8,7 @@
 //! the disposable cluster.
 
 use codedb_ruvector_adapter::{
-    Adapter, DocumentInput, EmbeddingModel, EDGE_KIND_CAUSAL, EDGE_KIND_DEPENDENCY,
+    Adapter, DocumentInput, EDGE_KIND_CAUSAL, EDGE_KIND_DEPENDENCY, EmbeddingModel,
 };
 use std::sync::Mutex;
 
@@ -65,7 +65,10 @@ fn persistence_goes_through_postgresql_ruvector_and_records_provenance() {
     assert_eq!(row.dimension, EmbeddingModel::default().dimension as i32);
     // The vector lives in a real ruvector column, queryable by the operator.
     let self_distance = a.self_distance(id).expect("self distance");
-    assert!(self_distance.abs() < 1e-5, "a document is closest to itself");
+    assert!(
+        self_distance.abs() < 1e-5,
+        "a document is closest to itself"
+    );
 }
 
 #[test]
@@ -73,17 +76,37 @@ fn hybrid_retrieval_fuses_lexical_and_vector_signals() {
     let _g = PG_LOCK.lock().unwrap();
     let a = adapter();
     for (path, content) in [
-        ("src/config.rs", "fn parse_config() reads the configuration file"),
-        ("src/net.rs", "fn open_socket() binds a TCP listener for networking"),
-        ("src/db.rs", "fn connect_database() opens a PostgreSQL connection pool"),
-        ("README.md", "project overview and gardening tips unrelated to code"),
+        (
+            "src/config.rs",
+            "fn parse_config() reads the configuration file",
+        ),
+        (
+            "src/net.rs",
+            "fn open_socket() binds a TCP listener for networking",
+        ),
+        (
+            "src/db.rs",
+            "fn connect_database() opens a PostgreSQL connection pool",
+        ),
+        (
+            "README.md",
+            "project overview and gardening tips unrelated to code",
+        ),
     ] {
-        a.persist(&DocumentInput { path: path.into(), content: content.into() })
-            .expect("persist");
+        a.persist(&DocumentInput {
+            path: path.into(),
+            content: content.into(),
+        })
+        .expect("persist");
     }
-    let hits = a.hybrid_search("configuration file parsing", 3).expect("hybrid search");
+    let hits = a
+        .hybrid_search("configuration file parsing", 3)
+        .expect("hybrid search");
     assert!(!hits.is_empty());
-    assert_eq!(hits[0].path, "src/config.rs", "the config doc must rank first");
+    assert_eq!(
+        hits[0].path, "src/config.rs",
+        "the config doc must rank first"
+    );
     for hit in &hits {
         assert!(hit.lexical_score >= 0.0);
         assert!(hit.vector_score >= 0.0);
@@ -95,17 +118,37 @@ fn hybrid_retrieval_fuses_lexical_and_vector_signals() {
 fn dependency_and_causal_edges_have_integrity() {
     let _g = PG_LOCK.lock().unwrap();
     let a = adapter();
-    let config = a.persist(&DocumentInput { path: "src/config.rs".into(), content: "config".into() }).unwrap();
-    let app = a.persist(&DocumentInput { path: "src/app.rs".into(), content: "app uses config".into() }).unwrap();
-    let failure = a.persist(&DocumentInput { path: "logs/crash.txt".into(), content: "crash".into() }).unwrap();
+    let config = a
+        .persist(&DocumentInput {
+            path: "src/config.rs".into(),
+            content: "config".into(),
+        })
+        .unwrap();
+    let app = a
+        .persist(&DocumentInput {
+            path: "src/app.rs".into(),
+            content: "app uses config".into(),
+        })
+        .unwrap();
+    let failure = a
+        .persist(&DocumentInput {
+            path: "logs/crash.txt".into(),
+            content: "crash".into(),
+        })
+        .unwrap();
 
-    a.add_edge(app, config, EDGE_KIND_DEPENDENCY).expect("dependency edge");
-    a.add_edge(config, failure, EDGE_KIND_CAUSAL).expect("causal edge");
+    a.add_edge(app, config, EDGE_KIND_DEPENDENCY)
+        .expect("dependency edge");
+    a.add_edge(config, failure, EDGE_KIND_CAUSAL)
+        .expect("causal edge");
 
     let deps = a.neighbors(app, EDGE_KIND_DEPENDENCY).expect("deps");
     assert!(deps.contains(&config), "app depends on config");
     let caused = a.neighbors(config, EDGE_KIND_CAUSAL).expect("causal");
-    assert!(caused.contains(&failure), "config change caused the failure record");
+    assert!(
+        caused.contains(&failure),
+        "config change caused the failure record"
+    );
     // Edges are directional: config does not depend on app.
     let reverse = a.neighbors(config, EDGE_KIND_DEPENDENCY).expect("reverse");
     assert!(!reverse.contains(&app), "dependency edges are directional");
@@ -119,19 +162,33 @@ fn failed_persist_rolls_back_with_no_partial_row() {
     // An oversized content that violates the declared bound must fail closed
     // with no row and no orphaned vector.
     let huge = "x".repeat(2 * 1024 * 1024);
-    let result = a.persist(&DocumentInput { path: "src/huge.rs".into(), content: huge });
+    let result = a.persist(&DocumentInput {
+        path: "src/huge.rs".into(),
+        content: huge,
+    });
     assert!(result.is_err(), "oversized content must fail closed");
-    assert_eq!(a.document_count().expect("count"), before, "no partial row survives");
+    assert_eq!(
+        a.document_count().expect("count"),
+        before,
+        "no partial row survives"
+    );
 }
 
 #[test]
 fn adapter_is_the_only_vector_authority_no_sidecar() {
     let _g = PG_LOCK.lock().unwrap();
     let a = adapter();
-    a.persist(&DocumentInput { path: "src/x.rs".into(), content: "x".into() }).unwrap();
+    a.persist(&DocumentInput {
+        path: "src/x.rs".into(),
+        content: "x".into(),
+    })
+    .unwrap();
     // Every vector lives in the PostgreSQL ruvector column; the adapter
     // exposes no second store and the column type is the extension's.
     let (schema, typename) = a.vector_column_type().expect("column type");
     assert_eq!(schema, "extensions");
-    assert_eq!(typename, "ruvector", "vectors are ruvector-typed, never a redb geometry or sidecar");
+    assert_eq!(
+        typename, "ruvector",
+        "vectors are ruvector-typed, never a redb geometry or sidecar"
+    );
 }

@@ -1650,9 +1650,7 @@ pub fn outbox_export_flush(
 
 /// Read back every exported row ordered by sequence: (seq, contract_version,
 /// blob_sha256, job_json). An absent contract table reports no rows.
-pub fn outbox_export_rows(
-    conn: &str,
-) -> Result<Vec<(i64, String, String, String)>, StoreError> {
+pub fn outbox_export_rows(conn: &str) -> Result<Vec<(i64, String, String, String)>, StoreError> {
     let mut client = connect_client(conn)?;
     let exists: Option<String> = client
         .query_one("SELECT to_regclass($1)::text", &[&OUTBOX_EXPORT_TABLE])
@@ -1753,7 +1751,10 @@ pub fn raw_objects_rows(conn: &str) -> Result<Vec<(String, String)>, StoreError>
             &[],
         )
         .map_err(|_| database_error("read raw object rows"))?;
-    Ok(rows.into_iter().map(|row| (row.get(0), row.get(1))).collect())
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.get(0), row.get(1)))
+        .collect())
 }
 
 #[cfg(test)]

@@ -504,9 +504,7 @@ pub fn run_ingest(
                     &validated.file.module_path,
                     &ast_json,
                 )
-                .map_err(|error| {
-                    IngestError::new(format!("{}: {error}", validated.file.path))
-                })?;
+                .map_err(|error| IngestError::new(format!("{}: {error}", validated.file.path)))?;
                 owner_local_seq = Some(owned.local_seq);
                 (
                     codedb_store_redb::IngestFileRow {

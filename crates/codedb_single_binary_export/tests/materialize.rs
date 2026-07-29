@@ -2,8 +2,7 @@
 //! rollback (a failed materialization leaves the target untouched).
 
 use codedb_single_binary_export::{
-    EMBEDDED_CHECKSUMS, EMBEDDED_MANIFEST, list_entries, materialize_embedded,
-    materialize_pack,
+    EMBEDDED_CHECKSUMS, EMBEDDED_MANIFEST, list_entries, materialize_embedded, materialize_pack,
 };
 use sha2::{Digest, Sha256};
 
@@ -32,7 +31,10 @@ fn materialize_refuses_unsafe_overwrite_by_default() {
     std::fs::create_dir_all(&target).expect("pre-existing target");
     std::fs::write(target.join("sentinel.txt"), b"precious").expect("sentinel");
     let refused = materialize_embedded(&target, false);
-    assert!(refused.is_err(), "a non-empty target must be refused by default");
+    assert!(
+        refused.is_err(),
+        "a non-empty target must be refused by default"
+    );
     assert_eq!(
         std::fs::read(target.join("sentinel.txt")).expect("sentinel intact"),
         b"precious",

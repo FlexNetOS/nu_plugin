@@ -1425,10 +1425,14 @@ fn envctl_human_approval_rows(
         span,
     )?);
     for (index, request) in approvals.iter().enumerate() {
-        rows.push(envctl_human_approval_request_row(index, request, mode, span)?);
+        rows.push(envctl_human_approval_request_row(
+            index, request, mode, span,
+        )?);
     }
     for (index, operation) in operations.iter().enumerate() {
-        rows.push(envctl_human_approval_operation_row(index, operation, mode, span)?);
+        rows.push(envctl_human_approval_operation_row(
+            index, operation, mode, span,
+        )?);
     }
     Ok(rows)
 }
@@ -1454,7 +1458,10 @@ fn envctl_human_mode_row(
         ("decided_by", string("", span)),
         ("reason", string("", span)),
         ("blocked", bool_value(false, span)),
-        ("requires_human", bool_value(mode_requires_human(mode), span)),
+        (
+            "requires_human",
+            bool_value(mode_requires_human(mode), span),
+        ),
         ("allowed_actions", string(allowed_actions, span)),
         ("next_safe_action", string(next_safe_action, span)),
         ("delegate_target", string("", span)),
@@ -1486,7 +1493,10 @@ fn envctl_human_approval_request_row(
         ("table", string("envctl_human_approval_surface", span)),
         ("view", string("approval", span)),
         ("mode", string(mode, span)),
-        ("run_id", string(json_object_string(request, "run_id"), span)),
+        (
+            "run_id",
+            string(json_object_string(request, "run_id"), span),
+        ),
         (
             "operation_id",
             string(json_object_string(request, "operation_id"), span),
@@ -1500,7 +1510,10 @@ fn envctl_human_approval_request_row(
         ),
         ("risk", string(risk.clone(), span)),
         ("status", string(status.clone(), span)),
-        ("requested_by", string(json_object_string(request, "requested_by"), span)),
+        (
+            "requested_by",
+            string(json_object_string(request, "requested_by"), span),
+        ),
         ("decided_by", string(decided_by.clone(), span)),
         ("reason", string(reason.clone(), span)),
         (
@@ -1547,7 +1560,10 @@ fn envctl_human_approval_operation_row(
         ("table", string("envctl_human_approval_surface", span)),
         ("view", string("operation", span)),
         ("mode", string(mode, span)),
-        ("run_id", string(json_object_string(operation, "run_id"), span)),
+        (
+            "run_id",
+            string(json_object_string(operation, "run_id"), span),
+        ),
         (
             "operation_id",
             string(
@@ -1566,7 +1582,10 @@ fn envctl_human_approval_operation_row(
         ),
         (
             "blocked",
-            bool_value(matches!(status.as_str(), "awaiting_approval" | "blocked"), span),
+            bool_value(
+                matches!(status.as_str(), "awaiting_approval" | "blocked"),
+                span,
+            ),
         ),
         (
             "requires_human",
@@ -1671,10 +1690,12 @@ fn json_nested_string(row: &JsonValue, object_key: &str, nested_key: &str) -> St
 fn validate_human_mode(mode: &str, span: Span) -> Result<(), LabeledError> {
     match mode {
         "observer" | "approval-gated" | "operator" | "agent-only" => Ok(()),
-        _ => Err(LabeledError::new("invalid human involvement mode").with_label(
-            "set --mode to one of: observer, approval-gated, operator, agent-only",
-            span,
-        )),
+        _ => Err(
+            LabeledError::new("invalid human involvement mode").with_label(
+                "set --mode to one of: observer, approval-gated, operator, agent-only",
+                span,
+            ),
+        ),
     }
 }
 
@@ -3806,10 +3827,12 @@ impl SimplePluginCommand for IngestEnvelope {
         input: &Value,
     ) -> Result<Value, LabeledError> {
         if matches!(input, Value::Nothing { .. }) {
-            return Err(LabeledError::new("missing typed envelope input").with_label(
-                "pipe the ingest envelope record (or rtk_nu event list) into this command",
-                call.head,
-            ));
+            return Err(
+                LabeledError::new("missing typed envelope input").with_label(
+                    "pipe the ingest envelope record (or rtk_nu event list) into this command",
+                    call.head,
+                ),
+            );
         }
         let envelope = nu_value_to_json(input).map_err(|message| {
             LabeledError::new("invalid typed envelope").with_label(message, call.head)
@@ -4442,7 +4465,9 @@ fn envctl_db_symbols_to_nu_table(json: &JsonValue, span: Span) -> Value {
 
     for occurrence in occurrences {
         if let Some(symbol_id) = occurrence.get("symbol_id").and_then(|value| value.as_str()) {
-            *occurrence_counts.entry(symbol_id.to_string()).or_insert(0usize) += 1;
+            *occurrence_counts
+                .entry(symbol_id.to_string())
+                .or_insert(0usize) += 1;
         }
     }
 
@@ -4566,7 +4591,10 @@ fn envctl_db_deploy_to_nu_table(json: &JsonValue, span: Span) -> Value {
         .iter()
         .map(|step| {
             let mut row = json_value_to_record(step, span);
-            row.push("entry_type".to_string(), Value::string("step".to_string(), span));
+            row.push(
+                "entry_type".to_string(),
+                Value::string("step".to_string(), span),
+            );
             add_plan_context_fields(
                 &mut row,
                 plan,
@@ -4590,7 +4618,10 @@ fn envctl_db_deploy_to_nu_table(json: &JsonValue, span: Span) -> Value {
                     "entry_type".to_string(),
                     Value::string("promoted".to_string(), span),
                 );
-                row.push("target_path".to_string(), Value::string(path.to_string(), span));
+                row.push(
+                    "target_path".to_string(),
+                    Value::string(path.to_string(), span),
+                );
                 add_plan_context_fields(
                     &mut row,
                     plan,
@@ -5611,7 +5642,10 @@ mod envctl_db_tests {
         let Value::List { vals, .. } = &table else {
             panic!("expected refactor table");
         };
-        assert!(!vals.is_empty(), "refactor output should produce at least one row");
+        assert!(
+            !vals.is_empty(),
+            "refactor output should produce at least one row"
+        );
         let has_change = vals.iter().any(|row| {
             matches!(row, Value::Record { val, .. }
                 if matches!(val.get("entry_type"), Some(Value::String { val, .. }) if val == "change"))
@@ -5641,7 +5675,10 @@ mod envctl_db_tests {
         let Value::List { vals, .. } = &table else {
             panic!("expected deploy table");
         };
-        assert!(!vals.is_empty(), "deploy output should produce at least one row");
+        assert!(
+            !vals.is_empty(),
+            "deploy output should produce at least one row"
+        );
         assert_eq!(vals.len(), 3);
         let Value::Record { val, .. } = &vals[0] else {
             panic!("expected deploy row");
@@ -6582,15 +6619,14 @@ mod tests {
         let approvals_path = root.join("approvals.jsonl");
         fs::write(&approvals_path, "{\"approval_id\":\"ok\"}\nnot-json\n").unwrap();
 
-        let error = envctl_human_approval_rows(
-            &approvals_path,
-            None,
-            "observer",
-            Span::unknown(),
-        )
-        .unwrap_err();
+        let error = envctl_human_approval_rows(&approvals_path, None, "observer", Span::unknown())
+            .unwrap_err();
 
-        assert!(error.to_string().contains("failed to parse approval request JSONL"));
+        assert!(
+            error
+                .to_string()
+                .contains("failed to parse approval request JSONL")
+        );
 
         let _ = fs::remove_dir_all(root);
     }
@@ -6610,11 +6646,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(
-            error
-                .to_string()
-                .contains("invalid human involvement mode")
-        );
+        assert!(error.to_string().contains("invalid human involvement mode"));
 
         let _ = fs::remove_dir_all(root);
     }

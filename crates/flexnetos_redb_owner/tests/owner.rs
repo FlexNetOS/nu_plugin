@@ -105,14 +105,15 @@ fn put_many_commits_a_whole_record_under_one_seq_and_one_event() {
     }
 
     let events = client.events(0, 16).expect("events");
-    assert_eq!(events.len(), 1, "a batch publishes exactly one commit event");
+    assert_eq!(
+        events.len(),
+        1,
+        "a batch publishes exactly one commit event"
+    );
     assert_eq!(events[0].seq, 1);
 
     // An empty batch is refused rather than burning a sequence.
-    assert!(matches!(
-        client.put_many(&[]),
-        Err(OwnerError::Rejected(_))
-    ));
+    assert!(matches!(client.put_many(&[]), Err(OwnerError::Rejected(_))));
     assert_eq!(client.put("after", "empty").expect("put"), 2);
     cleanup(&root);
 }
@@ -124,7 +125,9 @@ fn local_seq_is_monotonic_and_projections_flip_atomically_with_checksums() {
     let mut client = OwnerClient::connect(&root).expect("client connects");
 
     for i in 1..=5u64 {
-        let seq = client.put(&format!("key{i}"), &format!("value{i}")).expect("put");
+        let seq = client
+            .put(&format!("key{i}"), &format!("value{i}"))
+            .expect("put");
         assert_eq!(seq, i, "local_seq must be contiguous and monotonic");
         // Every commit publishes a readable projection at exactly that seq.
         let projection = ProjectionReader::read(&root).expect("projection readable");
@@ -198,7 +201,10 @@ fn crash_between_commit_and_publish_replays_on_restart() {
     // replays the missing publication before serving.
     let _owner = OwnerService::start(&root).expect("owner restarts");
     let projection = ProjectionReader::read(&root).expect("read after replay");
-    assert_eq!(projection.local_seq, 2, "replay must republish the lost commit");
+    assert_eq!(
+        projection.local_seq, 2,
+        "replay must republish the lost commit"
+    );
     assert_eq!(projection.entries.get("dark"), Some(&"2".to_string()));
     // The spool was preserved and extended, never truncated.
     let events = read_events(&root, 0).expect("events");
@@ -219,7 +225,11 @@ fn state_and_sequence_survive_restart_exactly() {
     let _owner = OwnerService::start(&root).expect("owner restarts");
     let mut client = OwnerClient::connect(&root).expect("client reconnects");
     assert_eq!(client.get("a").expect("get"), Some("1".to_string()));
-    assert_eq!(client.put("c", "3").expect("put"), 3, "sequence continues, never resets");
+    assert_eq!(
+        client.put("c", "3").expect("put"),
+        3,
+        "sequence continues, never resets"
+    );
     cleanup(&root);
 }
 
@@ -243,8 +253,14 @@ fn corrupted_active_slot_falls_back_to_the_previous_generation() {
     // The reader detects the checksum mismatch and falls back to the
     // previous witnessed generation instead of serving corrupt bytes.
     let fallback = ProjectionReader::read(&root).expect("fallback read");
-    assert_eq!(fallback.local_seq, 1, "fallback serves the previous generation");
-    assert!(fallback.degraded, "fallback must be visibly degraded, never silent");
+    assert_eq!(
+        fallback.local_seq, 1,
+        "fallback serves the previous generation"
+    );
+    assert!(
+        fallback.degraded,
+        "fallback must be visibly degraded, never silent"
+    );
     assert_eq!(fallback.entries.get("gen1"), Some(&"old".to_string()));
     cleanup(&root);
 }

@@ -15,7 +15,9 @@ fn main() {
         }
     }
     let (Some(spine_root), Some(out_path)) = (spine_root, out_path) else {
-        eprintln!("usage: consolidation-rehearsal --spine-root <planning-spine-v0> --out <receipt.json>");
+        eprintln!(
+            "usage: consolidation-rehearsal --spine-root <planning-spine-v0> --out <receipt.json>"
+        );
         std::process::exit(2);
     };
     match codedb_single_binary_export::rehearsal::run(
@@ -24,7 +26,9 @@ fn main() {
     ) {
         Ok(receipt) => println!(
             "rehearsal: units={} capabilities={} peers={} all_preserved={}",
-            receipt.units_checked, receipt.capabilities_accounted, receipt.peers_checked,
+            receipt.units_checked,
+            receipt.capabilities_accounted,
+            receipt.peers_checked,
             receipt.all_preserved
         ),
         Err(error) => {

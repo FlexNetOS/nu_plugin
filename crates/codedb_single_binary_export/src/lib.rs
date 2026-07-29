@@ -172,12 +172,18 @@ fn license_components() -> Vec<LicenseComponent> {
         license: license.to_string(),
     };
     vec![
-        component("codedb-snapshot-content", "MIT (FlexNetOS nu_plugin repository)"),
+        component(
+            "codedb-snapshot-content",
+            "MIT (FlexNetOS nu_plugin repository)",
+        ),
         component("serde", "MIT OR Apache-2.0"),
         component("serde_json", "MIT OR Apache-2.0"),
         component("sha2", "MIT OR Apache-2.0"),
         component("base64", "MIT OR Apache-2.0"),
-        component("zstd (rust bindings + libzstd)", "MIT (bindings) / BSD-3-Clause (libzstd)"),
+        component(
+            "zstd (rust bindings + libzstd)",
+            "MIT (bindings) / BSD-3-Clause (libzstd)",
+        ),
     ]
 }
 
@@ -185,8 +191,7 @@ fn license_components() -> Vec<LicenseComponent> {
 pub fn generate_assets(out_dir: &Path) -> Result<(), ExportError> {
     std::fs::create_dir_all(out_dir).map_err(internal)?;
     let archive = build_archive();
-    let archive_json =
-        serde_json::to_string_pretty(&archive).map_err(internal)? + "\n";
+    let archive_json = serde_json::to_string_pretty(&archive).map_err(internal)? + "\n";
     let pack = zstd::encode_all(archive_json.as_bytes(), 19).map_err(internal)?;
     let pack_sha256 = sha256_hex(&pack);
     let manifest = SnapshotManifest {
@@ -292,16 +297,14 @@ pub fn list_entries() -> Result<Vec<SnapshotEntry>, ExportError> {
 }
 
 pub fn schema_info() -> Result<SchemaInfo, ExportError> {
-    let manifest: SnapshotManifest =
-        serde_json::from_str(EMBEDDED_MANIFEST).map_err(internal)?;
+    let manifest: SnapshotManifest = serde_json::from_str(EMBEDDED_MANIFEST).map_err(internal)?;
     Ok(SchemaInfo {
         schema_version: manifest.schema_version,
     })
 }
 
 pub fn summary() -> Result<SnapshotSummary, ExportError> {
-    let manifest: SnapshotManifest =
-        serde_json::from_str(EMBEDDED_MANIFEST).map_err(internal)?;
+    let manifest: SnapshotManifest = serde_json::from_str(EMBEDDED_MANIFEST).map_err(internal)?;
     Ok(SnapshotSummary {
         file_count: manifest.file_count,
         total_bytes: manifest.total_bytes,
@@ -325,7 +328,10 @@ pub fn materialize_pack(
 ) -> Result<MaterializeReceipt, ExportError> {
     let entries = verify_pack(pack, manifest_json, checksums)?;
     if target.exists() {
-        let occupied = std::fs::read_dir(target).map_err(internal)?.next().is_some();
+        let occupied = std::fs::read_dir(target)
+            .map_err(internal)?
+            .next()
+            .is_some();
         if occupied && !allow_overwrite {
             return Err(ExportError::new(format!(
                 "{} is not empty; pass --allow-overwrite to replace it",
@@ -337,7 +343,10 @@ pub fn materialize_pack(
     std::fs::create_dir_all(parent).map_err(internal)?;
     let staging = parent.join(format!(
         ".{}.staging-{}",
-        target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default(),
+        target
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_default(),
         std::process::id()
     ));
     std::fs::remove_dir_all(&staging).ok();
@@ -396,8 +405,7 @@ pub mod rehearsal {
     use std::path::Path;
 
     /// Versioned rehearsal receipt.
-    pub const REHEARSAL_RECEIPT_SCHEMA_VERSION: &str =
-        "codedb.consolidation-rehearsal-receipt.v0";
+    pub const REHEARSAL_RECEIPT_SCHEMA_VERSION: &str = "codedb.consolidation-rehearsal-receipt.v0";
 
     #[derive(Debug, Clone, Serialize)]
     pub struct RehearsalReceipt {
@@ -463,10 +471,9 @@ pub mod rehearsal {
         }
 
         // Every adopted capability must name a source repo covered by a unit.
-        let capabilities_csv = std::fs::read_to_string(
-            spine_root.join("generated/adopted_capabilities.source.csv"),
-        )
-        .map_err(internal)?;
+        let capabilities_csv =
+            std::fs::read_to_string(spine_root.join("generated/adopted_capabilities.source.csv"))
+                .map_err(internal)?;
         let mut capability_count = 0u64;
         for (index, line) in capabilities_csv.lines().enumerate() {
             if index == 0 || line.trim().is_empty() {
@@ -523,9 +530,7 @@ pub mod rehearsal {
                 } else {
                     findings.push(format!("{repo_path}: peer path missing"));
                 }
-            } else if peer["git_kind"].as_str() != Some("none")
-                && !path.join(".git").exists()
-            {
+            } else if peer["git_kind"].as_str() != Some("none") && !path.join(".git").exists() {
                 findings.push(format!("{repo_path}: peer lost its independent .git"));
             }
         }

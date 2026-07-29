@@ -11,8 +11,14 @@ use codedb_single_binary_export::{
 fn embedded_snapshot_verifies_end_to_end() {
     let report = verify_embedded().expect("embedded snapshot verifies");
     assert!(report.pack_sha256_ok, "pack digest must match the manifest");
-    assert!(report.per_file_checksums_ok, "every embedded file digest must match");
-    assert!(report.file_count >= 5, "the bounded snapshot carries a real corpus");
+    assert!(
+        report.per_file_checksums_ok,
+        "every embedded file digest must match"
+    );
+    assert!(
+        report.file_count >= 5,
+        "the bounded snapshot carries a real corpus"
+    );
 }
 
 #[test]
@@ -49,10 +55,19 @@ fn license_report_names_every_embedded_component() {
     assert!(!report.components.is_empty());
     for component in &report.components {
         assert!(!component.name.is_empty());
-        assert!(!component.license.is_empty(), "{} lacks a license", component.name);
+        assert!(
+            !component.license.is_empty(),
+            "{} lacks a license",
+            component.name
+        );
     }
     // The snapshot content itself must be covered.
-    assert!(report.components.iter().any(|c| c.name == "codedb-snapshot-content"));
+    assert!(
+        report
+            .components
+            .iter()
+            .any(|c| c.name == "codedb-snapshot-content")
+    );
 }
 
 #[test]
@@ -81,7 +96,10 @@ fn asset_generation_is_deterministic_and_matches_the_committed_assets() {
         std::fs::read_to_string(dir.path().join("checksums.sha256")).expect("checksums");
     let regenerated_licenses =
         std::fs::read_to_string(dir.path().join("license-manifest.json")).expect("licenses");
-    assert_eq!(regenerated_pack, EMBEDDED_PACK, "pack bytes must regenerate identically");
+    assert_eq!(
+        regenerated_pack, EMBEDDED_PACK,
+        "pack bytes must regenerate identically"
+    );
     assert_eq!(regenerated_manifest, EMBEDDED_MANIFEST);
     assert_eq!(regenerated_checksums, EMBEDDED_CHECKSUMS);
     assert_eq!(regenerated_licenses, EMBEDDED_LICENSE_MANIFEST);

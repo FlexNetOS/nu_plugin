@@ -20,8 +20,7 @@ use std::path::Path;
 /// Versioned import receipt.
 pub const IMPORT_RECEIPT_SCHEMA_VERSION: &str = "codedb.host-import-receipt.v0";
 /// Versioned reconstruction receipt.
-pub const RECONSTRUCTION_RECEIPT_SCHEMA_VERSION: &str =
-    "codedb.host-reconstruction-receipt.v0";
+pub const RECONSTRUCTION_RECEIPT_SCHEMA_VERSION: &str = "codedb.host-reconstruction-receipt.v0";
 
 /// The complete declared host data-class registry. The walker fails closed
 /// on anything it cannot classify into exactly one of these.
@@ -201,8 +200,8 @@ fn classify(root: &Path, relative: &str) -> Result<ClassifiedEntry, ImportError>
         )));
     }
 
-    let bytes = std::fs::read(&absolute)
-        .map_err(|e| internal(format!("reading {relative}: {e}")))?;
+    let bytes =
+        std::fs::read(&absolute).map_err(|e| internal(format!("reading {relative}: {e}")))?;
     let xattrs = read_xattrs(&absolute)?;
     let size = meta.len();
     let allocated = meta.blocks() * 512;
@@ -310,7 +309,9 @@ pub fn import_corpus(conn: &str, corpus_root: &Path) -> Result<ImportReceipt, Im
     let mut tx = client.transaction().map_err(internal)?;
     for relative in &relative_paths {
         let entry = classify(corpus_root, relative)?;
-        *class_counts.entry(entry.data_class.to_string()).or_insert(0) += 1;
+        *class_counts
+            .entry(entry.data_class.to_string())
+            .or_insert(0) += 1;
         let (byte_sha256, byte_length) = match &entry.bytes {
             Some(bytes) => {
                 let sha = sha256_hex(bytes);
@@ -414,7 +415,11 @@ fn write_reconstructed_file(
         // Restore the logical bytes sparsely: write up to the last non-zero
         // byte, then extend to the declared size so the tail re-derives as
         // a hole. The read-back bytes are identical either way.
-        let last_nonzero = bytes.iter().rposition(|&b| b != 0).map(|i| i + 1).unwrap_or(0);
+        let last_nonzero = bytes
+            .iter()
+            .rposition(|&b| b != 0)
+            .map(|i| i + 1)
+            .unwrap_or(0);
         std::fs::write(target, &bytes[..last_nonzero]).map_err(internal)?;
         let file = std::fs::OpenOptions::new()
             .write(true)
@@ -451,9 +456,9 @@ pub fn reconstruct_and_verify(
                 std::fs::create_dir_all(&target).map_err(internal)?;
             }
             "symlink" => {
-                let link_target = metadata["symlink_target"]
-                    .as_str()
-                    .ok_or_else(|| internal(format!("{}: no symlink target", entry.relative_path)))?;
+                let link_target = metadata["symlink_target"].as_str().ok_or_else(|| {
+                    internal(format!("{}: no symlink target", entry.relative_path))
+                })?;
                 std::os::unix::fs::symlink(link_target, &target).map_err(internal)?;
             }
             _ => {
@@ -467,7 +472,9 @@ pub fn reconstruct_and_verify(
                     )
                     .map_err(internal)?;
                 let bytes: Vec<u8> = row.get(0);
-                let declared_size = metadata["sparse"]["size"].as_u64().unwrap_or(bytes.len() as u64);
+                let declared_size = metadata["sparse"]["size"]
+                    .as_u64()
+                    .unwrap_or(bytes.len() as u64);
                 write_reconstructed_file(
                     &target,
                     &bytes,
@@ -526,7 +533,10 @@ pub fn reconstruct_and_verify(
             }
             if &sha256_hex(target_bytes) != stored_sha {
                 byte_equality = false;
-                mismatches.push(format!("{}: reconstructed bytes differ", entry.relative_path));
+                mismatches.push(format!(
+                    "{}: reconstructed bytes differ",
+                    entry.relative_path
+                ));
             }
         }
         if original.metadata != reconstructed.metadata {
@@ -547,13 +557,13 @@ pub fn reconstruct_and_verify(
                 ));
             }
         }
-        if original.data_class != entry.data_class
-            || reconstructed.data_class != entry.data_class
-        {
+        if original.data_class != entry.data_class || reconstructed.data_class != entry.data_class {
             semantic_equality = false;
             mismatches.push(format!(
                 "{}: class {} re-derived as {} / {}",
-                entry.relative_path, entry.data_class, original.data_class,
+                entry.relative_path,
+                entry.data_class,
+                original.data_class,
                 reconstructed.data_class
             ));
         }

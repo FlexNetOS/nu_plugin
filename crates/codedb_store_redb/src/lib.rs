@@ -1389,9 +1389,7 @@ pub struct OutboxStatusRow {
     pub pending: u64,
 }
 
-fn outbox_last_seq(
-    read_txn: &redb::ReadTransaction,
-) -> Result<u64, StoreError> {
+fn outbox_last_seq(read_txn: &redb::ReadTransaction) -> Result<u64, StoreError> {
     match read_txn.open_table(OUTBOX_ENTRIES_TABLE) {
         Ok(entries) => Ok(entries.last()?.map(|(key, _)| key.value()).unwrap_or(0)),
         Err(TableError::TableDoesNotExist(_)) => Ok(0),
@@ -1399,9 +1397,7 @@ fn outbox_last_seq(
     }
 }
 
-fn outbox_ack_cursor(
-    read_txn: &redb::ReadTransaction,
-) -> Result<u64, StoreError> {
+fn outbox_ack_cursor(read_txn: &redb::ReadTransaction) -> Result<u64, StoreError> {
     match read_txn.open_table(OUTBOX_CURSOR_TABLE) {
         Ok(cursor) => Ok(cursor
             .get(OUTBOX_ACK_KEY)?
@@ -1414,10 +1410,7 @@ fn outbox_ack_cursor(
 
 /// Append one entry; returns its assigned sequence (contiguous from 1).
 #[allow(clippy::result_large_err)]
-pub fn outbox_enqueue(
-    store_path: impl AsRef<Path>,
-    entry_json: &str,
-) -> Result<u64, StoreError> {
+pub fn outbox_enqueue(store_path: impl AsRef<Path>, entry_json: &str) -> Result<u64, StoreError> {
     let db = Database::open(store_path.as_ref())?;
     let seq;
     {
@@ -1463,10 +1456,7 @@ pub fn outbox_pending(
 /// Advance the acknowledge cursor. The cursor is monotonic and can never
 /// pass the last enqueued sequence; violations fail closed.
 #[allow(clippy::result_large_err)]
-pub fn outbox_acknowledge(
-    store_path: impl AsRef<Path>,
-    up_to: u64,
-) -> Result<u64, StoreError> {
+pub fn outbox_acknowledge(store_path: impl AsRef<Path>, up_to: u64) -> Result<u64, StoreError> {
     let db = Database::open(store_path.as_ref())?;
     {
         let write_txn = db.begin_write()?;
@@ -1554,9 +1544,7 @@ pub fn persist_raw_object(
 
 /// Read back every raw object as (raw_object_id, metadata_json), ordered by id.
 #[allow(clippy::result_large_err)]
-pub fn list_raw_objects(
-    store_path: impl AsRef<Path>,
-) -> Result<Vec<(String, String)>, StoreError> {
+pub fn list_raw_objects(store_path: impl AsRef<Path>) -> Result<Vec<(String, String)>, StoreError> {
     let db = Database::open(store_path.as_ref())?;
     let read_txn = db.begin_read()?;
     let raw_objects = match read_txn.open_table(RAW_OBJECTS_TABLE) {
@@ -1574,10 +1562,7 @@ pub fn list_raw_objects(
 
 /// Whether the content-addressed source blob is present in this store.
 #[allow(clippy::result_large_err)]
-pub fn source_blob_exists(
-    store_path: impl AsRef<Path>,
-    sha256: &str,
-) -> Result<bool, StoreError> {
+pub fn source_blob_exists(store_path: impl AsRef<Path>, sha256: &str) -> Result<bool, StoreError> {
     let db = Database::open(store_path.as_ref())?;
     let read_txn = db.begin_read()?;
     let blobs = match read_txn.open_table(SOURCE_BLOBS_TABLE) {

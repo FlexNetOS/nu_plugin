@@ -63,7 +63,10 @@ fn flush_lands_rows_in_order_and_refluses_are_skipped_not_duplicated() {
     for (seq, contract, blob_sha256, job_json) in &landed {
         assert_eq!(contract, OUTBOX_EXPORT_CONTRACT_VERSION);
         assert_eq!(blob_sha256, &format!("{:064x}", seq));
-        assert!(job_json.contains(&format!("\"seq\":{seq}")) || job_json.contains(&format!("\"seq\": {seq}")));
+        assert!(
+            job_json.contains(&format!("\"seq\":{seq}"))
+                || job_json.contains(&format!("\"seq\": {seq}"))
+        );
     }
     reset_export_table(&conn);
 }

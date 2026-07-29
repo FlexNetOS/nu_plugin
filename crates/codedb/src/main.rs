@@ -334,8 +334,8 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
                 ));
             }
             let store_path = ingest_redb_store_path(&args)?;
-            let status = outbox::outbox_status(&store_path)
-                .map_err(|e| CliError::Message(e.to_string()))?;
+            let status =
+                outbox::outbox_status(&store_path).map_err(|e| CliError::Message(e.to_string()))?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&status)
@@ -1655,9 +1655,7 @@ fn repository_snapshot(
                 // proceeds. Without this arm a single live log or ring buffer
                 // inside a root aborts every attempt, and because the binding
                 // is recomputed per attempt it can never converge.
-                Err(error)
-                    if error.is_contained_drift() && drift_mode == DriftMode::Record =>
-                {
+                Err(error) if error.is_contained_drift() && drift_mode == DriftMode::Record => {
                     drifted_in_snapshot.insert(entry.relative_path.clone());
                     continue;
                 }
@@ -6170,7 +6168,10 @@ mod tests {
                         == Some("nested/.cache/daemon.log")
             })
             .expect("the excluded file must be recorded as a declared capture_gaps row");
-        assert_eq!(gap.get("gap").map(String::as_str), Some("declared_volatile"));
+        assert_eq!(
+            gap.get("gap").map(String::as_str),
+            Some("declared_volatile")
+        );
         assert_eq!(
             gap.get("reason").map(String::as_str),
             Some("declared-volatile-exclusion")

@@ -253,10 +253,11 @@ fn render_projection(seq: u64, entries: &BTreeMap<String, String>) -> Vec<u8> {
 
 fn read_pointer(paths: &OwnerPaths) -> Result<Option<PointerFile>, OwnerError> {
     match std::fs::read_to_string(&paths.pointer) {
-        Ok(text) => Ok(Some(
-            serde_json::from_str(&text)
-                .map_err(|e| OwnerError::Corrupt(format!("pointer file: {e}")))?,
-        )),
+        Ok(text) => {
+            Ok(Some(serde_json::from_str(&text).map_err(|e| {
+                OwnerError::Corrupt(format!("pointer file: {e}"))
+            })?))
+        }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err.into()),
     }
@@ -338,9 +339,8 @@ impl OwnerService {
         let guard = OwnedRootGuard(Some(canonical.clone()));
 
         let paths = OwnerPaths::new(&root);
-        let db = Database::create(&paths.db).map_err(|e| {
-            OwnerError::AlreadyOwned(format!("redb refused the handle: {e}"))
-        })?;
+        let db = Database::create(&paths.db)
+            .map_err(|e| OwnerError::AlreadyOwned(format!("redb refused the handle: {e}")))?;
 
         // Auth token: created once with owner-only permissions.
         if !paths.token.exists() {
@@ -440,7 +440,10 @@ struct OwnedRootGuard(Option<PathBuf>);
 impl Drop for OwnedRootGuard {
     fn drop(&mut self) {
         if let Some(root) = self.0.take() {
-            owned_roots().lock().expect("ownership registry").remove(&root);
+            owned_roots()
+                .lock()
+                .expect("ownership registry")
+                .remove(&root);
         }
     }
 }
@@ -707,7 +710,12 @@ impl OwnerClient {
         serde_json::from_str(&response).map_err(|e| internal(format!("bad response: {e}")))
     }
 
-    fn request(&mut self, op: &str, key: Option<&str>, value: Option<&str>) -> Result<Response, OwnerError> {
+    fn request(
+        &mut self,
+        op: &str,
+        key: Option<&str>,
+        value: Option<&str>,
+    ) -> Result<Response, OwnerError> {
         let response = self.round_trip(serde_json::json!({
             "protocol_version": self.protocol_version,
             "token": self.token,
@@ -878,8 +886,7 @@ impl ProjectionReader {
                 let Some(previous) = pointer.previous else {
                     return Err(active_error);
                 };
-                let (seq, entries) =
-                    read_slot_mmap(root, &previous.slot, &previous.checksum)?;
+                let (seq, entries) = read_slot_mmap(root, &previous.slot, &previous.checksum)?;
                 Ok(Projection {
                     local_seq: seq,
                     slot: previous.slot,
@@ -893,10 +900,7 @@ impl ProjectionReader {
 }
 
 /// Read commit notifications with seq strictly greater than `after_seq`.
-pub fn read_events(
-    root: impl AsRef<Path>,
-    after_seq: u64,
-) -> Result<Vec<CommitEvent>, OwnerError> {
+pub fn read_events(root: impl AsRef<Path>, after_seq: u64) -> Result<Vec<CommitEvent>, OwnerError> {
     let paths = OwnerPaths::new(root.as_ref());
     let text = match std::fs::read_to_string(&paths.spool) {
         Ok(text) => text,

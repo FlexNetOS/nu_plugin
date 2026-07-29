@@ -7,9 +7,7 @@
 use codedb_store_pg::{
     RAW_OBJECTS_TABLE, connect_for_integration_tests, raw_objects_flush, raw_objects_rows,
 };
-use codedb_store_redb::{
-    StoreInitContext, initialize_store, list_raw_objects, persist_raw_object,
-};
+use codedb_store_redb::{StoreInitContext, initialize_store, list_raw_objects, persist_raw_object};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -99,7 +97,10 @@ fn redb_and_postgresql_hold_identical_raw_object_metadata() {
     redb_rows.sort_by(|a, b| a.0.cmp(&b.0));
     pg_rows.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
-        redb_rows.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
+        redb_rows
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>(),
         pg_rows.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
         "both stores must hold the same canonical id set"
     );

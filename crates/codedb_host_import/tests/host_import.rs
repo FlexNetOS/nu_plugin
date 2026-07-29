@@ -49,8 +49,11 @@ fn build_corpus(root: &Path) {
     std::fs::create_dir_all(root.join("cache")).expect("cache dir");
 
     std::fs::write(root.join("empty.touch"), b"").expect("zero-length");
-    std::fs::write(root.join("src/main.rs"), b"fn main() { println!(\"hi\"); }\n")
-        .expect("text");
+    std::fs::write(
+        root.join("src/main.rs"),
+        b"fn main() { println!(\"hi\"); }\n",
+    )
+    .expect("text");
     std::fs::write(root.join("logo.bin"), [0u8, 159, 146, 150, 255, 0, 1]).expect("binary");
     std::fs::write(root.join("mangled.txt"), [b'h', b'i', 0xff, 0xfe, b'!']).expect("invalid utf8");
 
@@ -68,8 +71,12 @@ fn build_corpus(root: &Path) {
     std::os::unix::fs::symlink("missing-target", root.join("dangling.link")).expect("dangling");
 
     std::fs::write(root.join("tagged.conf"), b"key=value\n").expect("xattr file");
-    xattr::set(root.join("tagged.conf"), "user.codedb_class", b"gate-fixture")
-        .expect("set xattr (tmpfs must support user xattrs)");
+    xattr::set(
+        root.join("tagged.conf"),
+        "user.codedb_class",
+        b"gate-fixture",
+    )
+    .expect("set xattr (tmpfs must support user xattrs)");
 
     std::fs::write(root.join("model.safetensors"), [7u8; 256]).expect("model");
     std::fs::write(
@@ -80,19 +87,22 @@ fn build_corpus(root: &Path) {
     std::fs::write(root.join("service.log"), b"2026-07-21T00:00:00Z started\n").expect("log");
     std::fs::write(root.join("cache/blob.cache"), [9u8; 64]).expect("cache");
     // An already-encrypted secret imports as its exact ciphertext bytes.
-    std::fs::write(root.join("vault.secret.age"), [0xA5u8, 0x5A, 0x42, 0x42, 0x99])
-        .expect("encrypted secret");
+    std::fs::write(
+        root.join("vault.secret.age"),
+        [0xA5u8, 0x5A, 0x42, 0x42, 0x99],
+    )
+    .expect("encrypted secret");
 
-    let mut perms = std::fs::metadata(root.join("src/main.rs")).expect("meta").permissions();
+    let mut perms = std::fs::metadata(root.join("src/main.rs"))
+        .expect("meta")
+        .permissions();
     perms.set_mode(0o750);
     std::fs::set_permissions(root.join("src/main.rs"), perms).expect("chmod");
 }
 
 fn temp_root(label: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "codedb-host-import-{label}-{}",
-        std::process::id()
-    ));
+    let root =
+        std::env::temp_dir().join(format!("codedb-host-import-{label}-{}", std::process::id()));
     std::fs::remove_dir_all(&root).ok();
     std::fs::create_dir_all(&root).expect("root");
     root
@@ -109,7 +119,10 @@ fn every_declared_class_imports_with_real_bytes_and_typed_metadata() {
 
     let receipt = import_corpus(&conn, &corpus).expect("import");
     assert_eq!(receipt.schema_version, IMPORT_RECEIPT_SCHEMA_VERSION);
-    assert!(receipt.zero_unclassified_loss, "nothing may be unclassified");
+    assert!(
+        receipt.zero_unclassified_loss,
+        "nothing may be unclassified"
+    );
     for class in [
         "zero_length",
         "text_utf8",
@@ -149,7 +162,10 @@ fn every_declared_class_imports_with_real_bytes_and_typed_metadata() {
         let declared_len: i64 = row.get(2);
         let recomputed: String = row.get(3);
         assert_eq!(octet_len as i64, declared_len, "bytes must be complete");
-        assert_eq!(stored_sha, recomputed, "stored bytes must address to their digest");
+        assert_eq!(
+            stored_sha, recomputed,
+            "stored bytes must address to their digest"
+        );
     }
 
     // Typed metadata is queryable per class through plain SQL.
@@ -208,13 +224,29 @@ fn reconstruction_proves_byte_structure_metadata_semantic_provenance_equality() 
 
     let target = temp_root("reconstructed");
     std::fs::remove_dir_all(&target).ok();
-    let proof = reconstruct_and_verify(&conn, receipt.session_id, &corpus, &target)
-        .expect("reconstruct");
+    let proof =
+        reconstruct_and_verify(&conn, receipt.session_id, &corpus, &target).expect("reconstruct");
     assert_eq!(proof.schema_version, RECONSTRUCTION_RECEIPT_SCHEMA_VERSION);
-    assert!(proof.byte_equality, "bytes must be equal: {:?}", proof.mismatches);
-    assert!(proof.structure_equality, "structure must be equal: {:?}", proof.mismatches);
-    assert!(proof.metadata_equality, "metadata must be equal: {:?}", proof.mismatches);
-    assert!(proof.semantic_equality, "classes must re-derive: {:?}", proof.mismatches);
+    assert!(
+        proof.byte_equality,
+        "bytes must be equal: {:?}",
+        proof.mismatches
+    );
+    assert!(
+        proof.structure_equality,
+        "structure must be equal: {:?}",
+        proof.mismatches
+    );
+    assert!(
+        proof.metadata_equality,
+        "metadata must be equal: {:?}",
+        proof.mismatches
+    );
+    assert!(
+        proof.semantic_equality,
+        "classes must re-derive: {:?}",
+        proof.mismatches
+    );
     assert!(proof.provenance_recorded, "provenance must be recorded");
     assert!(proof.mismatches.is_empty());
     assert!(proof.entries_verified >= 15);
@@ -225,11 +257,17 @@ fn reconstruction_proves_byte_structure_metadata_semantic_provenance_equality() 
         std::fs::read(corpus.join("src/main.rs")).expect("bytes"),
     );
     assert_eq!(
-        std::fs::read_link(target.join("dangling.link")).expect("link").to_string_lossy(),
+        std::fs::read_link(target.join("dangling.link"))
+            .expect("link")
+            .to_string_lossy(),
         "missing-target"
     );
     assert_eq!(
-        std::fs::metadata(target.join("src/main.rs")).expect("meta").permissions().mode() & 0o7777,
+        std::fs::metadata(target.join("src/main.rs"))
+            .expect("meta")
+            .permissions()
+            .mode()
+            & 0o7777,
         0o750,
         "permissions restore exactly"
     );
@@ -261,7 +299,10 @@ fn unclassifiable_objects_fail_the_import_closed() {
     assert!(status.success());
 
     let result = import_corpus(&conn, &corpus);
-    assert!(result.is_err(), "a fifo is not a declared data class and must abort");
+    assert!(
+        result.is_err(),
+        "a fifo is not a declared data class and must abort"
+    );
     let error = result.err().expect("error").to_string();
     assert!(
         error.contains("stream.fifo"),
@@ -278,7 +319,10 @@ fn unclassifiable_objects_fail_the_import_closed() {
         )
         .expect("sessions")
         .get(0);
-    assert_eq!(completed, 0, "no completed session may exist after the refusal");
+    assert_eq!(
+        completed, 0,
+        "no completed session may exist after the refusal"
+    );
 
     std::fs::remove_dir_all(&corpus).ok();
 }
