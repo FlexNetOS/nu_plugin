@@ -3,7 +3,7 @@
 
 This project is indexed by GitNexus as **nu_plugin** (5555 symbols, 13316 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root. No `.gitnexus/run.cjs` yet? Regenerate it with profile-owned `bunx gitnexus@latest analyze`; never use a global package-manager install.
 
 ## Always Do
 
