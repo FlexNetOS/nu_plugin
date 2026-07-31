@@ -67,23 +67,6 @@ rustPlatform.buildRustPackage {
     wrapProgram "$out/bin/codedb" \
       --prefix PATH : ${lib.makeBinPath [ bubblewrap ]}
 
-    mkdir -p "$out/share/systemd/user"
-    cat > "$out/share/systemd/user/flexnetos-redb-owner.service" <<UNIT
-    [Unit]
-    Description=FlexNetOS single-owner redb state service
-
-    [Service]
-    Type=simple
-    ExecStart=$out/bin/flexnetos-redb-owner serve %h/meta/var/lib/redb
-    Restart=on-failure
-    RestartSec=1s
-    UMask=0077
-    NoNewPrivileges=yes
-
-    [Install]
-    WantedBy=default.target
-    UNIT
-
     mkdir -p "$out/share/codedb"
     cat > "$out/share/codedb/runtime-tool-metadata.json" <<JSON
     {
@@ -95,7 +78,7 @@ rustPlatform.buildRustPackage {
       "codedb_bin": "$out/bin/codedb",
       "codedb_nu_plugin_bin": "$out/bin/nu_plugin_codedb",
       "flexnetos_redb_owner_bin": "$out/bin/flexnetos-redb-owner",
-      "flexnetos_redb_owner_unit": "$out/share/systemd/user/flexnetos-redb-owner.service"
+      "runtime_owner": "yazelix"
     }
     JSON
 
